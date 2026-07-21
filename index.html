@@ -1319,6 +1319,7 @@
           duration: job.duration,
           audio: job.audio,
           jobStatus: "",     // pending | in_progress ระหว่างรอ video job
+          jobId: null,       // job ที่ submit แล้ว — คงไว้ตอน error ที่งานยังไม่ตาย เพื่อ retry โดยไม่จ่ายซ้ำ
           startedAt: null,
           errMsg: "",
           mode,
@@ -1363,50 +1364,65 @@
   async function requestVideo(item) {
     item.startedAt = Date.now();
     item.jobStatus = "pending";
-    const m = shared.videoModels.find(x => x.id === item.model);
-    const body = {
-      model: item.model,
-      prompt: item.prompt,
-      duration: item.duration,
-      resolution: VIDEO_RESOLUTION,
-      aspect_ratio: item.ratio,
-    };
-    if (m?.generate_audio) body.generate_audio = !!item.audio;
-    const res = await fetch("https://openrouter.ai/api/v1/videos", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + shared.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
-    const jobId = data.id;
-    if (!jobId) throw new Error("ไม่ได้รับ job id จาก OpenRouter");
+
+    // ถ้า item มี jobId ค้างอยู่ (เช่น สร้างเสร็จแล้วแต่โหลดไฟล์พลาด หรือ timeout)
+    // ให้ poll งานเดิมต่อแทนการ submit ใหม่ — กันจ่ายเงินซ้ำสำหรับงานที่จ่ายไปแล้ว
+    let resumed = !!item.jobId;
+    if (!item.jobId) {
+      const m = shared.videoModels.find(x => x.id === item.model);
+      const body = {
+        model: item.model,
+        prompt: item.prompt,
+        duration: item.duration,
+        resolution: VIDEO_RESOLUTION,
+        aspect_ratio: item.ratio,
+      };
+      if (m?.generate_audio) body.generate_audio = !!item.audio;
+      const res = await fetch("https://openrouter.ai/api/v1/videos", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + shared.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+      if (!data.id) throw new Error("ไม่ได้รับ job id จาก OpenRouter");
+      item.jobId = data.id;
+    }
 
     const deadline = Date.now() + VIDEO_TIMEOUT_MS;
     while (true) {
-      await sleep(VIDEO_POLL_MS);
-      if (Date.now() > deadline) throw new Error("หมดเวลารอผลลัพธ์ (10 นาที) — ลองใหม่ได้ค่ะ");
-      const pr = await fetch("https://openrouter.ai/api/v1/videos/" + jobId, {
+      // งานที่ resume มา งานอาจเสร็จอยู่แล้ว — เช็คเร็วๆ รอบแรกไม่ต้องรอเต็ม 10 วิ
+      await sleep(resumed ? 1500 : VIDEO_POLL_MS);
+      resumed = false;
+      if (Date.now() > deadline) throw new Error("หมดเวลารอผลลัพธ์ (10 นาที) — กด \"ลองใหม่\" เพื่อเช็คงานเดิมต่อได้ค่ะ (ไม่เสียเงินเพิ่ม)");
+      const pr = await fetch("https://openrouter.ai/api/v1/videos/" + item.jobId, {
         headers: { "Authorization": "Bearer " + shared.apiKey },
       });
       const pd = await pr.json().catch(() => ({}));
       if (!pr.ok) {
-        // 4xx = ปัญหาถาวร (key หมดสิทธิ์/job หาย) หยุดเลย — 5xx/network ให้ poll รอบถัดไป
-        if (pr.status >= 400 && pr.status < 500) throw new Error(pd.error?.message || ("HTTP " + pr.status));
-        continue;
+        // 4xx = poll งานนี้ต่อไม่ได้แล้ว (job หาย/key หมดสิทธิ์) — เคลียร์ jobId ให้ retry เริ่มงานใหม่ได้
+        if (pr.status >= 400 && pr.status < 500) {
+          item.jobId = null;
+          throw new Error(pd.error?.message || ("HTTP " + pr.status));
+        }
+        continue; // 5xx/network: รอ poll รอบถัดไป
       }
       if (pd.status) item.jobStatus = pd.status;
       if (pd.status === "completed") {
         const vurl = pd.unsigned_urls?.[0];
-        if (!vurl) throw new Error("ไม่พบไฟล์วิดีโอใน response");
-        const vres = await fetch(vurl);
-        if (!vres.ok) throw new Error("โหลดไฟล์วิดีโอไม่สำเร็จ (HTTP " + vres.status + ")");
+        if (!vurl) { item.jobId = null; throw new Error("ไม่พบไฟล์วิดีโอใน response"); }
+        // ไฟล์อยู่หลัง endpoint ของ OpenRouter — ต้องแนบ key ด้วย ไม่งั้น 401
+        const vres = await fetch(vurl, { headers: { "Authorization": "Bearer " + shared.apiKey } });
+        // โหลดพลาด: คง jobId ไว้ ให้ "ลองใหม่" มาโหลดซ้ำได้โดยไม่ต้อง gen ใหม่
+        if (!vres.ok) throw new Error("โหลดไฟล์วิดีโอไม่สำเร็จ (HTTP " + vres.status + ") — กด \"ลองใหม่\" เพื่อโหลดซ้ำได้ค่ะ (ไม่เสียเงินเพิ่ม)");
+        item.jobId = null;
         return URL.createObjectURL(await vres.blob());
       }
       if (pd.status === "failed") {
+        item.jobId = null; // งาน fail ถาวร — retry ครั้งหน้าต้อง submit ใหม่
         throw new Error(pd.error?.message || (typeof pd.error === "string" ? pd.error : "การสร้างวิดีโอล้มเหลว"));
       }
     }
