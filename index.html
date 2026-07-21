@@ -95,7 +95,7 @@
   /* ---------- Layout ---------- */
   .app { flex: 1; display: flex; min-height: 0; }
   .sidebar {
-    width: 320px;
+    width: var(--sidebar-w, 320px);
     flex-shrink: 0;
     border-right: 1px solid var(--border);
     padding: 24px;
@@ -104,8 +104,21 @@
     flex-direction: column;
     gap: 22px;
     transition: margin-left .28s ease;
+    position: relative;
   }
-  .app.collapsed .sidebar { margin-left: -320px; }
+  .app.collapsed .sidebar { margin-left: calc(-1 * var(--sidebar-w, 320px)); }
+  .sidebar-resize {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 5;
+  }
+  .sidebar-resize:hover, .sidebar-resize.dragging { background: var(--accent); opacity: .4; }
+  .app.resizing { cursor: col-resize; user-select: none; }
+  .app.resizing .sidebar { transition: none; }
   .side-toggle {
     width: 30px; height: 30px;
     background: transparent;
@@ -177,6 +190,7 @@
   .seg { display: grid; gap: 6px; }
   .seg.ratio { grid-template-columns: repeat(5, 1fr); }
   .seg.count { grid-template-columns: repeat(4, 1fr); }
+  .seg.duration { grid-template-columns: repeat(3, 1fr); }
   .seg button {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -200,6 +214,29 @@
     color: var(--accent-ink);
     font-weight: 600;
   }
+  .seg button:disabled {
+    opacity: .3;
+    cursor: not-allowed;
+  }
+  .seg button:disabled:hover { border-color: var(--border); color: var(--text-dim); }
+
+  /* อยู่ใน .field เลยโดน .field label (uppercase/11px/600) ทับ — ต้อง reset กลับทุกค่า */
+  .field label.audio-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--text-dim);
+    margin-bottom: 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .audio-row input { accent-color: var(--accent); cursor: pointer; }
+  .audio-row input:disabled { cursor: not-allowed; }
+  .audio-row input:disabled + span { opacity: .4; }
   .ratio-icon {
     border: 1.5px solid currentColor;
     border-radius: 2px;
@@ -377,7 +414,7 @@
     text-overflow: ellipsis;
     pointer-events: none;
   }
-  .card img { width: 100%; height: 100%; object-fit: cover; display: block; position: absolute; inset: 0; }
+  .card img, .card video { width: 100%; height: 100%; object-fit: cover; display: block; position: absolute; inset: 0; }
   .card .caption {
     padding: 10px 12px;
     font-size: 11px;
@@ -410,6 +447,40 @@
     animation: spin .8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* video progress circle (แทน shimmer/spinner ของ card วิดีโอที่กำลัง generate) */
+  .card.vid.loading .frame::before, .card.vid.loading .frame::after { display: none; }
+  .vid-prog {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .vid-prog .ring-wrap { position: relative; width: 64px; height: 64px; }
+  .vid-prog svg { transform: rotate(-90deg); display: block; }
+  .vid-prog .ring-bg { fill: none; stroke: var(--border-strong); stroke-width: 4; }
+  .vid-prog .prog-ring {
+    fill: none;
+    stroke: var(--text);
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-dasharray: 176;
+    stroke-dashoffset: 176;
+    transition: stroke-dashoffset 1s linear;
+  }
+  .vid-prog .prog-num {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .vid-prog .prog-status { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
 
   /* error card */
   .card.error .frame { display: grid; place-items: center; }
@@ -492,7 +563,7 @@
     min-height: 0;
     position: relative;
   }
-  .lb-stage img {
+  .lb-stage img, .lb-stage video {
     max-width: 100%;
     max-height: 100%;
     border-radius: 8px;
@@ -582,8 +653,9 @@
   /* responsive */
   @media (max-width: 860px) {
     .app { flex-direction: column; }
-    .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+    .sidebar { width: 100% !important; border-right: none; border-bottom: 1px solid var(--border); }
     .app.collapsed .sidebar { margin-left: 0; display: none; }
+    .sidebar-resize { display: none; }
     main { padding: 20px; }
   }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -602,6 +674,7 @@
   <div class="mode-tabs" id="modeTabs">
     <button type="button" data-mode="home" class="active">Home</button>
     <button type="button" data-mode="infographic">Infographic</button>
+    <button type="button" data-mode="video">Video</button>
   </div>
   <div class="key-status" id="keyStatus" title="ตั้งค่า OpenRouter API Key">
     <div class="key-dot" id="keyDot"></div>
@@ -611,6 +684,7 @@
 
 <div class="app" id="app">
   <aside class="sidebar">
+    <div class="sidebar-resize" id="sidebarResize"></div>
     <div class="field">
       <label for="prompt">Prompt</label>
       <textarea id="prompt" placeholder="อธิบายภาพที่ต้องการ… เช่น a minimalist black and white portrait of a cat, studio lighting, high contrast"></textarea>
@@ -636,8 +710,18 @@
       <div class="seg ratio" id="ratioSeg"></div>
     </div>
 
+    <div class="field" id="durationField" style="display:none">
+      <label>Duration</label>
+      <div class="seg duration" id="durationSeg"></div>
+    </div>
+
+    <div class="field" id="audioField" style="display:none">
+      <label>Audio</label>
+      <label class="audio-row"><input type="checkbox" id="audioToggle"><span>เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)</span></label>
+    </div>
+
     <div class="field">
-      <label>Images</label>
+      <label id="countFieldLabel">Images</label>
       <div class="seg count" id="countSeg"></div>
     </div>
 
@@ -649,7 +733,7 @@
     <button class="generate-btn" id="generateBtn" disabled>Generate</button>
     <button class="queue-add" id="queueBtn" disabled>+ เพิ่มเข้าคิว (สูงสุด 5)</button>
 
-    <p class="hint">รายชื่อโมเดลดึงสดจาก OpenRouter (เฉพาะโมเดลที่ generate ภาพได้) — <b>Enter</b> ใน prompt เพื่อสั่ง gen ได้เลย</p>
+    <p class="hint" id="hintText">รายชื่อโมเดลดึงสดจาก OpenRouter (เฉพาะโมเดลที่ generate ภาพได้) — <b>Enter</b> ใน prompt เพื่อสั่ง gen ได้เลย</p>
   </aside>
 
   <main>
@@ -687,6 +771,7 @@
   <div class="lb-stage">
     <button class="lb-nav prev" id="lbPrev">‹</button>
     <img id="lbImg" alt="preview">
+    <video id="lbVideo" controls style="display:none"></video>
     <button class="lb-nav next" id="lbNext">›</button>
   </div>
   <div class="lb-prompt" id="lbPrompt"></div>
@@ -718,6 +803,7 @@
   const shared = {
     apiKey: "",
     models: [],          // image-capable models from OpenRouter (ทุกตัว ไม่กรอง mode)
+    videoModels: [],     // video models จาก /api/v1/videos/models (กรองเหลือ VIDEO_MODEL_IDS)
   };
   const MAX_QUEUE = 5;
 
@@ -726,6 +812,8 @@
       prompt: "",
       ratio: "1:1",
       count: 1,
+      duration: 8,        // วินาที — ใช้เฉพาะโหมด video
+      audio: false,       // generate_audio — ใช้เฉพาะโหมด video
       images: [],         // { id, status: loading|done|error, url, prompt, model, ratio, errMsg }
       queue: [],          // { prompt, model, modelName, ratio, count } สูงสุด MAX_QUEUE
       lbIndex: -1,
@@ -736,6 +824,7 @@
   const modeStates = {
     home: freshModeState(),
     infographic: freshModeState(),
+    video: freshModeState(),
   };
   let currentMode = "home";
   const state = new Proxy({}, {
@@ -753,7 +842,16 @@
     infographic: [/^openai\/gpt-5\.4-image-2$/i, /^google\/gemini-3-pro-image$/i],
   };
 
+  // โหมด video ใช้ endpoint แยก (/api/v1/videos/models) — เรียงตามลำดับใน array นี้
+  const VIDEO_MODEL_IDS = [
+    "x-ai/grok-imagine-video",
+    "google/veo-3.1-fast",
+    "kwaivgi/kling-v3.0-std",
+    "bytedance/seedance-2.0",
+  ];
+
   function modelsForCurrentMode() {
+    if (currentMode === "video") return shared.videoModels;
     const filter = MODE_MODEL_FILTER[currentMode];
     if (!filter) return shared.models;
     return shared.models.filter(m => filter.some(re => re.test(m.id)));
@@ -767,6 +865,10 @@
     { v: "9:16", w: 10, h: 18 },
   ];
   const COUNTS = [1, 2, 4, 6];
+  const DURATIONS = [8, 9, 10];
+  const VIDEO_RESOLUTION = "720p";  // fix ค่าเดียว — ทั้ง 4 โมเดลรองรับร่วมกัน และคุมราคา
+  const VIDEO_POLL_MS = 10000;
+  const VIDEO_TIMEOUT_MS = 10 * 60 * 1000;
 
   // โมเดลที่พี่เอิร์ธอยากได้ ให้ลอยขึ้นบนสุดของ dropdown ถ้ามีบน OpenRouter
   const PREFERRED = [
@@ -855,13 +957,45 @@
     }
   }
 
+  let videoModelsFailed = false;
+  async function loadVideoModels() {
+    videoModelsFailed = false;
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/videos/models");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const list = (data.data || []).filter(m => VIDEO_MODEL_IDS.includes(m.id));
+      list.sort((a, b) => VIDEO_MODEL_IDS.indexOf(a.id) - VIDEO_MODEL_IDS.indexOf(b.id));
+      shared.videoModels = list;
+    } catch (e) {
+      videoModelsFailed = true;
+      toast("โหลดรายชื่อโมเดลวิดีโอไม่สำเร็จ: " + e.message);
+    }
+    if (currentMode === "video") {
+      populateModelSelect();
+      updateModelMeta();
+      updateSegAvailability();
+      updateGenerateEnabled();
+    }
+  }
+
   function populateModelSelect() {
     const sel = $("model");
     const list = modelsForCurrentMode();
     sel.innerHTML = "";
-    if (!shared.models.length) {
-      sel.innerHTML = "<option>กำลังโหลดรายชื่อโมเดล…</option>";
-      sel.disabled = true;
+    sel.onmousedown = null;
+    const sourceLoaded = currentMode === "video" ? shared.videoModels.length > 0 : shared.models.length > 0;
+    if (!sourceLoaded) {
+      if (currentMode === "video" && videoModelsFailed) {
+        sel.innerHTML = "<option>โหลดโมเดลไม่สำเร็จ — คลิกเพื่อลองใหม่</option>";
+        sel.disabled = false;
+        sel.onmousedown = (ev) => {
+          if (!shared.videoModels.length) { ev.preventDefault(); sel.disabled = true; loadVideoModels(); }
+        };
+      } else {
+        sel.innerHTML = "<option>กำลังโหลดรายชื่อโมเดล…</option>";
+        sel.disabled = true;
+      }
       return;
     }
     if (!list.length) {
@@ -882,9 +1016,28 @@
     return modelsForCurrentMode().find(m => m.id === $("model").value) || null;
   }
 
+  // ราคาต่อวินาทีที่ 720p — schema ของ pricing_skus ต่างกันต่อ provider
+  // (grok คิดเป็น cents, veo/kling เป็น USD ต่อวินาที, seedance เป็น token คำนวณล่วงหน้าไม่ได้ → null)
+  function videoPricePerSec(m, audio) {
+    const s = m.pricing_skus || {};
+    const n = (k) => (s[k] != null ? parseFloat(s[k]) : null);
+    const cents = n("cents_per_video_output_second_720p");
+    if (cents != null) return cents / 100;
+    if (audio) return n("duration_seconds_with_audio_720p") ?? n("duration_seconds_with_audio") ?? n("duration_seconds");
+    return n("duration_seconds_without_audio_720p") ?? n("duration_seconds_without_audio") ?? n("duration_seconds");
+  }
+
   function updateModelMeta() {
     const m = currentModel();
     if (!m) { $("modelMeta").textContent = ""; return; }
+    if (currentMode === "video") {
+      const pps = videoPricePerSec(m, state.audio);
+      const price = pps != null
+        ? "~$" + (pps * state.duration).toFixed(2) + " / คลิป " + state.duration + " วิ"
+        : null;
+      $("modelMeta").textContent = m.id + (price ? "  ·  " + price : "");
+      return;
+    }
     const price = m.pricing?.image && parseFloat(m.pricing.image) > 0
       ? "$" + (parseFloat(m.pricing.image) * 1000).toFixed(3).replace(/\.?0+$/, "") + " / 1k img"
       : null;
@@ -903,6 +1056,7 @@
       icon.style.height = r.h + "px";
       b.appendChild(icon);
       b.appendChild(document.createTextNode(r.v));
+      b.dataset.v = r.v;
       if (r.v === state.ratio) b.classList.add("active");
       b.onclick = () => {
         state.ratio = r.v;
@@ -925,6 +1079,60 @@
       };
       cs.appendChild(b);
     }
+    const ds = $("durationSeg");
+    ds.innerHTML = "";
+    for (const d of DURATIONS) {
+      const b = document.createElement("button");
+      b.textContent = d + "s";
+      b.style.fontSize = "13px";
+      b.dataset.v = d;
+      if (d === state.duration) b.classList.add("active");
+      b.onclick = () => {
+        state.duration = d;
+        ds.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        updateModelMeta();
+      };
+      ds.appendChild(b);
+    }
+  }
+
+  // เปิด/ปิดปุ่ม duration + ratio + audio ตาม capability ของโมเดลวิดีโอที่เลือกอยู่
+  // (โหมดอื่นเปิดหมด) — ถ้าค่าที่เลือกไว้ใช้ไม่ได้ snap ไปค่าที่ใกล้ที่สุดที่โมเดลรองรับ
+  function updateSegAvailability() {
+    const isVideo = currentMode === "video";
+    const m = isVideo ? currentModel() : null;
+    const durs = (isVideo && Array.isArray(m?.supported_durations) && m.supported_durations.length)
+      ? m.supported_durations : null;
+    const ratios = (isVideo && Array.isArray(m?.supported_aspect_ratios) && m.supported_aspect_ratios.length)
+      ? m.supported_aspect_ratios : null;
+
+    if (durs) {
+      const allowed = DURATIONS.filter(d => durs.includes(d));
+      if (allowed.length && !allowed.includes(state.duration)) {
+        // ค่าที่ใกล้ที่สุดจากด้านล่างก่อน (เช่น Veo: เลือก 10 ไว้ → snap เป็น 8) ไม่มีก็เอาค่าต่ำสุดที่รองรับ
+        const below = allowed.filter(d => d <= state.duration);
+        state.duration = below.length ? below[below.length - 1] : allowed[0];
+      }
+    }
+    if (ratios && !ratios.includes(state.ratio)) {
+      const rAllowed = RATIOS.map(r => r.v).filter(v => ratios.includes(v));
+      if (rAllowed.length) state.ratio = rAllowed.includes("16:9") ? "16:9" : rAllowed[0];
+    }
+
+    $("durationSeg").querySelectorAll("button").forEach(b => {
+      b.disabled = !!(durs && !durs.includes(+b.dataset.v));
+      b.classList.toggle("active", +b.dataset.v === state.duration);
+    });
+    $("ratioSeg").querySelectorAll("button").forEach(b => {
+      b.disabled = !!(ratios && !ratios.includes(b.dataset.v));
+      b.classList.toggle("active", b.dataset.v === state.ratio);
+    });
+
+    const audioOk = isVideo && !!m?.generate_audio;
+    if (isVideo && !audioOk) state.audio = false;
+    $("audioToggle").disabled = isVideo && !audioOk;
+    $("audioToggle").checked = state.audio;
   }
 
   // ---------- prompt builder ----------
@@ -951,6 +1159,12 @@
       { label: "Segmentation", items: ["3-step process", "4-part breakdown", "5-part breakdown", "before/after comparison", "timeline segments", "numbered sections", "pros vs cons split"] },
     ],
   };
+  // โหมด video: สองกลุ่มเฉพาะวิดีโออยู่บนสุด (กลุ่มแรกเปิด default) ตามด้วยกลุ่มเดิมของ Home ทั้งหมด
+  KEYWORDS_BY_MODE.video = [
+    { label: "Camera Control", items: ["slow dolly in", "dolly out", "pan left", "pan right", "tilt up", "crane shot", "orbit around subject", "tracking shot", "handheld camera", "FPV drone shot", "static camera", "zoom in slowly"] },
+    { label: "Frametime Control", items: ["slow motion", "timelapse", "fast motion", "speed ramp", "freeze frame ending", "seamless loop", "reverse motion", "long take"] },
+    ...KEYWORDS_BY_MODE.home,
+  ];
 
   const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const hasKeyword = (kw) =>
@@ -1015,6 +1229,8 @@
       modelName: m.name || m.id,
       ratio: state.ratio,
       count: state.count,
+      duration: state.duration,
+      audio: state.audio,
     });
     renderQueue();
     updateGenerateEnabled();
@@ -1047,7 +1263,9 @@
       p.textContent = q.prompt;
       const meta = document.createElement("div");
       meta.className = "q-meta";
-      meta.textContent = q.modelName + " · " + q.ratio + " · ×" + q.count;
+      meta.textContent = q.modelName + " · " + q.ratio
+        + (currentMode === "video" ? " · " + q.duration + "s" + (q.audio ? " 🔊" : "") : "")
+        + " · ×" + q.count;
       info.appendChild(p);
       info.appendChild(meta);
       const rm = document.createElement("button");
@@ -1083,7 +1301,7 @@
       const prompt = $("prompt").value.trim();
       const model = currentModel();
       if (!prompt || !model) return;
-      jobs = [{ prompt, model: model.id, modelName: model.name || model.id, ratio: state.ratio, count: state.count }];
+      jobs = [{ prompt, model: model.id, modelName: model.name || model.id, ratio: state.ratio, count: state.count, duration: state.duration, audio: state.audio }];
     }
 
     const mode = currentMode;
@@ -1098,6 +1316,10 @@
           model: job.model,
           modelName: job.modelName,
           ratio: job.ratio,
+          duration: job.duration,
+          audio: job.audio,
+          jobStatus: "",     // pending | in_progress ระหว่างรอ video job
+          startedAt: null,
           errMsg: "",
           mode,
         };
@@ -1111,14 +1333,18 @@
 
   async function runRequest(item) {
     try {
-      const m = shared.models.find(x => x.id === item.model);
-      const outs = m?.architecture?.output_modalities || [];
-      // โมเดล image-only (เช่น Grok Imagine) เรียกผ่าน chat/completions ไม่ได้
-      // ("No endpoints found that support the requested output modalities") ต้องใช้ Image API แทน
-      if (outs.length && !outs.includes("text")) {
-        item.url = await requestViaImageAPI(item);
+      if (item.mode === "video") {
+        item.url = await requestVideo(item);
       } else {
-        item.url = await requestViaChat(item);
+        const m = shared.models.find(x => x.id === item.model);
+        const outs = m?.architecture?.output_modalities || [];
+        // โมเดล image-only (เช่น Grok Imagine) เรียกผ่าน chat/completions ไม่ได้
+        // ("No endpoints found that support the requested output modalities") ต้องใช้ Image API แทน
+        if (outs.length && !outs.includes("text")) {
+          item.url = await requestViaImageAPI(item);
+        } else {
+          item.url = await requestViaChat(item);
+        }
       }
       item.status = "done";
     } catch (e) {
@@ -1128,6 +1354,62 @@
     // ถ้าพี่สลับโหมดระหว่างรอผลลัพธ์ item ก็ยังอัปเดตค่าใน array ของโหมดเดิมถูกต้อง
     // (ไม่ผ่าน proxy) แค่ render ใหม่เฉพาะตอนโหมดนั้นยังแสดงอยู่บนจอ
     if (item.mode === currentMode) render();
+  }
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // Video API เป็น async job: submit ได้ job id แล้ว poll จน completed ค่อยได้ URL
+  // โหลดไฟล์เป็น blob ทันทีกัน unsigned URL หมดอายุระหว่างหน้ายังเปิดอยู่
+  async function requestVideo(item) {
+    item.startedAt = Date.now();
+    item.jobStatus = "pending";
+    const m = shared.videoModels.find(x => x.id === item.model);
+    const body = {
+      model: item.model,
+      prompt: item.prompt,
+      duration: item.duration,
+      resolution: VIDEO_RESOLUTION,
+      aspect_ratio: item.ratio,
+    };
+    if (m?.generate_audio) body.generate_audio = !!item.audio;
+    const res = await fetch("https://openrouter.ai/api/v1/videos", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + shared.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+    const jobId = data.id;
+    if (!jobId) throw new Error("ไม่ได้รับ job id จาก OpenRouter");
+
+    const deadline = Date.now() + VIDEO_TIMEOUT_MS;
+    while (true) {
+      await sleep(VIDEO_POLL_MS);
+      if (Date.now() > deadline) throw new Error("หมดเวลารอผลลัพธ์ (10 นาที) — ลองใหม่ได้ค่ะ");
+      const pr = await fetch("https://openrouter.ai/api/v1/videos/" + jobId, {
+        headers: { "Authorization": "Bearer " + shared.apiKey },
+      });
+      const pd = await pr.json().catch(() => ({}));
+      if (!pr.ok) {
+        // 4xx = ปัญหาถาวร (key หมดสิทธิ์/job หาย) หยุดเลย — 5xx/network ให้ poll รอบถัดไป
+        if (pr.status >= 400 && pr.status < 500) throw new Error(pd.error?.message || ("HTTP " + pr.status));
+        continue;
+      }
+      if (pd.status) item.jobStatus = pd.status;
+      if (pd.status === "completed") {
+        const vurl = pd.unsigned_urls?.[0];
+        if (!vurl) throw new Error("ไม่พบไฟล์วิดีโอใน response");
+        const vres = await fetch(vurl);
+        if (!vres.ok) throw new Error("โหลดไฟล์วิดีโอไม่สำเร็จ (HTTP " + vres.status + ")");
+        return URL.createObjectURL(await vres.blob());
+      }
+      if (pd.status === "failed") {
+        throw new Error(pd.error?.message || (typeof pd.error === "string" ? pd.error : "การสร้างวิดีโอล้มเหลว"));
+      }
+    }
   }
 
   async function requestViaImageAPI(item) {
@@ -1209,14 +1491,16 @@
     $("emptyState").style.display = has ? "none" : "flex";
     const done = state.images.filter(x => x.status === "done").length;
     const loading = state.images.filter(x => x.status === "loading").length;
+    const unit = currentMode === "video" ? " clip" : " image";
     $("countLabel").textContent = has
-      ? done + " image" + (done !== 1 ? "s" : "") + (loading ? " · generating " + loading + "…" : "")
+      ? done + unit + (done !== 1 ? "s" : "") + (loading ? " · generating " + loading + "…" : "")
       : "";
 
     grid.innerHTML = "";
     for (const item of state.images) {
+      const isVid = item.mode === "video";
       const card = document.createElement("div");
-      card.className = "card " + item.status;
+      card.className = "card " + item.status + (isVid ? " vid" : "");
       const frame = document.createElement("div");
       frame.className = "frame";
       frame.style.aspectRatio = ratioCSS(item.ratio);
@@ -1227,11 +1511,23 @@
       frame.appendChild(tag);
 
       if (item.status === "done") {
-        const img = document.createElement("img");
-        img.src = item.url;
-        img.alt = item.prompt;
-        frame.appendChild(img);
+        if (isVid) {
+          const vid = document.createElement("video");
+          vid.src = item.url;
+          vid.muted = true;
+          vid.loop = true;
+          vid.autoplay = true;
+          vid.playsInline = true;
+          frame.appendChild(vid);
+        } else {
+          const img = document.createElement("img");
+          img.src = item.url;
+          img.alt = item.prompt;
+          frame.appendChild(img);
+        }
         card.onclick = () => openLightbox(state.images.indexOf(item));
+      } else if (isVid && item.status === "loading") {
+        frame.appendChild(buildVideoProgress(item));
       } else if (item.status === "error") {
         const box = document.createElement("div");
         box.className = "err-box";
@@ -1257,6 +1553,53 @@
     }
   }
 
+  // ---------- video progress ----------
+  // API ไม่ส่ง % จริงมาให้ — เป็นค่าประเมินจากเวลาที่ผ่านไป ไต่ช้าลงเรื่อยๆ ค้างสูงสุด 95% จน job เสร็จจริง
+  const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9) ตรงกับ stroke-dasharray ใน CSS
+  function videoProgressPct(item) {
+    const elapsed = (Date.now() - item.startedAt) / 1000;
+    return Math.min(95, Math.round(95 * (1 - Math.exp(-elapsed / 60))));
+  }
+  function fmtElapsed(item) {
+    const s = Math.floor((Date.now() - item.startedAt) / 1000);
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+  function videoStatusText(item) {
+    return (item.jobStatus === "in_progress" ? "กำลังสร้าง… " : "รอคิว… ") + fmtElapsed(item);
+  }
+
+  function buildVideoProgress(item) {
+    const box = document.createElement("div");
+    box.className = "vid-prog";
+    box.dataset.vid = item.id;
+    const pct = item.startedAt ? videoProgressPct(item) : 0;
+    box.innerHTML =
+      '<div class="ring-wrap">' +
+        '<svg width="64" height="64" viewBox="0 0 64 64">' +
+          '<circle class="ring-bg" cx="32" cy="32" r="28"/>' +
+          '<circle class="prog-ring" cx="32" cy="32" r="28" style="stroke-dashoffset:' + (RING_C * (1 - pct / 100)) + '"/>' +
+        '</svg>' +
+        '<div class="prog-num">' + pct + '%</div>' +
+      '</div>' +
+      '<div class="prog-status">' + (item.startedAt ? videoStatusText(item) : "รอคิว…") + '</div>';
+    return box;
+  }
+
+  // อัปเดตเฉพาะตัวเลข/วงแหวนของ card ที่กำลังโหลด ไม่ render ทั้ง grid ใหม่
+  // (render ใหม่จะทำให้ <video> ของ card ที่เสร็จแล้วเริ่มเล่นใหม่หมด)
+  setInterval(() => {
+    if (currentMode !== "video") return;
+    for (const item of modeStates.video.images) {
+      if (item.status !== "loading" || !item.startedAt) continue;
+      const el = document.querySelector('.vid-prog[data-vid="' + item.id + '"]');
+      if (!el) continue;
+      const pct = videoProgressPct(item);
+      el.querySelector(".prog-num").textContent = pct + "%";
+      el.querySelector(".prog-ring").style.strokeDashoffset = String(RING_C * (1 - pct / 100));
+      el.querySelector(".prog-status").textContent = videoStatusText(item);
+    }
+  }, 1000);
+
   // ---------- lightbox ----------
   function doneIndices() {
     return state.images.map((x, i) => x.status === "done" ? i : -1).filter(i => i >= 0);
@@ -1269,8 +1612,20 @@
   function updateLightbox() {
     const item = state.images[state.lbIndex];
     if (!item) return;
-    $("lbImg").src = item.url;
-    $("lbInfo").textContent = item.modelName + "  ·  " + item.ratio;
+    const isVid = item.mode === "video";
+    $("lbImg").style.display = isVid ? "none" : "";
+    $("lbVideo").style.display = isVid ? "" : "none";
+    $("lbFormat").style.display = isVid ? "none" : "";
+    if (isVid) {
+      $("lbImg").removeAttribute("src");
+      $("lbVideo").src = item.url;
+      $("lbInfo").textContent = item.modelName + "  ·  " + item.ratio + "  ·  " + item.duration + "s";
+    } else {
+      $("lbVideo").pause();
+      $("lbVideo").removeAttribute("src");
+      $("lbImg").src = item.url;
+      $("lbInfo").textContent = item.modelName + "  ·  " + item.ratio;
+    }
     $("lbPrompt").textContent = item.prompt;
     const ds = doneIndices();
     const pos = ds.indexOf(state.lbIndex);
@@ -1283,7 +1638,11 @@
     const next = ds[pos + dir];
     if (next !== undefined) { state.lbIndex = next; updateLightbox(); }
   }
-  function closeLightbox() { $("lightbox").classList.remove("open"); state.lbIndex = -1; }
+  function closeLightbox() {
+    $("lightbox").classList.remove("open");
+    $("lbVideo").pause();
+    state.lbIndex = -1;
+  }
 
   const RAND_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&";
   function randomFileName(ext) {
@@ -1315,6 +1674,15 @@
   async function downloadCurrent() {
     const item = state.images[state.lbIndex];
     if (!item?.url) return;
+    if (item.mode === "video") {
+      const a = document.createElement("a");
+      a.href = item.url; // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
+      a.download = randomFileName("mp4");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
     const format = $("lbFormat").value; // "png" | "jpg"
     let url;
     try {
@@ -1347,28 +1715,45 @@
       placeholder: "อธิบายภาพที่ต้องการ… เช่น a minimalist black and white portrait of a cat, studio lighting, high contrast",
       empty: "ยังไม่มีภาพ — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
       title: "Gallery",
+      countLabel: "Images",
+      hint: "รายชื่อโมเดลดึงสดจาก OpenRouter (เฉพาะโมเดลที่ generate ภาพได้) — <b>Enter</b> ใน prompt เพื่อสั่ง gen ได้เลย",
     },
     infographic: {
       placeholder: "อธิบาย infographic ที่ต้องการ… เช่น 5 tips for better sleep, modern flat style, bilingual Thai-English",
       empty: "ยังไม่มี infographic — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
       title: "Infographic Gallery",
+      countLabel: "Images",
+      hint: "รายชื่อโมเดลดึงสดจาก OpenRouter (เฉพาะโมเดลที่ generate ภาพได้) — <b>Enter</b> ใน prompt เพื่อสั่ง gen ได้เลย",
+    },
+    video: {
+      placeholder: "อธิบายวิดีโอที่ต้องการ… เช่น a cat walking through neon-lit Tokyo streets at night, cinematic, slow dolly in",
+      empty: "ยังไม่มีวิดีโอ — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
+      title: "Video Gallery",
+      countLabel: "Clips",
+      hint: "วิดีโอ 720p ยาว 8–10 วิ — ใช้เวลาสร้างราวๆ 1–3 นาทีต่อคลิป ราคาประเมินอยู่ใต้ชื่อโมเดล — <b>Enter</b> เพื่อสั่ง gen ได้เลย",
     },
   };
 
   function switchMode(mode) {
     if (mode === currentMode) return;
     currentMode = mode;
+    const isVideo = mode === "video";
 
     $("modeTabs").querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
     $("prompt").placeholder = MODE_META[mode].placeholder;
     $("prompt").value = state.prompt;
     $("emptyText").textContent = MODE_META[mode].empty;
     $("galleryTitle").textContent = MODE_META[mode].title;
+    $("countFieldLabel").textContent = MODE_META[mode].countLabel;
+    $("hintText").innerHTML = MODE_META[mode].hint;
+    $("durationField").style.display = isVideo ? "" : "none";
+    $("audioField").style.display = isVideo ? "" : "none";
 
     populateModelSelect();
     updateModelMeta();
     buildKeywordTool();
     buildSegs();
+    updateSegAvailability();
     renderQueue();
     render();
     updateGenerateEnabled();
@@ -1383,13 +1768,53 @@
     const collapsed = $("app").classList.toggle("collapsed");
     $("sideToggle").textContent = collapsed ? "▶" : "◀";
   };
+
+  // ---------- sidebar resize ----------
+  (() => {
+    const SIDEBAR_MIN = 240;
+    const SIDEBAR_MAX = 560;
+    const app = $("app");
+    const handle = $("sidebarResize");
+    const savedW = parseInt(localStorage.getItem("atelier_sidebar_w"), 10);
+    if (savedW && savedW >= SIDEBAR_MIN && savedW <= SIDEBAR_MAX) {
+      document.documentElement.style.setProperty("--sidebar-w", savedW + "px");
+    }
+    let dragging = false;
+    let startX = 0;
+    let startW = 0;
+    handle.addEventListener("mousedown", e => {
+      dragging = true;
+      startX = e.clientX;
+      startW = handle.parentElement.getBoundingClientRect().width;
+      handle.classList.add("dragging");
+      app.classList.add("resizing");
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", e => {
+      if (!dragging) return;
+      const w = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + (e.clientX - startX)));
+      document.documentElement.style.setProperty("--sidebar-w", w + "px");
+    });
+    window.addEventListener("mouseup", () => {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove("dragging");
+      app.classList.remove("resizing");
+      const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"), 10);
+      if (w) localStorage.setItem("atelier_sidebar_w", w);
+    });
+  })();
   $("keyStatus").onclick = openKeyModal;
   $("keySave").onclick = saveKey;
   $("keyCancel").onclick = closeKeyModal;
   $("keyInput").addEventListener("keydown", e => { if (e.key === "Enter") saveKey(); });
   $("keyModal").addEventListener("click", e => { if (e.target === $("keyModal")) closeKeyModal(); });
 
-  $("model").addEventListener("change", updateModelMeta);
+  $("model").addEventListener("change", () => { updateModelMeta(); updateSegAvailability(); });
+  $("audioToggle").addEventListener("change", () => {
+    state.audio = $("audioToggle").checked;
+    updateModelMeta();
+  });
   $("prompt").addEventListener("input", () => { state.prompt = $("prompt").value; updateGenerateEnabled(); syncChips(); });
   $("prompt").addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!$("generateBtn").disabled) generate(); }
@@ -1413,6 +1838,7 @@
   buildKeywordTool();
   refreshKeyUI();
   loadModels();
+  loadVideoModels();
   // เปิดมาให้ใส่ key ก่อนเลย ถ้ายังไม่มี
   setTimeout(() => { if (!state.apiKey) openKeyModal(); }, 400);
 })();
