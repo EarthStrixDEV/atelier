@@ -809,41 +809,77 @@
 
   async function runRequest(item) {
     try {
-      const body = {
-        model: item.model,
-        messages: [{ role: "user", content: item.prompt }],
-        modalities: ["image", "text"],
-      };
-      // aspect ratio ผ่าน image_config (โมเดลที่ไม่รองรับจะ ignore หรือใช้ hint ใน prompt แทน)
-      if (item.ratio !== "1:1") {
-        body.image_config = { aspect_ratio: item.ratio };
-        body.messages = [{ role: "user", content: item.prompt + "\n\nAspect ratio: " + item.ratio }];
-      }
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": "Bearer " + state.apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error?.message || ("HTTP " + res.status));
-      }
-      const imgs = data.choices?.[0]?.message?.images;
-      const url = imgs?.[0]?.image_url?.url;
-      if (!url) {
-        const txt = data.choices?.[0]?.message?.content;
-        throw new Error(txt ? "โมเดลตอบเป็นข้อความแทนรูป: " + String(txt).slice(0, 120) : "ไม่พบรูปใน response");
+      const m = state.models.find(x => x.id === item.model);
+      const outs = m?.architecture?.output_modalities || [];
+      // โมเดล image-only (เช่น Grok Imagine) เรียกผ่าน chat/completions ไม่ได้
+      // ("No endpoints found that support the requested output modalities") ต้องใช้ Image API แทน
+      if (outs.length && !outs.includes("text")) {
+        item.url = await requestViaImageAPI(item);
+      } else {
+        item.url = await requestViaChat(item);
       }
       item.status = "done";
-      item.url = url;
     } catch (e) {
       item.status = "error";
       item.errMsg = e.message || "unknown error";
     }
     render();
+  }
+
+  async function requestViaImageAPI(item) {
+    const res = await fetch("https://openrouter.ai/api/v1/images", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + state.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: item.model,
+        prompt: item.prompt,
+        n: 1,
+        aspect_ratio: item.ratio,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+    const d = data.data?.[0];
+    const url = d?.b64_json
+      ? "data:" + (d.media_type || "image/png") + ";base64," + d.b64_json
+      : d?.url;
+    if (!url) throw new Error("ไม่พบรูปใน response");
+    return url;
+  }
+
+  async function requestViaChat(item) {
+    const body = {
+      model: item.model,
+      messages: [{ role: "user", content: item.prompt }],
+      modalities: ["image", "text"],
+    };
+    // aspect ratio ผ่าน image_config (โมเดลที่ไม่รองรับจะ ignore หรือใช้ hint ใน prompt แทน)
+    if (item.ratio !== "1:1") {
+      body.image_config = { aspect_ratio: item.ratio };
+      body.messages = [{ role: "user", content: item.prompt + "\n\nAspect ratio: " + item.ratio }];
+    }
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + state.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error?.message || ("HTTP " + res.status));
+    }
+    const imgs = data.choices?.[0]?.message?.images;
+    const url = imgs?.[0]?.image_url?.url;
+    if (!url) {
+      const txt = data.choices?.[0]?.message?.content;
+      throw new Error(txt ? "โมเดลตอบเป็นข้อความแทนรูป: " + String(txt).slice(0, 120) : "ไม่พบรูปใน response");
+    }
+    return url;
   }
 
   function retry(id) {
