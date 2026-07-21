@@ -471,6 +471,18 @@
     transition: all .12s;
   }
   .lb-btn:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .lb-format {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 12px;
+    padding: 8px 8px;
+    cursor: pointer;
+    appearance: none;
+  }
+  .lb-format:focus { outline: none; border-color: var(--accent); }
   .lb-stage {
     flex: 1;
     display: flex;
@@ -664,6 +676,10 @@
   <div class="lb-top">
     <div class="lb-info" id="lbInfo"></div>
     <div class="lb-actions">
+      <select class="lb-format" id="lbFormat" title="รูปแบบไฟล์ที่จะดาวน์โหลด">
+        <option value="png">PNG</option>
+        <option value="jpg">JPG</option>
+      </select>
       <button class="lb-btn" id="lbDownload">Download</button>
       <button class="lb-btn" id="lbClose">Close ✕</button>
     </div>
@@ -1266,12 +1282,47 @@
   }
   function closeLightbox() { $("lightbox").classList.remove("open"); state.lbIndex = -1; }
 
-  function downloadCurrent() {
+  const RAND_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&";
+  function randomFileName(ext) {
+    let s = "";
+    for (let i = 0; i < 20; i++) s += RAND_CHARS[Math.floor(Math.random() * RAND_CHARS.length)];
+    return "atelier_" + s + "." + ext;
+  }
+
+  // แปลง data URL ต้นทาง (มักเป็น png) ไปเป็น jpg ผ่าน canvas เพราะ browser ไม่มี API แปลง format ตรงๆ
+  function convertDataUrl(url, format) {
+    return new Promise((resolve, reject) => {
+      if (format === "png") { resolve(url); return; }
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; // jpg ไม่มี alpha channel กันพื้นหลังโปร่งใสกลายเป็นดำ
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/jpeg", 0.95));
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  async function downloadCurrent() {
     const item = state.images[state.lbIndex];
     if (!item?.url) return;
+    const format = $("lbFormat").value; // "png" | "jpg"
+    let url;
+    try {
+      url = await convertDataUrl(item.url, format);
+    } catch {
+      toast("แปลงไฟล์ไม่สำเร็จ ดาวน์โหลดเป็นไฟล์ต้นฉบับแทนค่ะ");
+      url = item.url;
+    }
     const a = document.createElement("a");
-    a.href = item.url;
-    a.download = "atelier-" + item.id + ".png";
+    a.href = url;
+    a.download = randomFileName(format);
     document.body.appendChild(a);
     a.click();
     a.remove();
