@@ -186,6 +186,15 @@
   }
   .model-meta { font-size: 11px; color: var(--text-faint); margin-top: 7px; line-height: 1.5; font-family: var(--mono); }
 
+  /* usage bar */
+  .usage-bar { display: flex; flex-direction: column; gap: 8px; }
+  .usage-row { display: flex; flex-direction: column; gap: 3px; }
+  .usage-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11px; }
+  .usage-row-name { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usage-row-cost { color: var(--text-faint); font-family: var(--mono); flex-shrink: 0; }
+  .usage-row-track { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .usage-row-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+
   /* segmented controls */
   .seg { display: grid; gap: 6px; }
   .seg.ratio { grid-template-columns: repeat(5, 1fr); }
@@ -379,7 +388,44 @@
     margin-bottom: 18px;
   }
   .gallery-head h2 { font-size: 13px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-dim); }
+  .gallery-head-right { display: flex; align-items: baseline; gap: 14px; }
   .gallery-head .count-label { font-size: 12px; color: var(--text-faint); font-family: var(--mono); }
+  .select-bar { display: flex; align-items: center; gap: 10px; }
+  .select-bar .select-count { font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+  .select-bar button {
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 5px 11px;
+    border-radius: 99px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .select-bar button:hover { border-color: var(--accent); }
+  .select-bar #selectDownloadBtn { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+  .card .select-check {
+    position: absolute;
+    top: 8px; right: 8px;
+    z-index: 2;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: 1.5px solid var(--border-strong);
+    background: rgba(10,10,10,.72);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity .12s, background .12s, border-color .12s;
+    cursor: pointer;
+  }
+  .card.done:hover .select-check,
+  .card .select-check.checked { opacity: 1; }
+  .card .select-check.checked { background: var(--accent); border-color: var(--accent); }
+  .card .select-check svg { width: 13px; height: 13px; stroke: var(--bg); fill: none; stroke-width: 2.5; opacity: 0; }
+  .card .select-check.checked svg { opacity: 1; }
+  .card.selected { border-color: var(--accent); }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -705,6 +751,11 @@
       <div class="model-meta" id="modelMeta"></div>
     </div>
 
+    <div class="field" id="usageField" style="display:none">
+      <label>Usage <span id="usageTotal"></span></label>
+      <div class="usage-bar" id="usageBar"></div>
+    </div>
+
     <div class="field">
       <label>Aspect Ratio</label>
       <div class="seg ratio" id="ratioSeg"></div>
@@ -739,7 +790,14 @@
   <main>
     <div class="gallery-head">
       <h2 id="galleryTitle">Gallery</h2>
-      <span class="count-label" id="countLabel"></span>
+      <div class="gallery-head-right">
+        <span class="select-bar" id="selectBar" style="display:none">
+          <span class="select-count" id="selectCount"></span>
+          <button type="button" id="selectDownloadBtn">ดาวน์โหลด</button>
+          <button type="button" id="selectClearBtn">ยกเลิก</button>
+        </span>
+        <span class="count-label" id="countLabel"></span>
+      </div>
     </div>
     <div id="galleryZone">
       <div class="empty" id="emptyState">
@@ -818,6 +876,7 @@
       queue: [],          // { prompt, model, modelName, ratio, count } สูงสุด MAX_QUEUE
       lbIndex: -1,
       seq: 0,
+      selected: new Set(), // id ของ card ที่ติ๊กเลือกไว้ (multi-select download)
     };
   }
 
@@ -886,8 +945,8 @@
       architecture: { output_modalities: ["image"] },
     },
     {
-      id: "openai/gpt-5.4-image-2",
-      name: "OpenAI: GPT-5.4 Image 2",
+      id: "openai/gpt-image-2",
+      name: "OpenAI: GPT Image 2",
       pricing: {},
       architecture: { output_modalities: ["image", "text"] },
     },
@@ -930,7 +989,8 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       const list = (data.data || []).filter(m =>
-        (m.architecture?.output_modalities || []).includes("image")
+        (m.architecture?.output_modalities || []).includes("image") &&
+        (!m.id.startsWith("openai/") || m.id === "openai/gpt-image-2")
       );
       for (const em of EXTRA_MODELS) {
         if (!list.some(m => m.id === em.id)) list.push(em);
@@ -1042,6 +1102,65 @@
       ? "$" + (parseFloat(m.pricing.image) * 1000).toFixed(3).replace(/\.?0+$/, "") + " / 1k img"
       : null;
     $("modelMeta").textContent = m.id + (price ? "  ·  " + price : "");
+  }
+
+  // ค่าใช้จ่ายจริงต่อภาพ/คลิปไม่มี API แยกรายโมเดล — ประมาณจาก pricing ของโมเดล ณ ตอนนี้
+  // (เฉพาะ item ที่ status done เพราะ error/loading ยังไม่ถือว่าใช้เครดิตไปแล้ว)
+  function computeItemCost(item) {
+    if (item.mode === "video") {
+      const m = shared.videoModels.find(x => x.id === item.model);
+      if (!m) return null;
+      const pps = videoPricePerSec(m, item.audio);
+      return pps != null ? pps * item.duration : null;
+    }
+    const m = shared.models.find(x => x.id === item.model);
+    const price = m?.pricing?.image ? parseFloat(m.pricing.image) : NaN;
+    return price > 0 ? price : null;
+  }
+
+  function updateUsageBar() {
+    const field = $("usageField");
+    const done = state.images.filter(x => x.status === "done");
+    const byModel = new Map();
+    let total = 0;
+    let hasUnknown = false;
+    for (const item of done) {
+      const cost = computeItemCost(item);
+      if (cost == null) { hasUnknown = true; continue; }
+      total += cost;
+      byModel.set(item.modelName, (byModel.get(item.modelName) || 0) + cost);
+    }
+    if (!byModel.size) { field.style.display = "none"; return; }
+    field.style.display = "";
+    $("usageTotal").textContent = "~$" + total.toFixed(4) + (hasUnknown ? " (บางโมเดลไม่ทราบราคา)" : "");
+    const rows = [...byModel.entries()].sort((a, b) => b[1] - a[1]);
+    const max = rows[0][1] || 1;
+    const bar = $("usageBar");
+    bar.innerHTML = "";
+    for (const [name, cost] of rows) {
+      const row = document.createElement("div");
+      row.className = "usage-row";
+      const top = document.createElement("div");
+      top.className = "usage-row-top";
+      const nameEl = document.createElement("span");
+      nameEl.className = "usage-row-name";
+      nameEl.textContent = name;
+      nameEl.title = name;
+      const costEl = document.createElement("span");
+      costEl.className = "usage-row-cost";
+      costEl.textContent = "$" + cost.toFixed(4);
+      top.appendChild(nameEl);
+      top.appendChild(costEl);
+      const track = document.createElement("div");
+      track.className = "usage-row-track";
+      const fill = document.createElement("div");
+      fill.className = "usage-row-fill";
+      fill.style.width = (cost / max * 100) + "%";
+      track.appendChild(fill);
+      row.appendChild(top);
+      row.appendChild(track);
+      bar.appendChild(row);
+    }
   }
 
   // ---------- segmented controls ----------
@@ -1511,12 +1630,14 @@
     $("countLabel").textContent = has
       ? done + unit + (done !== 1 ? "s" : "") + (loading ? " · generating " + loading + "…" : "")
       : "";
+    updateUsageBar();
 
     grid.innerHTML = "";
     for (const item of state.images) {
       const isVid = item.mode === "video";
+      const isSelected = state.selected.has(item.id);
       const card = document.createElement("div");
-      card.className = "card " + item.status + (isVid ? " vid" : "");
+      card.className = "card " + item.status + (isVid ? " vid" : "") + (isSelected ? " selected" : "");
       const frame = document.createElement("div");
       frame.className = "frame";
       frame.style.aspectRatio = ratioCSS(item.ratio);
@@ -1541,6 +1662,11 @@
           img.alt = item.prompt;
           frame.appendChild(img);
         }
+        const check = document.createElement("span");
+        check.className = "select-check" + (isSelected ? " checked" : "");
+        check.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
+        check.onclick = (e) => { e.stopPropagation(); toggleSelect(item.id); };
+        frame.appendChild(check);
         card.onclick = () => openLightbox(state.images.indexOf(item));
       } else if (isVid && item.status === "loading") {
         frame.appendChild(buildVideoProgress(item));
@@ -1567,6 +1693,53 @@
       card.appendChild(cap);
       grid.appendChild(card);
     }
+    updateSelectBar();
+  }
+
+  // ---------- multi-select download ----------
+  function toggleSelect(id) {
+    if (state.selected.has(id)) state.selected.delete(id);
+    else state.selected.add(id);
+    render();
+  }
+  function clearSelection() {
+    state.selected.clear();
+    render();
+  }
+  function updateSelectBar() {
+    // เผื่อ item ที่เคยเลือกไว้ถูกลบ/ยังไม่ done แล้ว (ไม่ควรเกิด แต่กันไว้)
+    const validIds = new Set(state.images.filter(x => x.status === "done").map(x => x.id));
+    for (const id of [...state.selected]) if (!validIds.has(id)) state.selected.delete(id);
+
+    const n = state.selected.size;
+    $("selectBar").style.display = n ? "" : "none";
+    $("selectCount").textContent = n + " รูปที่เลือก";
+  }
+
+  async function downloadSelected() {
+    const ids = [...state.selected];
+    if (!ids.length) return;
+    const items = ids.map(id => state.images.find(x => x.id === id)).filter(Boolean);
+    const format = $("lbFormat")?.value || "png";
+    for (const item of items) {
+      if (!item.url) continue;
+      let url = item.url;
+      let ext = format;
+      if (item.mode === "video") {
+        ext = "mp4";
+      } else {
+        try { url = await convertDataUrl(item.url, format); }
+        catch { url = item.url; }
+      }
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = randomFileName(ext);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      await sleep(150); // เว้นจังหวะกัน browser บล็อกดาวน์โหลดหลายไฟล์รวด
+    }
+    toast("ดาวน์โหลด " + items.length + " รูปแล้วค่ะ");
   }
 
   // ---------- video progress ----------
@@ -1827,6 +2000,8 @@
   $("keyModal").addEventListener("click", e => { if (e.target === $("keyModal")) closeKeyModal(); });
 
   $("model").addEventListener("change", () => { updateModelMeta(); updateSegAvailability(); });
+  $("selectDownloadBtn").onclick = downloadSelected;
+  $("selectClearBtn").onclick = clearSelection;
   $("audioToggle").addEventListener("change", () => {
     state.audio = $("audioToggle").checked;
     updateModelMeta();
