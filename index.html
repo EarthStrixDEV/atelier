@@ -349,6 +349,65 @@
   .hint { font-size: 11.5px; color: var(--text-faint); line-height: 1.6; }
   .hint b { color: var(--text-dim); font-weight: 600; }
 
+  /* ---------- Prompt Optimizer ---------- */
+  .optimize-btn {
+    width: 100%;
+    margin-top: 8px;
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 9px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .optimize-btn:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+  .optimize-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .optimize-btn.loading { pointer-events: none; opacity: .6; }
+  .optimize-panel {
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .optimize-panel .op-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .optimize-panel .op-text {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 11px;
+    max-height: 160px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .optimize-panel .chips { padding: 0; }
+  .optimize-panel .op-row { display: flex; gap: 8px; }
+  .optimize-panel .op-row button {
+    flex: 1;
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px;
+    cursor: pointer;
+  }
+  .optimize-panel .op-error { font-size: 12px; color: var(--danger); line-height: 1.5; }
+
   /* ---------- Prompt builder ---------- */
   .kw-group {
     border: 1px solid var(--border);
@@ -764,6 +823,145 @@
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
 
+  /* ---------- Chat with Atelier ---------- */
+  .chat-fab {
+    position: fixed;
+    right: 24px; bottom: 24px;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    display: grid; place-items: center;
+    cursor: pointer;
+    box-shadow: 0 8px 30px rgba(0,0,0,.4);
+    z-index: 150;
+    transition: transform .15s;
+  }
+  .chat-fab:hover { transform: scale(1.06); }
+  .chat-fab.hidden { display: none; }
+  .chat-panel {
+    position: fixed;
+    right: 24px; bottom: 24px;
+    width: min(380px, calc(100vw - 40px));
+    height: min(560px, calc(100vh - 48px));
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    box-shadow: 0 20px 80px rgba(0,0,0,.6);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 160;
+  }
+  .chat-panel.open { display: flex; }
+  .chat-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-head-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+  .chat-head-title #chatModeTag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    padding: 2px 8px;
+  }
+  .chat-head-actions { display: flex; gap: 6px; }
+  .chat-head-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 11px;
+    border-radius: 7px;
+    padding: 5px 9px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .chat-head-actions button:hover { border-color: var(--border-strong); color: var(--text); }
+  .chat-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chat-empty { font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
+  .chat-msg {
+    max-width: 88%;
+    font-size: 13px;
+    line-height: 1.55;
+    padding: 9px 13px;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-bottom-right-radius: 4px;
+  }
+  .chat-msg.assistant {
+    align-self: flex-start;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .chat-msg.error {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+  }
+  .chat-msg.pending { color: var(--text-faint); font-style: italic; }
+  .chat-input-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-input-row textarea {
+    flex: 1;
+    resize: none;
+    min-height: 36px;
+    max-height: 100px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 8px 11px;
+    line-height: 1.4;
+  }
+  .chat-input-row textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-input-row button {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 9px;
+    font-family: var(--font);
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 9px 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .chat-input-row button:disabled { opacity: .35; cursor: not-allowed; }
+
+  @media (max-width: 480px) {
+    .chat-panel { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+    .chat-fab { right: 16px; bottom: 16px; }
+  }
+
   /* responsive */
   @media (max-width: 860px) {
     .app { flex-direction: column; }
@@ -807,6 +1005,11 @@
     <div class="field">
       <label for="prompt">Prompt</label>
       <textarea id="prompt" placeholder="อธิบายภาพที่ต้องการ… เช่น a minimalist black and white portrait of a cat, studio lighting, high contrast"></textarea>
+      <button type="button" class="optimize-btn" id="optimizeBtn" disabled>✨ Optimize</button>
+    </div>
+
+    <div class="field" id="optimizeField" style="display:none">
+      <div class="optimize-panel" id="optimizePanel"></div>
     </div>
 
     <div class="field" id="historyField" style="display:none">
@@ -930,6 +1133,35 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Chat with Atelier -->
+<button class="chat-fab" id="chatFab" title="Chat with Atelier — ที่ปรึกษาเรื่องสร้างภาพ/วิดีโอด้วย AI">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+  </svg>
+</button>
+
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-head">
+    <div class="chat-head-title">
+      <strong>Chat with Atelier</strong>
+      <span id="chatModeTag"></span>
+    </div>
+    <div class="chat-head-actions">
+      <button type="button" id="chatClearBtn" title="ล้างประวัติแชท">ล้าง</button>
+      <button type="button" id="chatCloseBtn" title="ปิด">✕</button>
+    </div>
+  </div>
+  <div class="chat-body" id="chatBody">
+    <div class="chat-empty" id="chatEmpty">
+      หนูเป็นผู้ช่วยเรื่องสร้างภาพ/วิดีโอด้วย AI ค่ะ ถามได้เลยว่าอยากได้ prompt แบบไหน หรือปรึกษาเรื่อง style, mood, keyword ก็ได้นะคะ~
+    </div>
+  </div>
+  <div class="chat-input-row">
+    <textarea id="chatInput" placeholder="พิมพ์คำถามหรือปรึกษาเรื่อง prompt…" rows="1"></textarea>
+    <button type="button" id="chatSendBtn" disabled>Send</button>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -1463,6 +1695,277 @@
     }
   }
 
+  // ---------- prompt optimizer ----------
+  const OPTIMIZER_MODEL = "openai/gpt-oss-20b:free";
+  let optimizeResult = null; // { prompt, keywords } ของโหมดปัจจุบัน หรือ null ถ้ายังไม่มี/ถูกปิดไป
+
+  function clearOptimizePanel() {
+    optimizeResult = null;
+    $("optimizeField").style.display = "none";
+    $("optimizePanel").innerHTML = "";
+  }
+
+  async function runOptimize() {
+    const original = $("prompt").value.trim();
+    if (!original) return;
+    if (!state.apiKey) { openKeyModal(); return; }
+
+    const btn = $("optimizeBtn");
+    btn.disabled = true;
+    btn.classList.add("loading");
+    btn.textContent = "กำลังจูน prompt…";
+    $("optimizeField").style.display = "";
+    $("optimizePanel").innerHTML = "";
+
+    const modeName = currentMode === "video" ? "video generation" : currentMode === "infographic" ? "infographic generation" : "image generation";
+    const sys = "You are a prompt engineer helping a user write better prompts for AI " + modeName + ". "
+      + "Given the user's rough prompt, rewrite it into a more detailed, vivid, well-structured prompt in English "
+      + "(keep any names/subjects the user specified). Also suggest 6-10 short keyword phrases (style, lighting, "
+      + "composition, mood, etc.) the user could add. Respond with ONLY valid JSON, no markdown fences, in this exact shape: "
+      + '{"prompt": "...", "keywords": ["...", "..."]}';
+
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + state.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: OPTIMIZER_MODEL,
+          messages: [
+            { role: "system", content: sys },
+            { role: "user", content: original },
+          ],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+      const raw = data.choices?.[0]?.message?.content;
+      if (!raw) throw new Error("โมเดลไม่ตอบข้อความกลับมาค่ะ");
+      const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonText);
+      } catch {
+        throw new Error("แปลผลลัพธ์จากโมเดลไม่สำเร็จค่ะ ลองกด Optimize ใหม่อีกครั้งนะคะ");
+      }
+      const optPrompt = typeof parsed.prompt === "string" ? parsed.prompt.trim() : "";
+      const keywords = Array.isArray(parsed.keywords) ? parsed.keywords.filter(k => typeof k === "string" && k.trim()).map(k => k.trim()) : [];
+      if (!optPrompt) throw new Error("ไม่พบ prompt ที่จูนแล้วในผลลัพธ์ค่ะ");
+      optimizeResult = { prompt: optPrompt, keywords };
+      renderOptimizePanel();
+    } catch (e) {
+      renderOptimizeError(e.message || "เกิดข้อผิดพลาดไม่ทราบสาเหตุ");
+    } finally {
+      btn.disabled = !$("prompt").value.trim();
+      btn.classList.remove("loading");
+      btn.textContent = "✨ Optimize";
+    }
+  }
+
+  function renderOptimizeError(msg) {
+    const panel = $("optimizePanel");
+    panel.innerHTML = "";
+    const err = document.createElement("div");
+    err.className = "op-error";
+    err.textContent = msg;
+    const row = document.createElement("div");
+    row.className = "op-row";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "btn-ghost";
+    closeBtn.textContent = "ปิด";
+    closeBtn.onclick = clearOptimizePanel;
+    row.appendChild(closeBtn);
+    panel.appendChild(err);
+    panel.appendChild(row);
+  }
+
+  function renderOptimizePanel() {
+    const panel = $("optimizePanel");
+    panel.innerHTML = "";
+    if (!optimizeResult) return;
+
+    const label = document.createElement("div");
+    label.className = "op-label";
+    label.textContent = "Prompt ที่จูนแล้ว";
+    const text = document.createElement("div");
+    text.className = "op-text";
+    text.textContent = optimizeResult.prompt;
+    panel.appendChild(label);
+    panel.appendChild(text);
+
+    if (optimizeResult.keywords.length) {
+      const kwLabel = document.createElement("div");
+      kwLabel.className = "op-label";
+      kwLabel.textContent = "Keyword แนะนำ (กดเพื่อเพิ่มเข้า prompt ปัจจุบัน)";
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      for (const kw of optimizeResult.keywords) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.textContent = kw;
+        chip.onclick = () => toggleKeyword(kw);
+        chips.appendChild(chip);
+      }
+      panel.appendChild(kwLabel);
+      panel.appendChild(chips);
+    }
+
+    const row = document.createElement("div");
+    row.className = "op-row";
+    const applyBtn = document.createElement("button");
+    applyBtn.className = "btn-primary";
+    applyBtn.textContent = "ใช้ prompt นี้";
+    applyBtn.onclick = () => {
+      $("prompt").value = optimizeResult.prompt;
+      state.prompt = optimizeResult.prompt;
+      syncChips();
+      updateGenerateEnabled();
+      clearOptimizePanel();
+      toast("แทนที่ prompt แล้วค่ะ");
+    };
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "btn-ghost";
+    cancelBtn.textContent = "ยกเลิก";
+    cancelBtn.onclick = clearOptimizePanel;
+    row.appendChild(applyBtn);
+    row.appendChild(cancelBtn);
+    panel.appendChild(row);
+  }
+
+  // ---------- chat with atelier ----------
+  const CHAT_MODEL = "openai/gpt-oss-20b:free";
+  const CHAT_HISTORY_KEY = "atelier_chat_history";
+  const MAX_CHAT_HISTORY = 60;
+  let chatMessages = loadChatHistory(); // [{ role: "user"|"assistant", content }]
+  let chatPending = false;
+
+  function loadChatHistory() {
+    try {
+      const raw = localStorage.getItem(CHAT_HISTORY_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list)
+        ? list.filter(m => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  function saveChatHistory() {
+    try {
+      const toSave = chatMessages.slice(-MAX_CHAT_HISTORY);
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(toSave));
+    } catch { /* localStorage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+  }
+
+  function chatModeLabel() {
+    return currentMode === "video" ? "Video" : currentMode === "infographic" ? "Infographic" : "Home";
+  }
+
+  function chatSystemPrompt() {
+    return "You are the in-app assistant for Atelier, an AI image/video generator built on OpenRouter. "
+      + "You help the user brainstorm ideas, design prompts (style, lighting, composition, mood, camera work), "
+      + "and give practical advice about generating images and videos with AI models. "
+      + "The user is currently in the \"" + chatModeLabel() + "\" tab of the app "
+      + "(Home = images, Infographic = infographic images, Video = short video clips). "
+      + "Keep answers concise and practical. When useful, suggest a ready-to-use prompt. Respond in the same "
+      + "language the user writes in (Thai or English).";
+  }
+
+  function renderChatMessages() {
+    const body = $("chatBody");
+    const wasNearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    body.innerHTML = "";
+    if (!chatMessages.length) {
+      const empty = document.createElement("div");
+      empty.className = "chat-empty";
+      empty.id = "chatEmpty";
+      empty.textContent = "หนูเป็นผู้ช่วยเรื่องสร้างภาพ/วิดีโอด้วย AI ค่ะ ถามได้เลยว่าอยากได้ prompt แบบไหน หรือปรึกษาเรื่อง style, mood, keyword ก็ได้นะคะ~";
+      body.appendChild(empty);
+    } else {
+      for (const m of chatMessages) {
+        const div = document.createElement("div");
+        div.className = "chat-msg " + (m.role === "user" ? "user" : "assistant");
+        div.textContent = m.content;
+        body.appendChild(div);
+      }
+    }
+    if (chatPending) {
+      const div = document.createElement("div");
+      div.className = "chat-msg assistant pending";
+      div.textContent = "กำลังพิมพ์…";
+      body.appendChild(div);
+    }
+    if (wasNearBottom || chatPending) body.scrollTop = body.scrollHeight;
+  }
+
+  function openChatPanel() {
+    $("chatPanel").classList.add("open");
+    $("chatFab").classList.add("hidden");
+    $("chatModeTag").textContent = chatModeLabel();
+    renderChatMessages();
+    setTimeout(() => $("chatInput").focus(), 50);
+  }
+  function closeChatPanel() {
+    $("chatPanel").classList.remove("open");
+    $("chatFab").classList.remove("hidden");
+  }
+  function clearChatHistory() {
+    chatMessages = [];
+    saveChatHistory();
+    renderChatMessages();
+  }
+
+  async function sendChatMessage() {
+    const input = $("chatInput");
+    const text = input.value.trim();
+    if (!text || chatPending) return;
+    if (!state.apiKey) { openKeyModal(); return; }
+
+    chatMessages.push({ role: "user", content: text });
+    saveChatHistory();
+    input.value = "";
+    input.style.height = "auto";
+    chatPending = true;
+    renderChatMessages();
+    updateChatSendEnabled();
+
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + state.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages: [
+            { role: "system", content: chatSystemPrompt() },
+            ...chatMessages.map(m => ({ role: m.role, content: m.content })),
+          ],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+      const reply = data.choices?.[0]?.message?.content;
+      if (!reply) throw new Error("โมเดลไม่ตอบข้อความกลับมาค่ะ");
+      chatMessages.push({ role: "assistant", content: reply.trim() });
+      saveChatHistory();
+    } catch (e) {
+      chatMessages.push({ role: "assistant", content: "⚠️ " + (e.message || "เกิดข้อผิดพลาดไม่ทราบสาเหตุ") });
+    } finally {
+      chatPending = false;
+      renderChatMessages();
+      updateChatSendEnabled();
+    }
+  }
+
+  function updateChatSendEnabled() {
+    $("chatSendBtn").disabled = chatPending || !$("chatInput").value.trim();
+  }
+
   function buildKeywordTool() {
     const root = $("kwTool");
     root.innerHTML = "";
@@ -1557,6 +2060,7 @@
     const hasModels = modelsForCurrentMode().length > 0;
     $("generateBtn").disabled = !(shared.apiKey && hasModels && (hasPrompt || state.queue.length));
     $("queueBtn").disabled = !(hasModels && hasPrompt && state.queue.length < MAX_QUEUE);
+    $("optimizeBtn").disabled = !hasPrompt;
   }
 
   async function generate() {
@@ -2229,8 +2733,10 @@
     updateSegAvailability();
     renderQueue();
     renderHistory();
+    clearOptimizePanel();
     render();
     updateGenerateEnabled();
+    if ($("chatPanel").classList.contains("open")) $("chatModeTag").textContent = chatModeLabel();
   }
 
   // ---------- wire up ----------
@@ -2305,6 +2811,7 @@
   });
   $("generateBtn").onclick = generate;
   $("queueBtn").onclick = addToQueue;
+  $("optimizeBtn").onclick = runOptimize;
 
   $("lbClose").onclick = closeLightbox;
   $("lbPrev").onclick = () => lbStep(-1);
@@ -2316,6 +2823,23 @@
     if (e.key === "Escape") closeLightbox();
     if (e.key === "ArrowLeft") lbStep(-1);
     if (e.key === "ArrowRight") lbStep(1);
+  });
+
+  $("chatFab").onclick = openChatPanel;
+  $("chatCloseBtn").onclick = closeChatPanel;
+  $("chatClearBtn").onclick = clearChatHistory;
+  $("chatSendBtn").onclick = sendChatMessage;
+  $("chatInput").addEventListener("input", () => {
+    updateChatSendEnabled();
+    const ta = $("chatInput");
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 100) + "px";
+  });
+  $("chatInput").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!$("chatSendBtn").disabled) sendChatMessage(); }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && $("chatPanel").classList.contains("open")) closeChatPanel();
   });
 
   buildSegs();

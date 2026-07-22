@@ -46,6 +46,25 @@ There's no OpenRouter API for per-model spend, so cost is estimated client-side 
 
 Each finished gallery card gets a checkbox (visible on hover or when selected) tracked by id in the per-mode `selected` Set. `downloadSelected()` reuses the same `convertDataUrl`/`randomFileName` helpers as the single-image lightbox download, looping over selected items with a short delay between each `<a download>` click to avoid the browser blocking rapid multi-file downloads.
 
+### Prompt history
+
+Each mode keeps `history` (array of prompt strings, newest first, deduped, capped at `MAX_HISTORY` = 30) in its `freshModeState()`, persisted to `localStorage` under `atelier_history_<mode>` (`loadHistory`/`saveHistory`/`addToHistory`/`removeFromHistory`). A successful `generate()` call records every distinct prompt in the batch/queue. The UI is a `<details>` panel (`renderHistory()`) rendered below the prompt textarea, hidden when empty.
+
+### Session export/import
+
+`exportSession()`/`importSession()` (wired to the header's Export/Import buttons) serialize/restore only lightweight per-mode metadata — `prompt`, `ratio`, `count`, `duration`, `audio`, `queue`, `history` — as a `.json` file. Deliberately excludes `images` (data URLs would make the file huge); imported sessions require the user to re-generate.
+
+### Copy prompt & regenerate
+
+Every finished card gets two buttons: **Copy Prompt** (`copyPromptFromItem`) copies the card's prompt back into the textarea of that item's own mode (switching mode if needed), and **Regenerate** (`regenerateFromItem`) re-submits the exact same prompt/model/ratio/duration/audio as a brand-new item via `runRequest`, without touching the current form state.
+
+### Prompt Optimizer & Chat with Atelier (LLM-assisted features)
+
+Two features call a free text model, `openai/gpt-oss-20b:free`, via the same `POST /chat/completions` endpoint used for image generation — **verify this id still exists on OpenRouter before changing it**, since free-tier model ids get renamed/retired without notice.
+
+- **Optimizer** (`runOptimize`, "✨ Optimize" button under the prompt field) — sends the current prompt with a system prompt instructing the model to return strict JSON `{prompt, keywords}` (fences stripped defensively before `JSON.parse`). Result renders in a panel: rewritten prompt (one-click apply, replaces the textarea) plus keyword chips that reuse the existing `toggleKeyword()` from the Prompt Builder. Panel state (`optimizeResult`) is cleared on mode switch since it's specific to whatever prompt was active.
+- **Chat with Atelier** (floating action button, bottom-right) — a general Q&A assistant for prompt/style advice. `chatMessages` (role/content pairs) persist to `localStorage` (`atelier_chat_history`, capped at `MAX_CHAT_HISTORY` = 60) independent of mode — it's a single global conversation, not per-mode state. The system prompt (`chatSystemPrompt()`) tells the model which mode tab the user is currently viewing (Home/Infographic/Video) but nothing about their actual prompt or generated images.
+
 ### Styling
 
 CSS custom properties are defined in `:root` (dark theme). Follow the existing variables (`--bg`, `--surface`, `--surface-2`, `--border`, `--border-strong`, `--accent`, `--text`, `--text-dim`, `--text-faint`, `--radius`, `--mono`) rather than hardcoding colors.

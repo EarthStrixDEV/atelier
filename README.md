@@ -27,6 +27,11 @@
 | 🖼️ **Batch generation** | สั่ง gen ครั้งละ 1 / 2 / 4 / 6 ภาพ — แต่ละภาพเป็น request แยกกัน ภาพไหน error กด "ลองใหม่" เฉพาะภาพนั้นได้ |
 | 📋 **Multi-Prompt Queue** | เพิ่ม prompt + model + ratio + จำนวนภาพ เข้าคิวได้สูงสุด 5 คิว แต่ละคิวตั้งค่าต่างกันได้อิสระ ดูรายการ/ลบทีละคิวได้ แล้วกด **Generate Queue** ยิงรันทุกคิวรวดเดียว |
 | 🧩 **Prompt Builder** | คลิก keyword สำเร็จรูปต่อท้าย prompt อัตโนมัติ (คลิกซ้ำเพื่อลบ, sync ตามข้อความใน prompt อัตโนมัติ) — ชุด keyword เปลี่ยนตามโหมดที่เลือกอยู่ ดูรายละเอียดที่หัวข้อ [Prompt Builder แต่ละโหมด](#-prompt-builder-แต่ละโหมด) |
+| ✨ **Prompt Optimizer** | กดปุ่ม "✨ Optimize" ใต้ prompt ให้ AI (GPT OSS 20B ฟรี) ช่วยจูน prompt ให้ละเอียดขึ้น พร้อมแนะนำ keyword เพิ่มเติมเป็น chip ให้เลือกกดเอง ดูรายละเอียดที่ [Prompt Optimizer](#-prompt-optimizer) |
+| 💬 **Chat with Atelier** | ปุ่มแชทลอยมุมขวาล่าง คุยปรึกษาเรื่อง prompt/style/mood กับ AI ผู้ช่วยได้ตลอดเวลา รู้ว่าอยู่โหมดไหนอยู่ ประวัติแชทจำไว้ข้ามการปิดเปิดหน้า ดูรายละเอียดที่ [Chat with Atelier](#-chat-with-atelier) |
+| 🕘 **Prompt History** | ทุก prompt ที่เคย generate สำเร็จถูกจำไว้แยกตามโหมด (สูงสุด 30 รายการ) กดจากรายการเพื่อใช้ซ้ำได้ทันที ลบทิ้งเป็นรายตัวได้ จำข้ามการปิดเปิดหน้าเว็บ |
+| 📋➡️🖼️ **Copy Prompt & Regenerate** | ทุกภาพ/วิดีโอที่ gen เสร็จมีปุ่ม "Copy Prompt" (คัดลอกกลับไปช่อง prompt เพื่อแก้ต่อ) และ "Regenerate" (gen ซ้ำด้วย prompt/โมเดล/ค่าตั้งเดิมทันที ไม่ต้องพิมพ์ใหม่) |
+| 💾 **Export / Import Session** | ปุ่ม Export/Import ที่ header — บันทึก prompt, ค่าตั้ง, คิว, ประวัติของทุกโหมดเป็นไฟล์ `.json` เดียว เอาไปเปิดเครื่องอื่นหรือ backup ก่อนปิดแท็บได้ (ไม่รวมตัวภาพ) |
 | 🏷️ **Model Tag บนภาพ** | ทุกภาพใน Gallery ติด tag ชื่อโมเดลที่ใช้ gen ไว้ที่มุมภาพ ดูย้อนหลังได้ว่าภาพไหนมาจากโมเดลไหน |
 | 📐 **Sidebar พับเก็บ + ลากปรับความกว้างได้** | คลิกปุ่มลูกศรที่ header เพื่อซ่อน/แสดง sidebar หรือลากขอบขวาของ sidebar เพื่อปรับความกว้าง (240–560px, จำค่าไว้ให้ครั้งถัดไป) |
 | 🔍 **Lightbox** | คลิกภาพเพื่อดูเต็มจอ เลื่อนซ้าย-ขวาด้วยปุ่มหรือคีย์บอร์ด พร้อมปุ่ม Download |
@@ -62,7 +67,7 @@
 - **ราคาประเมินต่อคลิป** แสดงใต้ dropdown โมเดล คำนวณจากราคาจริง × duration ที่เลือก (Seedance คิดเป็น token เลยประเมินล่วงหน้าไม่ได้)
 - **Progress Circle + %** ระหว่างรอ — วิดีโอใช้เวลาสร้างราวๆ 1–3 นาทีต่อคลิป ตัวเลข % เป็นค่า*ประเมินจากเวลา* (API ไม่ส่ง % จริงมา) ค้างที่ 95% จนกว่างานเสร็จจริง พร้อมสถานะรอคิว/กำลังสร้างและเวลาที่ผ่านไป
 - **Gallery เล่นวิดีโอวนแบบปิดเสียง** — คลิกเปิด lightbox เพื่อดูพร้อมเสียงและ scrub ได้ ปุ่ม Download ได้ไฟล์ `.mp4`
-- ⚠️ **ปิดหน้าเว็บระหว่างรอ = งานหาย** — ฝั่ง OpenRouter ยังคิดเงิน แต่ผลลัพธ์ไม่มีที่ให้กลับมาแสดง (แอปไม่ persist ข้อมูลใดๆ โดยตั้งใจ เช่นเดียวกับ API key)
+- ⚠️ **ปิดหน้าเว็บระหว่างรอ = งานหาย** — ฝั่ง OpenRouter ยังคิดเงิน แต่ผลลัพธ์ไม่มีที่ให้กลับมาแสดง (gallery/คิว/API key อยู่ใน memory ล้วน ไม่ persist ข้ามการปิดแท็บ ต่างจาก Prompt History/Chat history ที่จำไว้ใน `localStorage`)
 
 ### 🧩 Prompt Builder แต่ละโหมด
 
@@ -109,6 +114,27 @@
 | *(+ 11 หมวดของ Home)* | ใช้ร่วมกันได้ทั้งหมด — สไตล์ แสง มุมกล้อง โทน ท่าทาง ฯลฯ |
 
 </details>
+
+## ✨ Prompt Optimizer
+
+ไม่ต้องคิด prompt เองทั้งหมด — กดปุ่ม **"✨ Optimize"** ใต้ช่อง prompt แล้วให้ AI ช่วยจูนให้:
+
+1. ส่ง prompt ปัจจุบัน (ต้องไม่ว่าง และมี API key แล้ว) ไปให้โมเดล `openai/gpt-oss-20b:free` (ฟรี) ผ่าน OpenRouter
+2. ได้กลับมาเป็น **prompt ที่จูนใหม่ให้ละเอียด/ชัดเจนขึ้น** พร้อม **keyword แนะนำ 6-10 คำ** (สไตล์, แสง, มุมกล้อง, อารมณ์ ฯลฯ)
+3. เลือกได้ว่าจะกด **"ใช้ prompt นี้"** เพื่อแทนที่ prompt เดิมทันที, กด keyword chip แต่ละอันเพื่อเพิ่มเข้า prompt ปัจจุบัน (ไม่บังคับต้องใช้ prompt ที่จูนมา), หรือกด **"ยกเลิก"** ถ้าไม่ถูกใจ
+
+> [!NOTE]
+> Optimizer ใช้โมเดลเดียวกันไม่ว่าจะอยู่โหมดไหน (Home/Infographic/Video) — เดี๋ยวนี้ยังไม่คิดเงินเพิ่มเพราะเป็นโมเดลฟรี แต่ยังต้องใช้ API key เดิมของ OpenRouter อยู่ดี
+
+## 💬 Chat with Atelier
+
+ปุ่มแชทลอยมุมขวาล่างของหน้าจอ (ไอคอนบับเบิ้ล) — เป็นผู้ช่วย/ที่ปรึกษาเรื่องสร้างภาพและวิดีโอด้วย AI โดยเฉพาะ:
+
+- คุยปรึกษาได้ทั้งเรื่อง **ออกแบบ prompt** (style, lighting, composition, mood, camera work) และ**คำแนะนำทั่วไป**เกี่ยวกับการ generate ภาพ/วิดีโอ
+- รู้ว่าตอนนี้อยู่โหมดไหน (Home / Infographic / Video) เพื่อให้คำแนะนำที่เข้าบริบท — แต่**ไม่รู้**ว่า prompt ปัจจุบันในช่องพิมพ์คืออะไร หรือภาพที่เพิ่ง generate ออกมาหน้าตาเป็นยังไง
+- ใช้โมเดลเดียวกับ Prompt Optimizer (`openai/gpt-oss-20b:free`) และต้องมี API key ก่อนถึงจะคุยได้
+- ประวัติแชท**จำไว้ข้ามการปิดเปิดหน้าเว็บ** (ต่างจาก API key ที่ต้องใส่ใหม่ทุกครั้ง) กดปุ่ม "ล้าง" ที่หัว panel เพื่อเริ่มบทสนทนาใหม่ได้ตลอด
+- <kbd>Enter</kbd> ส่งข้อความ, <kbd>Shift</kbd>+<kbd>Enter</kbd> ขึ้นบรรทัดใหม่, <kbd>Esc</kbd> ปิด panel
 
 ## 🚀 Getting Started
 
@@ -160,6 +186,9 @@ python -m http.server 8000
 | <kbd>Shift</kbd> + <kbd>Enter</kbd> | ขึ้นบรรทัดใหม่ใน prompt |
 | <kbd>←</kbd> / <kbd>→</kbd> (ใน lightbox) | เลื่อนดูภาพก่อนหน้า / ถัดไป |
 | <kbd>Esc</kbd> (ใน lightbox) | ปิด lightbox |
+| <kbd>Enter</kbd> (ในช่อง chat) | ส่งข้อความแชท |
+| <kbd>Shift</kbd> + <kbd>Enter</kbd> (ในช่อง chat) | ขึ้นบรรทัดใหม่ในข้อความแชท |
+| <kbd>Esc</kbd> (chat panel เปิดอยู่) | ปิด chat panel |
 
 ## 🏗️ How It Works
 
@@ -207,6 +236,8 @@ python -m http.server 8000
 - **Aspect ratio** ฝั่ง `chat/completions` ส่งผ่าน `image_config.aspect_ratio` และแนบเป็น hint ท้าย prompt ด้วย (เผื่อโมเดลไม่รองรับ `image_config`) ส่วนฝั่ง Image API / Video API ส่ง `aspect_ratio` ตรงๆ เป็น native param
 - **แต่ละงานเป็น request อิสระ** — ทั้งใน batch เดียวและข้ามคิว งานหนึ่งพังไม่กระทบงานอื่น และ retry ได้รายงาน (วิดีโอ retry = submit job ใหม่)
 - **Queue** เป็นแค่ snapshot ของ (prompt, model, ratio, count และ duration/เสียงในโหมด Video) ที่เก็บใน memory ต่อโหมด — กด Generate Queue แล้วจะ flatten ทุกคิวเป็น batch เดียวแล้วยิงพร้อมกันทั้งหมด
+- **Prompt Optimizer และ Chat with Atelier ใช้ path แยกจาก image/video generation** — ทั้งคู่เรียก `openai/gpt-oss-20b:free` ผ่าน `POST /chat/completions` ตรงๆ (โมเดล text ล้วน ไม่เกี่ยวกับ modality image) แล้วรอ response เป็น JSON (Optimizer) หรือข้อความล้วน (Chat) กลับมาแสดงผลทันที ไม่มี job polling เหมือนโหมด Video
+- **Prompt History และ Chat history persist ผ่าน `localStorage`** — เป็นข้อมูลเดียวในแอปที่รอดจากการปิดแท็บ (ต่างจาก API key, gallery, คิว ที่อยู่ใน memory ล้วนแล้วหายเมื่อรีเฟรช) History แยก key ต่อโหมด ส่วน Chat history เป็น global เดียวไม่แยกโหมด
 
 ## 📁 Project Structure
 
