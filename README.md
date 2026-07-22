@@ -2,14 +2,15 @@
 
 # 🎨 Atelier
 
-**AI Image & Video Studio — สร้างภาพและวิดีโอด้วย AI ผ่าน OpenRouter ในไฟล์เดียว**
+**AI Image & Video Studio — สร้างภาพและวิดีโอด้วย AI ผ่าน OpenRouter**
 
-*ไม่ต้องติดตั้ง ไม่ต้อง build ไม่มี dependency — เปิดไฟล์เดียวใช้ได้เลย*
+*React + TypeScript + Tailwind CSS — client-only ไม่มี backend*
 
-![HTML](https://img.shields.io/badge/HTML-single_file-e34f26?logo=html5&logoColor=white)
-![JavaScript](https://img.shields.io/badge/JavaScript-vanilla-f7df1e?logo=javascript&logoColor=black)
+![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8?logo=tailwindcss&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7-646cff?logo=vite&logoColor=white)
 ![OpenRouter](https://img.shields.io/badge/API-OpenRouter-6467f2)
-![No Build](https://img.shields.io/badge/build-none-success)
 
 </div>
 
@@ -138,15 +139,22 @@
 
 ## 🚀 Getting Started
 
-### 1. เปิดแอป
+### 1. ติดตั้งและรัน
 
-ไม่ต้องติดตั้งอะไรทั้งนั้น — ดับเบิลคลิก `index.html` หรือถ้าอยากรันผ่าน local server:
+ต้องมี Node.js 22.12+ แล้วรัน:
 
 ```bash
-# ตัวเลือกใดตัวเลือกหนึ่ง
-npx serve .
-python -m http.server 8000
+npm install
 ```
+
+```bash
+npm run dev
+```
+
+เปิด `http://localhost:5173` ได้เลย — ส่วน production build ใช้ `npm run build` (ได้ static files ใน `dist/` เอาไป deploy ที่ไหนก็ได้) และ `npm run preview` เพื่อลองตัว build จริงที่ `http://localhost:4173`
+
+> [!TIP]
+> เวอร์ชัน single-file เดิม (vanilla JS ไฟล์เดียว ฟีเจอร์ครบเท่ากัน) ยังอยู่ที่ `legacy/index.html` — ดับเบิลคลิกเปิดในเบราว์เซอร์ได้เลยโดยไม่ต้องติดตั้งอะไร
 
 ### 2. ใส่ OpenRouter API Key
 
@@ -194,7 +202,7 @@ python -m http.server 8000
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  index.html  (ทั้งแอปอยู่ในไฟล์เดียว)                                │
+│  React SPA (Vite + TypeScript — client-only ไม่มี backend)        │
 │                                                                   │
 │  ┌───────────┐   GET /api/v1/models         (โมเดลภาพ)            │
 │  │  Sidebar  │ ─────────────────────► OpenRouter                 │
@@ -226,12 +234,12 @@ python -m http.server 8000
 
 รายละเอียดเชิงเทคนิค:
 
-- **Vanilla JS ล้วน** — ไม่มี framework, ไม่มี build step
-- **State แยกตามโหมด** — `apiKey` และ model list เต็มใช้ร่วมกัน ส่วน prompt / aspect ratio / จำนวนงาน / duration / เสียง / gallery / คิว เก็บแยกเป็นชุดของตัวเองต่อโหมด (Home / Infographic / Video) ผ่าน object ที่สลับ scope อัตโนมัติตามโหมดที่เลือกอยู่ สลับแท็บแล้วข้อมูลไม่ปนกันและไม่หาย
-- **งานที่กำลัง generate ถูก tag ด้วยโหมดต้นทาง** — ถ้าสลับโหมดระหว่างรอผลลัพธ์ งานจะยังบันทึกถูก gallery เดิม และจะ render หน้าจอใหม่ก็ต่อเมื่อโหมดนั้นยังถูกแสดงอยู่ ป้องกันงานหลุดไปโผล่ผิดโหมด
+- **React 19 + TypeScript strict + Tailwind CSS v4 + Vite** — ไม่มี state library ใช้ store ตัวเล็กที่เขียนเอง (mutable singleton + `useSyncExternalStore`) ทุกการเปลี่ยน state ผ่าน `mutate()` แล้ว broadcast ให้ component re-render
+- **State แยกตามโหมด** — `apiKey` และ model list เต็มใช้ร่วมกัน ส่วน prompt / aspect ratio / จำนวนงาน / duration / เสียง / gallery / คิว / ประวัติ เก็บแยกเป็น `ModeState` ของตัวเองต่อโหมด (Home / Infographic / Video) สลับแท็บแล้วข้อมูลไม่ปนกันและไม่หาย
+- **งานที่กำลัง generate ถูก tag ด้วยโหมดต้นทาง** — ถ้าสลับโหมดระหว่างรอผลลัพธ์ งานจะยังบันทึกถูก gallery เดิม (mutate ตาม reference ของ item) ป้องกันงานหลุดไปโผล่ผิดโหมด
 - **Routing ตามชนิดโมเดล** — โมเดลที่ output ได้ทั้ง image และ text (Gemini, GPT Image) ใช้ `chat/completions`; โมเดล image-only (Grok Imagine) ใช้ `POST /api/v1/images` โดยตรง เพราะ `chat/completions` จะ error "No endpoints found" ถ้าขอ modality `text` จากโมเดลที่ไม่รองรับ
 - **วิดีโอเป็น async job** — `POST /api/v1/videos` ได้ job id กลับมา แล้ว poll `GET /api/v1/videos/{id}` ทุก 10 วินาที (timeout 10 นาที) — poll เจอ 4xx หยุดทันที, 5xx/network error รอรอบถัดไป พอ `completed` ก็ fetch ไฟล์จาก `unsigned_urls[0]` มาเก็บเป็น blob ใน memory ทันที กันลิงก์หมดอายุระหว่างหน้ายังเปิดอยู่
-- **% ความคืบหน้าวิดีโอเป็นค่าประเมิน** — API ไม่ส่ง progress จริงมา ใช้สูตร exponential จากเวลาที่ผ่านไป (`95 × (1 − e^(−t/60))`) ไต่ช้าลงเรื่อยๆ ค้างสูงสุด 95% จน job เสร็จจริง และตัว ticker อัปเดตเฉพาะวงแหวน/ตัวเลขใน DOM — ไม่ re-render ทั้ง grid เพื่อไม่ให้วิดีโอที่เสร็จแล้วเริ่มเล่นใหม่
+- **% ความคืบหน้าวิดีโอเป็นค่าประเมิน** — API ไม่ส่ง progress จริงมา ใช้สูตร exponential จากเวลาที่ผ่านไป (`95 × (1 − e^(−t/60))`) ไต่ช้าลงเรื่อยๆ ค้างสูงสุด 95% จน job เสร็จจริง — ticker 1 วินาทีอยู่ใน component วงแหวนเอง และ card ใช้ React key คงที่ วิดีโอที่เสร็จแล้วจึงไม่ถูก remount และเล่นต่อเนื่องไม่สะดุด
 - **Capability ของโมเดลวิดีโอดึงสด** — `supported_durations` / `supported_aspect_ratios` / `generate_audio` / `pricing_skus` มาจาก `/api/v1/videos/models` โดยตรง ปุ่มที่โมเดลไม่รองรับถูก disable และค่าที่เลือกไว้ snap ไปค่าใกล้สุดอัตโนมัติ — ถ้าวันหนึ่งโมเดลรองรับเพิ่ม ปุ่มจะปลดล็อคเองโดยไม่ต้องแก้โค้ด
 - **Aspect ratio** ฝั่ง `chat/completions` ส่งผ่าน `image_config.aspect_ratio` และแนบเป็น hint ท้าย prompt ด้วย (เผื่อโมเดลไม่รองรับ `image_config`) ส่วนฝั่ง Image API / Video API ส่ง `aspect_ratio` ตรงๆ เป็น native param
 - **แต่ละงานเป็น request อิสระ** — ทั้งใน batch เดียวและข้ามคิว งานหนึ่งพังไม่กระทบงานอื่น และ retry ได้รายงาน (วิดีโอ retry = submit job ใหม่)
@@ -243,9 +251,21 @@ python -m http.server 8000
 
 ```
 atelier/
-├── index.html   # ทั้งแอป: HTML + CSS + JS
-├── CLAUDE.md    # คู่มือสำหรับ Claude Code
-└── README.md    # ไฟล์นี้
+├── index.html              # Vite entry
+├── src/
+│   ├── main.tsx / App.tsx  # bootstrap + layout
+│   ├── index.css           # Tailwind v4 @theme (โทนสีชุดเดิมจาก legacy)
+│   ├── lib/
+│   │   ├── types.ts        # type ทั้งหมด (Mode, GenItem, ModeState, AppState, …)
+│   │   ├── constants.ts    # ratio/count/duration, keyword groups, model lists/filters
+│   │   ├── store.ts        # state singleton + mutate() + useApp() + localStorage
+│   │   ├── actions.ts      # โลจิกทั้งหมด: โหลดโมเดล, generate, video polling, queue,
+│   │   │                   #   history, optimizer, chat, export/import, downloads
+│   │   └── utils.ts        # keyword toggle, convert/download helpers, ราคา/progress วิดีโอ
+│   └── components/         # Header, Sidebar, Gallery, Lightbox, KeyModal, ChatPanel, Toast
+├── legacy/index.html       # เวอร์ชัน single-file เดิม (ฟีเจอร์ครบเท่ากัน — frozen)
+├── CLAUDE.md               # คู่มือสำหรับ Claude Code
+└── README.md               # ไฟล์นี้
 ```
 
 ## 📄 License

@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+/* โทนสีเดิมจาก legacy/index.html — mapping ชื่อ 1:1 กับ CSS custom properties ชุดเก่า */
+@theme {
+  --color-bg: #0a0a0a;
+  --color-surface: #111111;
+  --color-surface-2: #181818;
+  --color-border: #262626;
+  --color-border-strong: #3a3a3a;
+  --color-text: #f5f5f5;
+  --color-text-dim: #8a8a8a;
+  --color-text-faint: #555555;
+  --color-accent: #ffffff;
+  --color-accent-ink: #0a0a0a;
+  --color-danger: #f87171;
+  --font-sans: "Inter", "Noto Sans Thai", -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+  --radius-card: 10px;
+  --animate-shimmer: shimmer 1.4s infinite;
+
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* native <details> marker ของ keyword group */
+details.kw-group > summary { list-style: none; }
+details.kw-group > summary::-webkit-details-marker { display: none; }
+details.kw-group > summary::after { content: "+"; color: var(--color-text-faint); font-size: 13px; }
+details.kw-group[open] > summary::after { content: "–"; }

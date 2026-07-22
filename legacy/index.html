@@ -1,0 +1,2856 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atelier — AI Image Generator</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --surface-2: #181818;
+    --border: #262626;
+    --border-strong: #3a3a3a;
+    --text: #f5f5f5;
+    --text-dim: #8a8a8a;
+    --text-faint: #555555;
+    --accent: #ffffff;
+    --accent-ink: #0a0a0a;
+    --danger: #f87171;
+    --radius: 10px;
+    --font: "Inter", "Noto Sans Thai", -apple-system, "Segoe UI", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- Header ---------- */
+  header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 0 28px;
+    height: 60px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header .mode-tabs { justify-self: center; }
+  header .header-right { justify-self: end; display: flex; align-items: center; gap: 8px; }
+  .session-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 99px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .session-btn:hover { border-color: var(--border-strong); color: var(--text); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 26px; height: 26px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: grid; place-items: center;
+    color: var(--accent-ink);
+    font-weight: 800; font-size: 14px;
+  }
+  .brand h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.2px; }
+  .brand span { font-size: 11px; color: var(--text-faint); font-weight: 400; margin-left: 2px; letter-spacing: 1.5px; text-transform: uppercase; }
+
+  .mode-tabs {
+    display: flex;
+    gap: 3px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    padding: 3px;
+  }
+  .mode-tabs button {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 6px 16px;
+    border-radius: 99px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .mode-tabs button:hover { color: var(--text); }
+  .mode-tabs button.active { background: var(--accent); color: var(--accent-ink); }
+  .key-status {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-dim);
+    cursor: pointer;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    transition: border-color .15s;
+    user-select: none;
+  }
+  .key-status:hover { border-color: var(--border-strong); }
+  .key-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+  .key-dot.ok { background: #4ade80; }
+
+  /* ---------- Layout ---------- */
+  .app { flex: 1; display: flex; min-height: 0; }
+  .sidebar {
+    width: var(--sidebar-w, 320px);
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    padding: 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    transition: margin-left .28s ease;
+    position: relative;
+  }
+  .app.collapsed .sidebar { margin-left: calc(-1 * var(--sidebar-w, 320px)); }
+  .sidebar-resize {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 5;
+  }
+  .sidebar-resize:hover, .sidebar-resize.dragging { background: var(--accent); opacity: .4; }
+  .app.resizing { cursor: col-resize; user-select: none; }
+  .app.resizing .sidebar { transition: none; }
+  .side-toggle {
+    width: 30px; height: 30px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text-dim);
+    font-size: 12px;
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: all .15s;
+    flex-shrink: 0;
+  }
+  .side-toggle:hover { border-color: var(--border-strong); color: var(--text); }
+  main { flex: 1; overflow-y: auto; padding: 28px; }
+
+  /* ---------- Controls ---------- */
+  .field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 9px;
+  }
+  textarea {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13.5px;
+    line-height: 1.55;
+    padding: 12px 14px;
+    resize: vertical;
+    min-height: 110px;
+    transition: border-color .15s;
+  }
+  textarea:focus, select:focus, input:focus { outline: none; border-color: var(--accent); }
+  textarea::placeholder { color: var(--text-faint); }
+
+  select, input[type="password"], input[type="text"] {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 10px 12px;
+    transition: border-color .15s;
+    appearance: none;
+  }
+  .select-wrap { position: relative; }
+  .select-wrap::after {
+    content: "";
+    position: absolute;
+    right: 14px; top: 50%;
+    width: 7px; height: 7px;
+    border-right: 1.5px solid var(--text-dim);
+    border-bottom: 1.5px solid var(--text-dim);
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+  }
+  .model-meta { font-size: 11px; color: var(--text-faint); margin-top: 7px; line-height: 1.5; font-family: var(--mono); }
+
+  /* usage bar */
+  .usage-bar { display: flex; flex-direction: column; gap: 8px; }
+  .usage-row { display: flex; flex-direction: column; gap: 3px; }
+  .usage-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11px; }
+  .usage-row-name { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usage-row-cost { color: var(--text-faint); font-family: var(--mono); flex-shrink: 0; }
+  .usage-row-track { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .usage-row-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+
+  /* segmented controls */
+  .seg { display: grid; gap: 6px; }
+  .seg.ratio { grid-template-columns: repeat(5, 1fr); }
+  .seg.count { grid-template-columns: repeat(4, 1fr); }
+  .seg.duration { grid-template-columns: repeat(3, 1fr); }
+  .seg button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 8px 0 7px;
+    cursor: pointer;
+    transition: all .12s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+  .seg button:hover { border-color: var(--border-strong); color: var(--text); }
+  .seg button.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .seg button:disabled {
+    opacity: .3;
+    cursor: not-allowed;
+  }
+  .seg button:disabled:hover { border-color: var(--border); color: var(--text-dim); }
+
+  /* อยู่ใน .field เลยโดน .field label (uppercase/11px/600) ทับ — ต้อง reset กลับทุกค่า */
+  .field label.audio-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--text-dim);
+    margin-bottom: 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .audio-row input { accent-color: var(--accent); cursor: pointer; }
+  .audio-row input:disabled { cursor: not-allowed; }
+  .audio-row input:disabled + span { opacity: .4; }
+  .ratio-icon {
+    border: 1.5px solid currentColor;
+    border-radius: 2px;
+    display: block;
+  }
+
+  .generate-btn {
+    width: 100%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 13px;
+    cursor: pointer;
+    transition: opacity .15s, transform .1s;
+    margin-top: 2px;
+  }
+  .generate-btn:hover:not(:disabled) { opacity: .88; }
+  .generate-btn:active:not(:disabled) { transform: scale(.985); }
+  .generate-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ---------- Queue ---------- */
+  .queue-add {
+    width: 100%;
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius);
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 10px;
+    cursor: pointer;
+    transition: all .15s;
+    margin-top: -12px;
+  }
+  .queue-add:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+  .queue-add:disabled { opacity: .35; cursor: not-allowed; }
+  .queue-list { display: flex; flex-direction: column; gap: 6px; }
+  .queue-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .queue-item .q-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+  .queue-item .q-info { flex: 1; min-width: 0; }
+  .queue-item .q-prompt {
+    font-size: 12px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .queue-item .q-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .queue-item .q-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 4px;
+    flex-shrink: 0;
+    transition: color .12s;
+  }
+  .queue-item .q-remove:hover { color: var(--danger); }
+
+  .hint { font-size: 11.5px; color: var(--text-faint); line-height: 1.6; }
+  .hint b { color: var(--text-dim); font-weight: 600; }
+
+  /* ---------- Prompt Optimizer ---------- */
+  .optimize-btn {
+    width: 100%;
+    margin-top: 8px;
+    background: transparent;
+    border: 1px dashed var(--border-strong);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 9px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .optimize-btn:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+  .optimize-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .optimize-btn.loading { pointer-events: none; opacity: .6; }
+  .optimize-panel {
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .optimize-panel .op-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .optimize-panel .op-text {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 11px;
+    max-height: 160px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .optimize-panel .chips { padding: 0; }
+  .optimize-panel .op-row { display: flex; gap: 8px; }
+  .optimize-panel .op-row button {
+    flex: 1;
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px;
+    cursor: pointer;
+  }
+  .optimize-panel .op-error { font-size: 12px; color: var(--danger); line-height: 1.5; }
+
+  /* ---------- Prompt builder ---------- */
+  .kw-group {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .kw-group + .kw-group { margin-top: 7px; }
+  .kw-group summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    padding: 9px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .5px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: color .15s;
+  }
+  .kw-group summary::-webkit-details-marker { display: none; }
+  .kw-group summary::after { content: "+"; color: var(--text-faint); font-size: 13px; font-weight: 400; }
+  .kw-group[open] summary::after { content: "–"; }
+  .kw-group summary:hover { color: var(--text); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 12px 12px; }
+  .chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 11.5px;
+    padding: 5px 11px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .chip:hover { border-color: var(--border-strong); color: var(--text); }
+  .chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  #historyList { flex-direction: column; align-items: stretch; }
+  .hist-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 8px 7px 11px;
+  }
+  .hist-item .hist-text {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 11.5px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    padding: 0;
+  }
+  .hist-item .hist-text:hover { color: var(--text); }
+  .hist-item .hist-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 4px;
+    flex-shrink: 0;
+  }
+  .hist-item .hist-remove:hover { color: var(--danger); }
+
+  /* ---------- Gallery ---------- */
+  .gallery-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .gallery-head h2 { font-size: 13px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-dim); }
+  .gallery-head-right { display: flex; align-items: baseline; gap: 14px; }
+  .gallery-head .count-label { font-size: 12px; color: var(--text-faint); font-family: var(--mono); }
+  .select-bar { display: flex; align-items: center; gap: 10px; }
+  .select-bar .select-count { font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+  .select-bar button {
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 5px 11px;
+    border-radius: 99px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .select-bar button:hover { border-color: var(--accent); }
+  .select-bar #selectDownloadBtn { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+  .card .select-check {
+    position: absolute;
+    top: 8px; right: 8px;
+    z-index: 2;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: 1.5px solid var(--border-strong);
+    background: rgba(10,10,10,.72);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity .12s, background .12s, border-color .12s;
+    cursor: pointer;
+  }
+  .card.done:hover .select-check,
+  .card .select-check.checked { opacity: 1; }
+  .card .select-check.checked { background: var(--accent); border-color: var(--accent); }
+  .card .select-check svg { width: 13px; height: 13px; stroke: var(--bg); fill: none; stroke-width: 2.5; opacity: 0; }
+  .card .select-check.checked svg { opacity: 1; }
+  .card.selected { border-color: var(--accent); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+    transition: border-color .15s;
+  }
+  .card.done { cursor: zoom-in; }
+  .card.done:hover { border-color: var(--border-strong); }
+  .card .frame { width: 100%; position: relative; background: var(--surface-2); }
+  .card .model-tag {
+    position: absolute;
+    top: 8px; left: 8px;
+    z-index: 1;
+    background: rgba(10,10,10,.72);
+    backdrop-filter: blur(4px);
+    border: 1px solid var(--border-strong);
+    border-radius: 99px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    padding: 3px 9px;
+    max-width: calc(100% - 16px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+  .card img, .card video { width: 100%; height: 100%; object-fit: cover; display: block; position: absolute; inset: 0; }
+  .card .caption {
+    padding: 10px 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .card .caption .p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .card .caption .m { color: var(--text-faint); font-family: var(--mono); font-size: 10px; flex-shrink: 0; }
+  .card .card-actions {
+    display: flex;
+    gap: 6px;
+    padding: 0 12px 10px;
+  }
+  .card .card-actions button {
+    flex: 1;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 6px 0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .card .card-actions button:hover { border-color: var(--border-strong); color: var(--text); }
+
+  /* loading shimmer */
+  .card.loading .frame::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.05) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .card.loading .frame::after {
+    content: "";
+    position: absolute; top: 50%; left: 50%;
+    width: 22px; height: 22px;
+    margin: -11px 0 0 -11px;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--text);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* video progress circle (แทน shimmer/spinner ของ card วิดีโอที่กำลัง generate) */
+  .card.vid.loading .frame::before, .card.vid.loading .frame::after { display: none; }
+  .vid-prog {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .vid-prog .ring-wrap { position: relative; width: 64px; height: 64px; }
+  .vid-prog svg { transform: rotate(-90deg); display: block; }
+  .vid-prog .ring-bg { fill: none; stroke: var(--border-strong); stroke-width: 4; }
+  .vid-prog .prog-ring {
+    fill: none;
+    stroke: var(--text);
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-dasharray: 176;
+    stroke-dashoffset: 176;
+    transition: stroke-dashoffset 1s linear;
+  }
+  .vid-prog .prog-num {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .vid-prog .prog-status { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+
+  /* error card */
+  .card.error .frame { display: grid; place-items: center; }
+  .err-box { text-align: center; padding: 18px; position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+  .err-box .msg { font-size: 11.5px; color: var(--danger); line-height: 1.5; max-height: 60%; overflow: hidden; }
+  .err-box button {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 7px;
+    font-size: 11.5px;
+    font-family: var(--font);
+    padding: 6px 16px;
+    cursor: pointer;
+  }
+  .err-box button:hover { border-color: var(--text); }
+
+  .empty {
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: var(--text-faint);
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+  }
+  .empty svg { opacity: .4; }
+  .empty p { font-size: 13px; }
+
+  /* ---------- Lightbox ---------- */
+  .lightbox {
+    position: fixed; inset: 0;
+    background: rgba(5,5,5,.94);
+    backdrop-filter: blur(8px);
+    display: none;
+    z-index: 100;
+    flex-direction: column;
+  }
+  .lightbox.open { display: flex; }
+  .lb-top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px;
+    flex-shrink: 0;
+  }
+  .lb-info { font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+  .lb-actions { display: flex; gap: 10px; }
+  .lb-btn {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 12.5px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .lb-btn:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .lb-format {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 12px;
+    padding: 8px 8px;
+    cursor: pointer;
+    appearance: none;
+  }
+  .lb-format:focus { outline: none; border-color: var(--accent); }
+  .lb-stage {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 70px 20px;
+    min-height: 0;
+    position: relative;
+  }
+  .lb-stage img, .lb-stage video {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 8px;
+    box-shadow: 0 20px 80px rgba(0,0,0,.6);
+  }
+  .lb-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: rgba(10,10,10,.7);
+    color: var(--text);
+    font-size: 17px;
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: all .12s;
+  }
+  .lb-nav:hover { background: var(--accent); color: var(--accent-ink); }
+  .lb-nav.prev { left: 18px; }
+  .lb-nav.next { right: 18px; }
+  .lb-prompt {
+    flex-shrink: 0;
+    padding: 0 24px 20px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    max-height: 70px;
+    overflow-y: auto;
+  }
+
+  /* ---------- Key modal ---------- */
+  .modal-veil {
+    position: fixed; inset: 0;
+    background: rgba(5,5,5,.8);
+    backdrop-filter: blur(6px);
+    display: none;
+    place-items: center;
+    z-index: 200;
+  }
+  .modal-veil.open { display: grid; }
+  .modal {
+    width: min(440px, calc(100vw - 40px));
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    padding: 28px;
+  }
+  .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .modal .sub { font-size: 12.5px; color: var(--text-dim); line-height: 1.6; margin-bottom: 18px; }
+  .modal .sub a { color: var(--text); }
+  .modal .row { display: flex; gap: 10px; margin-top: 16px; }
+  .modal .row button {
+    flex: 1;
+    border-radius: 9px;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 11px;
+    cursor: pointer;
+  }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); border: none; }
+  .btn-primary:hover { opacity: .88; }
+  .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--border-strong); color: var(--text); }
+  .modal .note { font-size: 11px; color: var(--text-faint); margin-top: 14px; line-height: 1.6; }
+
+  /* toast */
+  .toast {
+    position: fixed;
+    bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    font-size: 13px;
+    padding: 11px 20px;
+    border-radius: 10px;
+    transition: transform .25s cubic-bezier(.2,.9,.3,1.2);
+    z-index: 300;
+    max-width: 80vw;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ---------- Chat with Atelier ---------- */
+  .chat-fab {
+    position: fixed;
+    right: 24px; bottom: 24px;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    display: grid; place-items: center;
+    cursor: pointer;
+    box-shadow: 0 8px 30px rgba(0,0,0,.4);
+    z-index: 150;
+    transition: transform .15s;
+  }
+  .chat-fab:hover { transform: scale(1.06); }
+  .chat-fab.hidden { display: none; }
+  .chat-panel {
+    position: fixed;
+    right: 24px; bottom: 24px;
+    width: min(380px, calc(100vw - 40px));
+    height: min(560px, calc(100vh - 48px));
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    box-shadow: 0 20px 80px rgba(0,0,0,.6);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 160;
+  }
+  .chat-panel.open { display: flex; }
+  .chat-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-head-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+  .chat-head-title #chatModeTag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    padding: 2px 8px;
+  }
+  .chat-head-actions { display: flex; gap: 6px; }
+  .chat-head-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font);
+    font-size: 11px;
+    border-radius: 7px;
+    padding: 5px 9px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .chat-head-actions button:hover { border-color: var(--border-strong); color: var(--text); }
+  .chat-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chat-empty { font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
+  .chat-msg {
+    max-width: 88%;
+    font-size: 13px;
+    line-height: 1.55;
+    padding: 9px 13px;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-bottom-right-radius: 4px;
+  }
+  .chat-msg.assistant {
+    align-self: flex-start;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .chat-msg.error {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+  }
+  .chat-msg.pending { color: var(--text-faint); font-style: italic; }
+  .chat-input-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-input-row textarea {
+    flex: 1;
+    resize: none;
+    min-height: 36px;
+    max-height: 100px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 8px 11px;
+    line-height: 1.4;
+  }
+  .chat-input-row textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-input-row button {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 9px;
+    font-family: var(--font);
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 9px 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .chat-input-row button:disabled { opacity: .35; cursor: not-allowed; }
+
+  @media (max-width: 480px) {
+    .chat-panel { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+    .chat-fab { right: 16px; bottom: 16px; }
+  }
+
+  /* responsive */
+  @media (max-width: 860px) {
+    .app { flex-direction: column; }
+    .sidebar { width: 100% !important; border-right: none; border-bottom: 1px solid var(--border); }
+    .app.collapsed .sidebar { margin-left: 0; display: none; }
+    .sidebar-resize { display: none; }
+    main { padding: 20px; }
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <button class="side-toggle" id="sideToggle" title="ซ่อน/แสดง sidebar">◀</button>
+    <div class="brand-mark">A</div>
+    <h1>Atelier <span>image studio</span></h1>
+  </div>
+  <div class="mode-tabs" id="modeTabs">
+    <button type="button" data-mode="home" class="active">Home</button>
+    <button type="button" data-mode="infographic">Infographic</button>
+    <button type="button" data-mode="video">Video</button>
+  </div>
+  <div class="header-right">
+    <button class="session-btn" id="importBtn" title="Import session (.json)">Import</button>
+    <button class="session-btn" id="exportBtn" title="Export session (.json)">Export</button>
+    <input type="file" id="importFile" accept="application/json" style="display:none">
+    <div class="key-status" id="keyStatus" title="ตั้งค่า OpenRouter API Key">
+      <div class="key-dot" id="keyDot"></div>
+      <span id="keyLabel">ใส่ API Key</span>
+    </div>
+  </div>
+</header>
+
+<div class="app" id="app">
+  <aside class="sidebar">
+    <div class="sidebar-resize" id="sidebarResize"></div>
+    <div class="field">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" placeholder="อธิบายภาพที่ต้องการ… เช่น a minimalist black and white portrait of a cat, studio lighting, high contrast"></textarea>
+      <button type="button" class="optimize-btn" id="optimizeBtn" disabled>✨ Optimize</button>
+    </div>
+
+    <div class="field" id="optimizeField" style="display:none">
+      <div class="optimize-panel" id="optimizePanel"></div>
+    </div>
+
+    <div class="field" id="historyField" style="display:none">
+      <details class="kw-group" id="historyGroup">
+        <summary>Prompt History <span id="historyCount" style="font-weight:400"></span></summary>
+        <div class="chips" id="historyList"></div>
+      </details>
+    </div>
+
+    <div class="field">
+      <label>Prompt Builder</label>
+      <div id="kwTool"></div>
+    </div>
+
+    <div class="field">
+      <label for="model">Model</label>
+      <div class="select-wrap">
+        <select id="model" disabled>
+          <option>กำลังโหลดรายชื่อโมเดล…</option>
+        </select>
+      </div>
+      <div class="model-meta" id="modelMeta"></div>
+    </div>
+
+    <div class="field" id="usageField" style="display:none">
+      <label>Usage <span id="usageTotal"></span></label>
+      <div class="usage-bar" id="usageBar"></div>
+    </div>
+
+    <div class="field">
+      <label>Aspect Ratio</label>
+      <div class="seg ratio" id="ratioSeg"></div>
+    </div>
+
+    <div class="field" id="durationField" style="display:none">
+      <label>Duration</label>
+      <div class="seg duration" id="durationSeg"></div>
+    </div>
+
+    <div class="field" id="audioField" style="display:none">
+      <label>Audio</label>
+      <label class="audio-row"><input type="checkbox" id="audioToggle"><span>เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)</span></label>
+    </div>
+
+    <div class="field">
+      <label id="countFieldLabel">Images</label>
+      <div class="seg count" id="countSeg"></div>
+    </div>
+
+    <div class="field" id="queueField" style="display:none">
+      <label>Queue <span id="queueCount"></span></label>
+      <div class="queue-list" id="queueList"></div>
+    </div>
+
+    <button class="generate-btn" id="generateBtn" disabled>Generate</button>
+    <button class="queue-add" id="queueBtn" disabled>+ เพิ่มเข้าคิว (สูงสุด 5)</button>
+
+    <p class="hint" id="hintText">รายชื่อโมเดลดึงสดจาก OpenRouter (เฉพาะโมเดลที่ generate ภาพได้) — <b>Enter</b> ใน prompt เพื่อสั่ง gen ได้เลย</p>
+  </aside>
+
+  <main>
+    <div class="gallery-head">
+      <h2 id="galleryTitle">Gallery</h2>
+      <div class="gallery-head-right">
+        <span class="select-bar" id="selectBar" style="display:none">
+          <span class="select-count" id="selectCount"></span>
+          <button type="button" id="selectDownloadBtn">ดาวน์โหลด</button>
+          <button type="button" id="selectClearBtn">ยกเลิก</button>
+        </span>
+        <span class="count-label" id="countLabel"></span>
+      </div>
+    </div>
+    <div id="galleryZone">
+      <div class="empty" id="emptyState">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+          <rect x="3" y="3" width="18" height="18" rx="3"/>
+          <circle cx="9" cy="9" r="2"/>
+          <path d="M21 15l-5-5-8 8"/>
+        </svg>
+        <p id="emptyText">ยังไม่มีภาพ — ใส่ prompt แล้วกด Generate ได้เลยค่ะ</p>
+      </div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+  <div class="lb-top">
+    <div class="lb-info" id="lbInfo"></div>
+    <div class="lb-actions">
+      <select class="lb-format" id="lbFormat" title="รูปแบบไฟล์ที่จะดาวน์โหลด">
+        <option value="png">PNG</option>
+        <option value="jpg">JPG</option>
+      </select>
+      <button class="lb-btn" id="lbDownload">Download</button>
+      <button class="lb-btn" id="lbClose">Close ✕</button>
+    </div>
+  </div>
+  <div class="lb-stage">
+    <button class="lb-nav prev" id="lbPrev">‹</button>
+    <img id="lbImg" alt="preview">
+    <video id="lbVideo" controls style="display:none"></video>
+    <button class="lb-nav next" id="lbNext">›</button>
+  </div>
+  <div class="lb-prompt" id="lbPrompt"></div>
+</div>
+
+<!-- API Key modal -->
+<div class="modal-veil" id="keyModal">
+  <div class="modal">
+    <h3>OpenRouter API Key</h3>
+    <p class="sub">สร้าง key ได้ที่ <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a></p>
+    <input type="password" id="keyInput" placeholder="sk-or-v1-…" autocomplete="off">
+    <div class="row">
+      <button class="btn-ghost" id="keyCancel">ยกเลิก</button>
+      <button class="btn-primary" id="keySave">บันทึก</button>
+    </div>
+    <p class="note">Key เก็บไว้ในหน่วยความจำของหน้านี้เท่านั้น ไม่ถูกบันทึกลงเครื่องหรือส่งไปที่อื่นนอกจาก OpenRouter — ปิดหน้าแล้วต้องใส่ใหม่ค่ะ</p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Chat with Atelier -->
+<button class="chat-fab" id="chatFab" title="Chat with Atelier — ที่ปรึกษาเรื่องสร้างภาพ/วิดีโอด้วย AI">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+  </svg>
+</button>
+
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-head">
+    <div class="chat-head-title">
+      <strong>Chat with Atelier</strong>
+      <span id="chatModeTag"></span>
+    </div>
+    <div class="chat-head-actions">
+      <button type="button" id="chatClearBtn" title="ล้างประวัติแชท">ล้าง</button>
+      <button type="button" id="chatCloseBtn" title="ปิด">✕</button>
+    </div>
+  </div>
+  <div class="chat-body" id="chatBody">
+    <div class="chat-empty" id="chatEmpty">
+      หนูเป็นผู้ช่วยเรื่องสร้างภาพ/วิดีโอด้วย AI ค่ะ ถามได้เลยว่าอยากได้ prompt แบบไหน หรือปรึกษาเรื่อง style, mood, keyword ก็ได้นะคะ~
+    </div>
+  </div>
+  <div class="chat-input-row">
+    <textarea id="chatInput" placeholder="พิมพ์คำถามหรือปรึกษาเรื่อง prompt…" rows="1"></textarea>
+    <button type="button" id="chatSendBtn" disabled>Send</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- state ----------
+  // apiKey และ models (list เต็มจาก OpenRouter) ใช้ร่วมกันทุกโหมด
+  // ส่วน ratio/count/images/queue/lbIndex/seq แยกเป็นชุดของตัวเองต่อโหมด (per-mode state)
+  const shared = {
+    apiKey: "",
+    models: [],          // image-capable models from OpenRouter (ทุกตัว ไม่กรอง mode)
+    videoModels: [],     // video models จาก /api/v1/videos/models (กรองเหลือ VIDEO_MODEL_IDS)
+  };
+  const MAX_QUEUE = 5;
+
+  function freshModeState() {
+    return {
+      prompt: "",
+      ratio: "1:1",
+      count: 1,
+      duration: 8,        // วินาที — ใช้เฉพาะโหมด video
+      audio: false,       // generate_audio — ใช้เฉพาะโหมด video
+      images: [],         // { id, status: loading|done|error, url, prompt, model, ratio, errMsg }
+      queue: [],          // { prompt, model, modelName, ratio, count } สูงสุด MAX_QUEUE
+      history: [],        // prompt ที่เคยใช้ generate สำเร็จ ล่าสุดขึ้นก่อน ไม่ซ้ำ สูงสุด MAX_HISTORY
+      lbIndex: -1,
+      seq: 0,
+      selected: new Set(), // id ของ card ที่ติ๊กเลือกไว้ (multi-select download)
+    };
+  }
+
+  const MAX_HISTORY = 30;
+  const HISTORY_KEY_PREFIX = "atelier_history_";
+
+  function loadHistory(mode) {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY_PREFIX + mode);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list.filter(x => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  function saveHistory(mode) {
+    try {
+      localStorage.setItem(HISTORY_KEY_PREFIX + mode, JSON.stringify(modeStates[mode].history));
+    } catch { /* localStorage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+  }
+  function addToHistory(mode, prompt) {
+    const p = prompt.trim();
+    if (!p) return;
+    const h = modeStates[mode].history;
+    const existing = h.indexOf(p);
+    if (existing !== -1) h.splice(existing, 1);
+    h.unshift(p);
+    if (h.length > MAX_HISTORY) h.length = MAX_HISTORY;
+    saveHistory(mode);
+    if (mode === currentMode) renderHistory();
+  }
+  function removeFromHistory(mode, prompt) {
+    const h = modeStates[mode].history;
+    const i = h.indexOf(prompt);
+    if (i !== -1) h.splice(i, 1);
+    saveHistory(mode);
+    if (mode === currentMode) renderHistory();
+  }
+
+  const modeStates = {
+    home: freshModeState(),
+    infographic: freshModeState(),
+    video: freshModeState(),
+  };
+  for (const mode of Object.keys(modeStates)) modeStates[mode].history = loadHistory(mode);
+  let currentMode = "home";
+  const state = new Proxy({}, {
+    get: (_, key) => key in shared ? shared[key] : modeStates[currentMode][key],
+    set: (_, key, val) => {
+      if (key in shared) shared[key] = val;
+      else modeStates[currentMode][key] = val;
+      return true;
+    },
+  });
+
+  // โมเดลที่แต่ละโหมดอนุญาตให้เลือกได้ (undefined = ไม่จำกัด, ใช้ list เต็ม)
+  const MODE_MODEL_FILTER = {
+    home: null,
+    infographic: [/^openai\/gpt-5\.4-image-2$/i, /^google\/gemini-3-pro-image$/i],
+  };
+
+  // โหมด video ใช้ endpoint แยก (/api/v1/videos/models) — เรียงตามลำดับใน array นี้
+  const VIDEO_MODEL_IDS = [
+    "x-ai/grok-imagine-video",
+    "google/veo-3.1-fast",
+    "kwaivgi/kling-v3.0-std",
+    "bytedance/seedance-2.0",
+  ];
+
+  function modelsForCurrentMode() {
+    if (currentMode === "video") return shared.videoModels;
+    const filter = MODE_MODEL_FILTER[currentMode];
+    if (!filter) return shared.models;
+    return shared.models.filter(m => filter.some(re => re.test(m.id)));
+  }
+
+  const RATIOS = [
+    { v: "1:1",  w: 14, h: 14 },
+    { v: "4:3",  w: 16, h: 12 },
+    { v: "3:4",  w: 12, h: 16 },
+    { v: "16:9", w: 18, h: 10 },
+    { v: "9:16", w: 10, h: 18 },
+  ];
+  const COUNTS = [1, 2, 4, 6];
+  const DURATIONS = [8, 9, 10];
+  const VIDEO_RESOLUTION = "720p";  // fix ค่าเดียว — ทั้ง 4 โมเดลรองรับร่วมกัน และคุมราคา
+  const VIDEO_POLL_MS = 10000;
+  const VIDEO_TIMEOUT_MS = 10 * 60 * 1000;
+
+  // โมเดลที่พี่เอิร์ธอยากได้ ให้ลอยขึ้นบนสุดของ dropdown ถ้ามีบน OpenRouter
+  const PREFERRED = [
+    /grok.*imagine.*quality/i,
+    /grok.*imagine/i,
+    /gpt.*image/i,
+  ];
+
+  // โมเดลที่ต้องมีใน list เสมอ แม้ /api/v1/models จะไม่ส่งมา (merge ตาม id ไม่ให้ซ้ำ)
+  const EXTRA_MODELS = [
+    {
+      id: "x-ai/grok-imagine-image-quality",
+      name: "Grok Imagine Image Quality",
+      pricing: { image: "0.05" },
+      architecture: { output_modalities: ["image"] },
+    },
+    {
+      id: "openai/gpt-image-2",
+      name: "OpenAI: GPT Image 2",
+      pricing: {},
+      architecture: { output_modalities: ["image", "text"] },
+    },
+    {
+      id: "google/gemini-3-pro-image",
+      name: "Google: Nano Banana Pro (Gemini 3 Pro Image)",
+      pricing: { image: "0.000002" },
+      architecture: { output_modalities: ["image", "text"] },
+    },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- API key ----------
+  function openKeyModal() {
+    $("keyInput").value = state.apiKey;
+    $("keyModal").classList.add("open");
+    setTimeout(() => $("keyInput").focus(), 50);
+  }
+  function closeKeyModal() { $("keyModal").classList.remove("open"); }
+  function saveKey() {
+    const v = $("keyInput").value.trim();
+    state.apiKey = v;
+    refreshKeyUI();
+    closeKeyModal();
+    if (v) toast("บันทึก API Key แล้วค่ะ");
+    updateGenerateEnabled();
+  }
+  function refreshKeyUI() {
+    const ok = !!state.apiKey;
+    $("keyDot").classList.toggle("ok", ok);
+    $("keyLabel").textContent = ok ? "API Key พร้อมใช้" : "ใส่ API Key";
+  }
+
+  // ---------- models ----------
+  async function loadModels() {
+    const sel = $("model");
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/models");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const list = (data.data || []).filter(m =>
+        (m.architecture?.output_modalities || []).includes("image") &&
+        (!m.id.startsWith("openai/") || m.id === "openai/gpt-image-2")
+      );
+      for (const em of EXTRA_MODELS) {
+        if (!list.some(m => m.id === em.id)) list.push(em);
+      }
+      // preferred models first, then by name
+      const rank = (m) => {
+        for (let i = 0; i < PREFERRED.length; i++) {
+          if (PREFERRED[i].test(m.id) || PREFERRED[i].test(m.name || "")) return i;
+        }
+        return PREFERRED.length;
+      };
+      list.sort((a, b) => rank(a) - rank(b) || (a.name || a.id).localeCompare(b.name || b.id));
+      shared.models = list;
+      populateModelSelect();
+      updateModelMeta();
+      updateGenerateEnabled();
+    } catch (e) {
+      sel.innerHTML = "<option>โหลดโมเดลไม่สำเร็จ — คลิกเพื่อลองใหม่</option>";
+      sel.disabled = false;
+      sel.onmousedown = (ev) => {
+        if (!shared.models.length) { ev.preventDefault(); sel.disabled = true; loadModels(); }
+      };
+      toast("โหลดรายชื่อโมเดลไม่สำเร็จ: " + e.message);
+    }
+  }
+
+  let videoModelsFailed = false;
+  async function loadVideoModels() {
+    videoModelsFailed = false;
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/videos/models");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const list = (data.data || []).filter(m => VIDEO_MODEL_IDS.includes(m.id));
+      list.sort((a, b) => VIDEO_MODEL_IDS.indexOf(a.id) - VIDEO_MODEL_IDS.indexOf(b.id));
+      shared.videoModels = list;
+    } catch (e) {
+      videoModelsFailed = true;
+      toast("โหลดรายชื่อโมเดลวิดีโอไม่สำเร็จ: " + e.message);
+    }
+    if (currentMode === "video") {
+      populateModelSelect();
+      updateModelMeta();
+      updateSegAvailability();
+      updateGenerateEnabled();
+    }
+  }
+
+  function populateModelSelect() {
+    const sel = $("model");
+    const list = modelsForCurrentMode();
+    sel.innerHTML = "";
+    sel.onmousedown = null;
+    const sourceLoaded = currentMode === "video" ? shared.videoModels.length > 0 : shared.models.length > 0;
+    if (!sourceLoaded) {
+      if (currentMode === "video" && videoModelsFailed) {
+        sel.innerHTML = "<option>โหลดโมเดลไม่สำเร็จ — คลิกเพื่อลองใหม่</option>";
+        sel.disabled = false;
+        sel.onmousedown = (ev) => {
+          if (!shared.videoModels.length) { ev.preventDefault(); sel.disabled = true; loadVideoModels(); }
+        };
+      } else {
+        sel.innerHTML = "<option>กำลังโหลดรายชื่อโมเดล…</option>";
+        sel.disabled = true;
+      }
+      return;
+    }
+    if (!list.length) {
+      sel.innerHTML = "<option>ไม่พบโมเดลที่รองรับโหมดนี้</option>";
+      sel.disabled = true;
+      return;
+    }
+    for (const m of list) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.name || m.id;
+      sel.appendChild(opt);
+    }
+    sel.disabled = false;
+  }
+
+  function currentModel() {
+    return modelsForCurrentMode().find(m => m.id === $("model").value) || null;
+  }
+
+  // ราคาต่อวินาทีที่ 720p — schema ของ pricing_skus ต่างกันต่อ provider
+  // (grok คิดเป็น cents, veo/kling เป็น USD ต่อวินาที, seedance เป็น token คำนวณล่วงหน้าไม่ได้ → null)
+  function videoPricePerSec(m, audio) {
+    const s = m.pricing_skus || {};
+    const n = (k) => (s[k] != null ? parseFloat(s[k]) : null);
+    const cents = n("cents_per_video_output_second_720p");
+    if (cents != null) return cents / 100;
+    if (audio) return n("duration_seconds_with_audio_720p") ?? n("duration_seconds_with_audio") ?? n("duration_seconds");
+    return n("duration_seconds_without_audio_720p") ?? n("duration_seconds_without_audio") ?? n("duration_seconds");
+  }
+
+  function updateModelMeta() {
+    const m = currentModel();
+    if (!m) { $("modelMeta").textContent = ""; return; }
+    if (currentMode === "video") {
+      const pps = videoPricePerSec(m, state.audio);
+      const price = pps != null
+        ? "~$" + (pps * state.duration).toFixed(2) + " / คลิป " + state.duration + " วิ"
+        : null;
+      $("modelMeta").textContent = m.id + (price ? "  ·  " + price : "");
+      return;
+    }
+    const price = m.pricing?.image && parseFloat(m.pricing.image) > 0
+      ? "$" + (parseFloat(m.pricing.image) * 1000).toFixed(3).replace(/\.?0+$/, "") + " / 1k img"
+      : null;
+    $("modelMeta").textContent = m.id + (price ? "  ·  " + price : "");
+  }
+
+  // ค่าใช้จ่ายจริงต่อภาพ/คลิปไม่มี API แยกรายโมเดล — ประมาณจาก pricing ของโมเดล ณ ตอนนี้
+  // (เฉพาะ item ที่ status done เพราะ error/loading ยังไม่ถือว่าใช้เครดิตไปแล้ว)
+  function computeItemCost(item) {
+    if (item.mode === "video") {
+      const m = shared.videoModels.find(x => x.id === item.model);
+      if (!m) return null;
+      const pps = videoPricePerSec(m, item.audio);
+      return pps != null ? pps * item.duration : null;
+    }
+    const m = shared.models.find(x => x.id === item.model);
+    const price = m?.pricing?.image ? parseFloat(m.pricing.image) : NaN;
+    return price > 0 ? price : null;
+  }
+
+  function updateUsageBar() {
+    const field = $("usageField");
+    const done = state.images.filter(x => x.status === "done");
+    const byModel = new Map();
+    let total = 0;
+    let hasUnknown = false;
+    for (const item of done) {
+      const cost = computeItemCost(item);
+      if (cost == null) { hasUnknown = true; continue; }
+      total += cost;
+      byModel.set(item.modelName, (byModel.get(item.modelName) || 0) + cost);
+    }
+    if (!byModel.size) { field.style.display = "none"; return; }
+    field.style.display = "";
+    $("usageTotal").textContent = "~$" + total.toFixed(4) + (hasUnknown ? " (บางโมเดลไม่ทราบราคา)" : "");
+    const rows = [...byModel.entries()].sort((a, b) => b[1] - a[1]);
+    const max = rows[0][1] || 1;
+    const bar = $("usageBar");
+    bar.innerHTML = "";
+    for (const [name, cost] of rows) {
+      const row = document.createElement("div");
+      row.className = "usage-row";
+      const top = document.createElement("div");
+      top.className = "usage-row-top";
+      const nameEl = document.createElement("span");
+      nameEl.className = "usage-row-name";
+      nameEl.textContent = name;
+      nameEl.title = name;
+      const costEl = document.createElement("span");
+      costEl.className = "usage-row-cost";
+      costEl.textContent = "$" + cost.toFixed(4);
+      top.appendChild(nameEl);
+      top.appendChild(costEl);
+      const track = document.createElement("div");
+      track.className = "usage-row-track";
+      const fill = document.createElement("div");
+      fill.className = "usage-row-fill";
+      fill.style.width = (cost / max * 100) + "%";
+      track.appendChild(fill);
+      row.appendChild(top);
+      row.appendChild(track);
+      bar.appendChild(row);
+    }
+  }
+
+  // ---------- segmented controls ----------
+  function buildSegs() {
+    const rs = $("ratioSeg");
+    rs.innerHTML = "";
+    for (const r of RATIOS) {
+      const b = document.createElement("button");
+      const icon = document.createElement("span");
+      icon.className = "ratio-icon";
+      icon.style.width = r.w + "px";
+      icon.style.height = r.h + "px";
+      b.appendChild(icon);
+      b.appendChild(document.createTextNode(r.v));
+      b.dataset.v = r.v;
+      if (r.v === state.ratio) b.classList.add("active");
+      b.onclick = () => {
+        state.ratio = r.v;
+        rs.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+      };
+      rs.appendChild(b);
+    }
+    const cs = $("countSeg");
+    cs.innerHTML = "";
+    for (const c of COUNTS) {
+      const b = document.createElement("button");
+      b.textContent = c;
+      b.style.fontSize = "13px";
+      if (c === state.count) b.classList.add("active");
+      b.onclick = () => {
+        state.count = c;
+        cs.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+      };
+      cs.appendChild(b);
+    }
+    const ds = $("durationSeg");
+    ds.innerHTML = "";
+    for (const d of DURATIONS) {
+      const b = document.createElement("button");
+      b.textContent = d + "s";
+      b.style.fontSize = "13px";
+      b.dataset.v = d;
+      if (d === state.duration) b.classList.add("active");
+      b.onclick = () => {
+        state.duration = d;
+        ds.querySelectorAll("button").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        updateModelMeta();
+      };
+      ds.appendChild(b);
+    }
+  }
+
+  // เปิด/ปิดปุ่ม duration + ratio + audio ตาม capability ของโมเดลวิดีโอที่เลือกอยู่
+  // (โหมดอื่นเปิดหมด) — ถ้าค่าที่เลือกไว้ใช้ไม่ได้ snap ไปค่าที่ใกล้ที่สุดที่โมเดลรองรับ
+  function updateSegAvailability() {
+    const isVideo = currentMode === "video";
+    const m = isVideo ? currentModel() : null;
+    const durs = (isVideo && Array.isArray(m?.supported_durations) && m.supported_durations.length)
+      ? m.supported_durations : null;
+    const ratios = (isVideo && Array.isArray(m?.supported_aspect_ratios) && m.supported_aspect_ratios.length)
+      ? m.supported_aspect_ratios : null;
+
+    if (durs) {
+      const allowed = DURATIONS.filter(d => durs.includes(d));
+      if (allowed.length && !allowed.includes(state.duration)) {
+        // ค่าที่ใกล้ที่สุดจากด้านล่างก่อน (เช่น Veo: เลือก 10 ไว้ → snap เป็น 8) ไม่มีก็เอาค่าต่ำสุดที่รองรับ
+        const below = allowed.filter(d => d <= state.duration);
+        state.duration = below.length ? below[below.length - 1] : allowed[0];
+      }
+    }
+    if (ratios && !ratios.includes(state.ratio)) {
+      const rAllowed = RATIOS.map(r => r.v).filter(v => ratios.includes(v));
+      if (rAllowed.length) state.ratio = rAllowed.includes("16:9") ? "16:9" : rAllowed[0];
+    }
+
+    $("durationSeg").querySelectorAll("button").forEach(b => {
+      b.disabled = !!(durs && !durs.includes(+b.dataset.v));
+      b.classList.toggle("active", +b.dataset.v === state.duration);
+    });
+    $("ratioSeg").querySelectorAll("button").forEach(b => {
+      b.disabled = !!(ratios && !ratios.includes(b.dataset.v));
+      b.classList.toggle("active", b.dataset.v === state.ratio);
+    });
+
+    const audioOk = isVideo && !!m?.generate_audio;
+    if (isVideo && !audioOk) state.audio = false;
+    $("audioToggle").disabled = isVideo && !audioOk;
+    $("audioToggle").checked = state.audio;
+  }
+
+  // ---------- prompt builder ----------
+  const KEYWORDS_BY_MODE = {
+    home: [
+      { label: "สไตล์", items: ["photorealistic", "cinematic", "anime style", "watercolor", "oil painting", "minimalist", "cyberpunk", "3D render"] },
+      { label: "แสง", items: ["studio lighting", "golden hour", "soft light", "neon lights", "dramatic lighting", "backlit"] },
+      { label: "มุมกล้อง", items: ["close-up portrait", "wide angle", "top-down view", "macro shot", "bokeh background"] },
+      { label: "โทน / อารมณ์", items: ["warm tones", "moody", "dreamy", "vibrant colors", "black and white", "pastel colors"] },
+      { label: "รายละเอียด", items: ["highly detailed", "sharp focus", "high contrast", "8k", "film grain"] },
+      { label: "ท่าทาง", items: ["standing pose", "sitting", "walking", "running", "jumping", "dancing", "action pose", "lying down", "arms crossed", "looking at camera"] },
+      { label: "Prop ประกอบฉาก", items: ["holding a coffee cup", "holding flowers", "with an umbrella", "reading a book", "with balloons", "neon sign background", "vintage car", "city street background", "cozy cafe interior"] },
+      { label: "บุคคล / สัตว์", items: ["young woman", "young man", "elderly person", "child", "cat", "dog", "bird", "horse", "dragon", "robot"] },
+      { label: "Character Detail", items: ["blue eyes", "long hair", "short hair", "curly hair", "freckles", "sharp jawline", "muscular build", "slim build", "scar on cheek", "tattoos"] },
+      { label: "Visual Effect", items: ["motion blur", "lens flare", "particle effects", "glowing aura", "smoke effect", "rain effect", "double exposure", "chromatic aberration"] },
+      { label: "Clothing", items: ["business suit", "casual streetwear", "traditional Thai dress", "leather jacket", "summer dress", "military uniform", "kimono", "hoodie and jeans"] },
+    ],
+    infographic: [
+      { label: "Style", items: ["flat design", "corporate style", "modern minimal", "hand-drawn style", "isometric", "gradient style", "line art icons", "3D illustrative"] },
+      { label: "Layout", items: ["vertical layout", "horizontal layout", "grid layout", "circular layout", "timeline layout", "comparison layout", "single-column layout", "poster layout"] },
+      { label: "Language", items: ["Thai text", "English text", "bilingual Thai-English", "no text, icons only"] },
+      { label: "Header", items: ["bold title header", "centered header", "banner header", "subtitle included", "icon beside title"] },
+      { label: "Detail", items: ["data-heavy detail", "minimal text detail", "with icons", "with charts", "with statistics", "with illustrations"] },
+      { label: "Segmentation", items: ["3-step process", "4-part breakdown", "5-part breakdown", "before/after comparison", "timeline segments", "numbered sections", "pros vs cons split"] },
+    ],
+  };
+  // โหมด video: สองกลุ่มเฉพาะวิดีโออยู่บนสุด (กลุ่มแรกเปิด default) ตามด้วยกลุ่มเดิมของ Home ทั้งหมด
+  KEYWORDS_BY_MODE.video = [
+    { label: "Camera Control", items: ["slow dolly in", "dolly out", "pan left", "pan right", "tilt up", "crane shot", "orbit around subject", "tracking shot", "handheld camera", "FPV drone shot", "static camera", "zoom in slowly"] },
+    { label: "Frametime Control", items: ["slow motion", "timelapse", "fast motion", "speed ramp", "freeze frame ending", "seamless loop", "reverse motion", "long take"] },
+    ...KEYWORDS_BY_MODE.home,
+  ];
+
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hasKeyword = (kw) =>
+    new RegExp("(^|[,\\s])" + escRe(kw) + "($|[,\\s])", "i").test($("prompt").value);
+
+  function toggleKeyword(kw) {
+    const ta = $("prompt");
+    if (hasKeyword(kw)) {
+      // ลบ keyword พร้อม comma ที่พ่วงอยู่ (นำหน้าหรือตามหลัง)
+      ta.value = ta.value
+        .replace(new RegExp("\\s*,\\s*" + escRe(kw) + "(?=$|[,\\s])", "i"), "")
+        .replace(new RegExp("(^|[,\\s])" + escRe(kw) + "\\s*,?\\s*", "i"), "$1")
+        .trim().replace(/^,\s*/, "").replace(/,\s*$/, "");
+    } else {
+      ta.value = ta.value.trim() ? ta.value.trim().replace(/,\s*$/, "") + ", " + kw : kw;
+    }
+    state.prompt = ta.value;
+    syncChips();
+    updateGenerateEnabled();
+  }
+
+  function syncChips() {
+    $("kwTool").querySelectorAll(".chip").forEach(ch => {
+      ch.classList.toggle("active", hasKeyword(ch.dataset.kw));
+    });
+  }
+
+  // ---------- prompt history ----------
+  function renderHistory() {
+    const list = state.history;
+    $("historyField").style.display = list.length ? "" : "none";
+    $("historyCount").textContent = list.length ? "(" + list.length + ")" : "";
+    const root = $("historyList");
+    root.innerHTML = "";
+    const mode = currentMode;
+    for (const p of list) {
+      const row = document.createElement("div");
+      row.className = "hist-item";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "hist-text";
+      btn.textContent = p;
+      btn.title = p;
+      btn.onclick = () => {
+        $("prompt").value = p;
+        state.prompt = p;
+        syncChips();
+        updateGenerateEnabled();
+      };
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "hist-remove";
+      rm.textContent = "✕";
+      rm.title = "ลบออกจากประวัติ";
+      rm.onclick = () => removeFromHistory(mode, p);
+      row.appendChild(btn);
+      row.appendChild(rm);
+      root.appendChild(row);
+    }
+  }
+
+  // ---------- prompt optimizer ----------
+  const OPTIMIZER_MODEL = "openai/gpt-oss-20b:free";
+  let optimizeResult = null; // { prompt, keywords } ของโหมดปัจจุบัน หรือ null ถ้ายังไม่มี/ถูกปิดไป
+
+  function clearOptimizePanel() {
+    optimizeResult = null;
+    $("optimizeField").style.display = "none";
+    $("optimizePanel").innerHTML = "";
+  }
+
+  async function runOptimize() {
+    const original = $("prompt").value.trim();
+    if (!original) return;
+    if (!state.apiKey) { openKeyModal(); return; }
+
+    const btn = $("optimizeBtn");
+    btn.disabled = true;
+    btn.classList.add("loading");
+    btn.textContent = "กำลังจูน prompt…";
+    $("optimizeField").style.display = "";
+    $("optimizePanel").innerHTML = "";
+
+    const modeName = currentMode === "video" ? "video generation" : currentMode === "infographic" ? "infographic generation" : "image generation";
+    const sys = "You are a prompt engineer helping a user write better prompts for AI " + modeName + ". "
+      + "Given the user's rough prompt, rewrite it into a more detailed, vivid, well-structured prompt in English "
+      + "(keep any names/subjects the user specified). Also suggest 6-10 short keyword phrases (style, lighting, "
+      + "composition, mood, etc.) the user could add. Respond with ONLY valid JSON, no markdown fences, in this exact shape: "
+      + '{"prompt": "...", "keywords": ["...", "..."]}';
+
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + state.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: OPTIMIZER_MODEL,
+          messages: [
+            { role: "system", content: sys },
+            { role: "user", content: original },
+          ],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+      const raw = data.choices?.[0]?.message?.content;
+      if (!raw) throw new Error("โมเดลไม่ตอบข้อความกลับมาค่ะ");
+      const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonText);
+      } catch {
+        throw new Error("แปลผลลัพธ์จากโมเดลไม่สำเร็จค่ะ ลองกด Optimize ใหม่อีกครั้งนะคะ");
+      }
+      const optPrompt = typeof parsed.prompt === "string" ? parsed.prompt.trim() : "";
+      const keywords = Array.isArray(parsed.keywords) ? parsed.keywords.filter(k => typeof k === "string" && k.trim()).map(k => k.trim()) : [];
+      if (!optPrompt) throw new Error("ไม่พบ prompt ที่จูนแล้วในผลลัพธ์ค่ะ");
+      optimizeResult = { prompt: optPrompt, keywords };
+      renderOptimizePanel();
+    } catch (e) {
+      renderOptimizeError(e.message || "เกิดข้อผิดพลาดไม่ทราบสาเหตุ");
+    } finally {
+      btn.disabled = !$("prompt").value.trim();
+      btn.classList.remove("loading");
+      btn.textContent = "✨ Optimize";
+    }
+  }
+
+  function renderOptimizeError(msg) {
+    const panel = $("optimizePanel");
+    panel.innerHTML = "";
+    const err = document.createElement("div");
+    err.className = "op-error";
+    err.textContent = msg;
+    const row = document.createElement("div");
+    row.className = "op-row";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "btn-ghost";
+    closeBtn.textContent = "ปิด";
+    closeBtn.onclick = clearOptimizePanel;
+    row.appendChild(closeBtn);
+    panel.appendChild(err);
+    panel.appendChild(row);
+  }
+
+  function renderOptimizePanel() {
+    const panel = $("optimizePanel");
+    panel.innerHTML = "";
+    if (!optimizeResult) return;
+
+    const label = document.createElement("div");
+    label.className = "op-label";
+    label.textContent = "Prompt ที่จูนแล้ว";
+    const text = document.createElement("div");
+    text.className = "op-text";
+    text.textContent = optimizeResult.prompt;
+    panel.appendChild(label);
+    panel.appendChild(text);
+
+    if (optimizeResult.keywords.length) {
+      const kwLabel = document.createElement("div");
+      kwLabel.className = "op-label";
+      kwLabel.textContent = "Keyword แนะนำ (กดเพื่อเพิ่มเข้า prompt ปัจจุบัน)";
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      for (const kw of optimizeResult.keywords) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.textContent = kw;
+        chip.onclick = () => toggleKeyword(kw);
+        chips.appendChild(chip);
+      }
+      panel.appendChild(kwLabel);
+      panel.appendChild(chips);
+    }
+
+    const row = document.createElement("div");
+    row.className = "op-row";
+    const applyBtn = document.createElement("button");
+    applyBtn.className = "btn-primary";
+    applyBtn.textContent = "ใช้ prompt นี้";
+    applyBtn.onclick = () => {
+      $("prompt").value = optimizeResult.prompt;
+      state.prompt = optimizeResult.prompt;
+      syncChips();
+      updateGenerateEnabled();
+      clearOptimizePanel();
+      toast("แทนที่ prompt แล้วค่ะ");
+    };
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "btn-ghost";
+    cancelBtn.textContent = "ยกเลิก";
+    cancelBtn.onclick = clearOptimizePanel;
+    row.appendChild(applyBtn);
+    row.appendChild(cancelBtn);
+    panel.appendChild(row);
+  }
+
+  // ---------- chat with atelier ----------
+  const CHAT_MODEL = "openai/gpt-oss-20b:free";
+  const CHAT_HISTORY_KEY = "atelier_chat_history";
+  const MAX_CHAT_HISTORY = 60;
+  let chatMessages = loadChatHistory(); // [{ role: "user"|"assistant", content }]
+  let chatPending = false;
+
+  function loadChatHistory() {
+    try {
+      const raw = localStorage.getItem(CHAT_HISTORY_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list)
+        ? list.filter(m => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  function saveChatHistory() {
+    try {
+      const toSave = chatMessages.slice(-MAX_CHAT_HISTORY);
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(toSave));
+    } catch { /* localStorage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+  }
+
+  function chatModeLabel() {
+    return currentMode === "video" ? "Video" : currentMode === "infographic" ? "Infographic" : "Home";
+  }
+
+  function chatSystemPrompt() {
+    return "You are the in-app assistant for Atelier, an AI image/video generator built on OpenRouter. "
+      + "You help the user brainstorm ideas, design prompts (style, lighting, composition, mood, camera work), "
+      + "and give practical advice about generating images and videos with AI models. "
+      + "The user is currently in the \"" + chatModeLabel() + "\" tab of the app "
+      + "(Home = images, Infographic = infographic images, Video = short video clips). "
+      + "Keep answers concise and practical. When useful, suggest a ready-to-use prompt. Respond in the same "
+      + "language the user writes in (Thai or English).";
+  }
+
+  function renderChatMessages() {
+    const body = $("chatBody");
+    const wasNearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    body.innerHTML = "";
+    if (!chatMessages.length) {
+      const empty = document.createElement("div");
+      empty.className = "chat-empty";
+      empty.id = "chatEmpty";
+      empty.textContent = "หนูเป็นผู้ช่วยเรื่องสร้างภาพ/วิดีโอด้วย AI ค่ะ ถามได้เลยว่าอยากได้ prompt แบบไหน หรือปรึกษาเรื่อง style, mood, keyword ก็ได้นะคะ~";
+      body.appendChild(empty);
+    } else {
+      for (const m of chatMessages) {
+        const div = document.createElement("div");
+        div.className = "chat-msg " + (m.role === "user" ? "user" : "assistant");
+        div.textContent = m.content;
+        body.appendChild(div);
+      }
+    }
+    if (chatPending) {
+      const div = document.createElement("div");
+      div.className = "chat-msg assistant pending";
+      div.textContent = "กำลังพิมพ์…";
+      body.appendChild(div);
+    }
+    if (wasNearBottom || chatPending) body.scrollTop = body.scrollHeight;
+  }
+
+  function openChatPanel() {
+    $("chatPanel").classList.add("open");
+    $("chatFab").classList.add("hidden");
+    $("chatModeTag").textContent = chatModeLabel();
+    renderChatMessages();
+    setTimeout(() => $("chatInput").focus(), 50);
+  }
+  function closeChatPanel() {
+    $("chatPanel").classList.remove("open");
+    $("chatFab").classList.remove("hidden");
+  }
+  function clearChatHistory() {
+    chatMessages = [];
+    saveChatHistory();
+    renderChatMessages();
+  }
+
+  async function sendChatMessage() {
+    const input = $("chatInput");
+    const text = input.value.trim();
+    if (!text || chatPending) return;
+    if (!state.apiKey) { openKeyModal(); return; }
+
+    chatMessages.push({ role: "user", content: text });
+    saveChatHistory();
+    input.value = "";
+    input.style.height = "auto";
+    chatPending = true;
+    renderChatMessages();
+    updateChatSendEnabled();
+
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + state.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages: [
+            { role: "system", content: chatSystemPrompt() },
+            ...chatMessages.map(m => ({ role: m.role, content: m.content })),
+          ],
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+      const reply = data.choices?.[0]?.message?.content;
+      if (!reply) throw new Error("โมเดลไม่ตอบข้อความกลับมาค่ะ");
+      chatMessages.push({ role: "assistant", content: reply.trim() });
+      saveChatHistory();
+    } catch (e) {
+      chatMessages.push({ role: "assistant", content: "⚠️ " + (e.message || "เกิดข้อผิดพลาดไม่ทราบสาเหตุ") });
+    } finally {
+      chatPending = false;
+      renderChatMessages();
+      updateChatSendEnabled();
+    }
+  }
+
+  function updateChatSendEnabled() {
+    $("chatSendBtn").disabled = chatPending || !$("chatInput").value.trim();
+  }
+
+  function buildKeywordTool() {
+    const root = $("kwTool");
+    root.innerHTML = "";
+    KEYWORDS_BY_MODE[currentMode].forEach((group, i) => {
+      const det = document.createElement("details");
+      det.className = "kw-group";
+      if (i === 0) det.open = true;
+      const sum = document.createElement("summary");
+      sum.textContent = group.label;
+      det.appendChild(sum);
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      for (const kw of group.items) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.textContent = kw;
+        chip.dataset.kw = kw;
+        chip.onclick = () => toggleKeyword(kw);
+        chips.appendChild(chip);
+      }
+      det.appendChild(chips);
+      root.appendChild(det);
+    });
+  }
+
+  // ---------- queue ----------
+  function addToQueue() {
+    const prompt = $("prompt").value.trim();
+    const m = currentModel();
+    if (!prompt || !m || state.queue.length >= MAX_QUEUE) return;
+    state.queue.push({
+      prompt,
+      model: m.id,
+      modelName: m.name || m.id,
+      ratio: state.ratio,
+      count: state.count,
+      duration: state.duration,
+      audio: state.audio,
+    });
+    renderQueue();
+    updateGenerateEnabled();
+    toast("เพิ่มเข้าคิวแล้วค่ะ (" + state.queue.length + "/" + MAX_QUEUE + ")");
+  }
+
+  function removeFromQueue(index) {
+    state.queue.splice(index, 1);
+    renderQueue();
+    updateGenerateEnabled();
+  }
+
+  function renderQueue() {
+    const has = state.queue.length > 0;
+    $("queueField").style.display = has ? "" : "none";
+    $("queueCount").textContent = has ? state.queue.length + "/" + MAX_QUEUE : "";
+    $("generateBtn").textContent = has ? "Generate Queue (" + state.queue.length + ")" : "Generate";
+    const list = $("queueList");
+    list.innerHTML = "";
+    state.queue.forEach((q, i) => {
+      const row = document.createElement("div");
+      row.className = "queue-item";
+      const num = document.createElement("span");
+      num.className = "q-num";
+      num.textContent = String(i + 1);
+      const info = document.createElement("div");
+      info.className = "q-info";
+      const p = document.createElement("div");
+      p.className = "q-prompt";
+      p.textContent = q.prompt;
+      const meta = document.createElement("div");
+      meta.className = "q-meta";
+      meta.textContent = q.modelName + " · " + q.ratio
+        + (currentMode === "video" ? " · " + q.duration + "s" + (q.audio ? " 🔊" : "") : "")
+        + " · ×" + q.count;
+      info.appendChild(p);
+      info.appendChild(meta);
+      const rm = document.createElement("button");
+      rm.className = "q-remove";
+      rm.textContent = "✕";
+      rm.title = "ลบออกจากคิว";
+      rm.onclick = () => removeFromQueue(i);
+      row.appendChild(num);
+      row.appendChild(info);
+      row.appendChild(rm);
+      list.appendChild(row);
+    });
+  }
+
+  // ---------- generation ----------
+  function updateGenerateEnabled() {
+    const hasPrompt = !!$("prompt").value.trim();
+    const hasModels = modelsForCurrentMode().length > 0;
+    $("generateBtn").disabled = !(shared.apiKey && hasModels && (hasPrompt || state.queue.length));
+    $("queueBtn").disabled = !(hasModels && hasPrompt && state.queue.length < MAX_QUEUE);
+    $("optimizeBtn").disabled = !hasPrompt;
+  }
+
+  async function generate() {
+    if (!state.apiKey) { openKeyModal(); return; }
+
+    let jobs;
+    if (state.queue.length) {
+      jobs = state.queue;
+      state.queue = [];
+      renderQueue();
+      updateGenerateEnabled();
+    } else {
+      const prompt = $("prompt").value.trim();
+      const model = currentModel();
+      if (!prompt || !model) return;
+      jobs = [{ prompt, model: model.id, modelName: model.name || model.id, ratio: state.ratio, count: state.count, duration: state.duration, audio: state.audio }];
+    }
+
+    const mode = currentMode;
+    const seenPrompts = new Set();
+    for (const job of jobs) {
+      if (!seenPrompts.has(job.prompt)) { seenPrompts.add(job.prompt); addToHistory(mode, job.prompt); }
+    }
+    const batch = [];
+    for (const job of jobs) {
+      for (let i = 0; i < job.count; i++) {
+        const item = {
+          id: ++state.seq,
+          status: "loading",
+          url: null,
+          prompt: job.prompt,
+          model: job.model,
+          modelName: job.modelName,
+          ratio: job.ratio,
+          duration: job.duration,
+          audio: job.audio,
+          jobStatus: "",     // pending | in_progress ระหว่างรอ video job
+          jobId: null,       // job ที่ submit แล้ว — คงไว้ตอน error ที่งานยังไม่ตาย เพื่อ retry โดยไม่จ่ายซ้ำ
+          startedAt: null,
+          errMsg: "",
+          mode,
+        };
+        state.images.unshift(item);
+        batch.push(item);
+      }
+    }
+    render();
+    batch.forEach(item => runRequest(item));
+  }
+
+  async function runRequest(item) {
+    try {
+      if (item.mode === "video") {
+        item.url = await requestVideo(item);
+      } else {
+        const m = shared.models.find(x => x.id === item.model);
+        const outs = m?.architecture?.output_modalities || [];
+        // โมเดล image-only (เช่น Grok Imagine) เรียกผ่าน chat/completions ไม่ได้
+        // ("No endpoints found that support the requested output modalities") ต้องใช้ Image API แทน
+        if (outs.length && !outs.includes("text")) {
+          item.url = await requestViaImageAPI(item);
+        } else {
+          item.url = await requestViaChat(item);
+        }
+      }
+      item.status = "done";
+    } catch (e) {
+      item.status = "error";
+      item.errMsg = e.message || "unknown error";
+    }
+    // ถ้าพี่สลับโหมดระหว่างรอผลลัพธ์ item ก็ยังอัปเดตค่าใน array ของโหมดเดิมถูกต้อง
+    // (ไม่ผ่าน proxy) แค่ render ใหม่เฉพาะตอนโหมดนั้นยังแสดงอยู่บนจอ
+    if (item.mode === currentMode) render();
+  }
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // Video API เป็น async job: submit ได้ job id แล้ว poll จน completed ค่อยได้ URL
+  // โหลดไฟล์เป็น blob ทันทีกัน unsigned URL หมดอายุระหว่างหน้ายังเปิดอยู่
+  async function requestVideo(item) {
+    item.startedAt = Date.now();
+    item.jobStatus = "pending";
+
+    // ถ้า item มี jobId ค้างอยู่ (เช่น สร้างเสร็จแล้วแต่โหลดไฟล์พลาด หรือ timeout)
+    // ให้ poll งานเดิมต่อแทนการ submit ใหม่ — กันจ่ายเงินซ้ำสำหรับงานที่จ่ายไปแล้ว
+    let resumed = !!item.jobId;
+    if (!item.jobId) {
+      const m = shared.videoModels.find(x => x.id === item.model);
+      const body = {
+        model: item.model,
+        prompt: item.prompt,
+        duration: item.duration,
+        resolution: VIDEO_RESOLUTION,
+        aspect_ratio: item.ratio,
+      };
+      if (m?.generate_audio) body.generate_audio = !!item.audio;
+      const res = await fetch("https://openrouter.ai/api/v1/videos", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + shared.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+      if (!data.id) throw new Error("ไม่ได้รับ job id จาก OpenRouter");
+      item.jobId = data.id;
+    }
+
+    const deadline = Date.now() + VIDEO_TIMEOUT_MS;
+    while (true) {
+      // งานที่ resume มา งานอาจเสร็จอยู่แล้ว — เช็คเร็วๆ รอบแรกไม่ต้องรอเต็ม 10 วิ
+      await sleep(resumed ? 1500 : VIDEO_POLL_MS);
+      resumed = false;
+      if (Date.now() > deadline) throw new Error("หมดเวลารอผลลัพธ์ (10 นาที) — กด \"ลองใหม่\" เพื่อเช็คงานเดิมต่อได้ค่ะ (ไม่เสียเงินเพิ่ม)");
+      const pr = await fetch("https://openrouter.ai/api/v1/videos/" + item.jobId, {
+        headers: { "Authorization": "Bearer " + shared.apiKey },
+      });
+      const pd = await pr.json().catch(() => ({}));
+      if (!pr.ok) {
+        // 4xx = poll งานนี้ต่อไม่ได้แล้ว (job หาย/key หมดสิทธิ์) — เคลียร์ jobId ให้ retry เริ่มงานใหม่ได้
+        if (pr.status >= 400 && pr.status < 500) {
+          item.jobId = null;
+          throw new Error(pd.error?.message || ("HTTP " + pr.status));
+        }
+        continue; // 5xx/network: รอ poll รอบถัดไป
+      }
+      if (pd.status) item.jobStatus = pd.status;
+      if (pd.status === "completed") {
+        const vurl = pd.unsigned_urls?.[0];
+        if (!vurl) { item.jobId = null; throw new Error("ไม่พบไฟล์วิดีโอใน response"); }
+        // ไฟล์อยู่หลัง endpoint ของ OpenRouter — ต้องแนบ key ด้วย ไม่งั้น 401
+        const vres = await fetch(vurl, { headers: { "Authorization": "Bearer " + shared.apiKey } });
+        // โหลดพลาด: คง jobId ไว้ ให้ "ลองใหม่" มาโหลดซ้ำได้โดยไม่ต้อง gen ใหม่
+        if (!vres.ok) throw new Error("โหลดไฟล์วิดีโอไม่สำเร็จ (HTTP " + vres.status + ") — กด \"ลองใหม่\" เพื่อโหลดซ้ำได้ค่ะ (ไม่เสียเงินเพิ่ม)");
+        item.jobId = null;
+        return URL.createObjectURL(await vres.blob());
+      }
+      if (pd.status === "failed") {
+        item.jobId = null; // งาน fail ถาวร — retry ครั้งหน้าต้อง submit ใหม่
+        throw new Error(pd.error?.message || (typeof pd.error === "string" ? pd.error : "การสร้างวิดีโอล้มเหลว"));
+      }
+    }
+  }
+
+  async function requestViaImageAPI(item) {
+    const res = await fetch("https://openrouter.ai/api/v1/images", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + state.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: item.model,
+        prompt: item.prompt,
+        n: 1,
+        aspect_ratio: item.ratio,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+    const d = data.data?.[0];
+    const url = d?.b64_json
+      ? "data:" + (d.media_type || "image/png") + ";base64," + d.b64_json
+      : d?.url;
+    if (!url) throw new Error("ไม่พบรูปใน response");
+    return url;
+  }
+
+  async function requestViaChat(item) {
+    const body = {
+      model: item.model,
+      messages: [{ role: "user", content: item.prompt }],
+      modalities: ["image", "text"],
+    };
+    // aspect ratio ผ่าน image_config (โมเดลที่ไม่รองรับจะ ignore หรือใช้ hint ใน prompt แทน)
+    if (item.ratio !== "1:1") {
+      body.image_config = { aspect_ratio: item.ratio };
+      body.messages = [{ role: "user", content: item.prompt + "\n\nAspect ratio: " + item.ratio }];
+    }
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + state.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error?.message || ("HTTP " + res.status));
+    }
+    const imgs = data.choices?.[0]?.message?.images;
+    const url = imgs?.[0]?.image_url?.url;
+    if (!url) {
+      const txt = data.choices?.[0]?.message?.content;
+      throw new Error(txt ? "โมเดลตอบเป็นข้อความแทนรูป: " + String(txt).slice(0, 120) : "ไม่พบรูปใน response");
+    }
+    return url;
+  }
+
+  function retry(id) {
+    const item = state.images.find(x => x.id === id);
+    if (!item) return;
+    item.status = "loading";
+    item.errMsg = "";
+    render();
+    runRequest(item);
+  }
+
+  function modeLabel(mode) { return mode === "infographic" ? "Infographic" : "Home"; }
+
+  // คัดลอก prompt ของ card กลับไปที่ช่อง prompt ของโหมดเดียวกับ item (สลับโหมดให้ถ้าจำเป็น)
+  function copyPromptFromItem(item) {
+    if (item.mode !== currentMode) switchMode(item.mode);
+    modeStates[item.mode].prompt = item.prompt;
+    $("prompt").value = item.prompt;
+    syncChips();
+    updateGenerateEnabled();
+    $("prompt").focus();
+    toast("คัดลอก prompt แล้วค่ะ");
+  }
+
+  // gen ซ้ำด้วย prompt/model/ratio/duration/audio เดิมของ card ทันที ไม่ต้องกดปุ่ม Generate เอง
+  function regenerateFromItem(item) {
+    if (item.mode !== currentMode) switchMode(item.mode);
+    if (!state.apiKey) { openKeyModal(); return; }
+    const model = modelsForCurrentMode().find(m => m.id === item.model);
+    if (!model) { toast("ไม่พบโมเดลเดิมของภาพนี้แล้วค่ะ (อาจถูกถอดออกจาก OpenRouter)"); return; }
+    const mode = item.mode;
+    const newItem = {
+      id: ++state.seq,
+      status: "loading",
+      url: null,
+      prompt: item.prompt,
+      model: item.model,
+      modelName: item.modelName,
+      ratio: item.ratio,
+      duration: item.duration,
+      audio: item.audio,
+      jobStatus: "",
+      jobId: null,
+      startedAt: null,
+      errMsg: "",
+      mode,
+    };
+    modeStates[mode].images.unshift(newItem);
+    if (mode === currentMode) render();
+    runRequest(newItem);
+    toast("กำลังสร้างซ้ำค่ะ~");
+  }
+
+  // ---------- render ----------
+  function ratioCSS(r) {
+    const [w, h] = r.split(":").map(Number);
+    return (w && h) ? `${w} / ${h}` : "1 / 1";
+  }
+
+  function render() {
+    const grid = $("grid");
+    const has = state.images.length > 0;
+    $("emptyState").style.display = has ? "none" : "flex";
+    const done = state.images.filter(x => x.status === "done").length;
+    const loading = state.images.filter(x => x.status === "loading").length;
+    const unit = currentMode === "video" ? " clip" : " image";
+    $("countLabel").textContent = has
+      ? done + unit + (done !== 1 ? "s" : "") + (loading ? " · generating " + loading + "…" : "")
+      : "";
+    updateUsageBar();
+
+    grid.innerHTML = "";
+    for (const item of state.images) {
+      const isVid = item.mode === "video";
+      const isSelected = state.selected.has(item.id);
+      const card = document.createElement("div");
+      card.className = "card " + item.status + (isVid ? " vid" : "") + (isSelected ? " selected" : "");
+      const frame = document.createElement("div");
+      frame.className = "frame";
+      frame.style.aspectRatio = ratioCSS(item.ratio);
+      const tag = document.createElement("span");
+      tag.className = "model-tag";
+      tag.textContent = item.modelName;
+      tag.title = item.model;
+      frame.appendChild(tag);
+
+      if (item.status === "done") {
+        if (isVid) {
+          const vid = document.createElement("video");
+          vid.src = item.url;
+          vid.muted = true;
+          vid.loop = true;
+          vid.autoplay = true;
+          vid.playsInline = true;
+          frame.appendChild(vid);
+        } else {
+          const img = document.createElement("img");
+          img.src = item.url;
+          img.alt = item.prompt;
+          frame.appendChild(img);
+        }
+        const check = document.createElement("span");
+        check.className = "select-check" + (isSelected ? " checked" : "");
+        check.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
+        check.onclick = (e) => { e.stopPropagation(); toggleSelect(item.id); };
+        frame.appendChild(check);
+        card.onclick = () => openLightbox(state.images.indexOf(item));
+      } else if (isVid && item.status === "loading") {
+        frame.appendChild(buildVideoProgress(item));
+      } else if (item.status === "error") {
+        const box = document.createElement("div");
+        box.className = "err-box";
+        const msg = document.createElement("div");
+        msg.className = "msg";
+        msg.textContent = item.errMsg;
+        const btn = document.createElement("button");
+        btn.textContent = "ลองใหม่";
+        btn.onclick = (e) => { e.stopPropagation(); retry(item.id); };
+        box.appendChild(msg);
+        box.appendChild(btn);
+        frame.appendChild(box);
+      }
+
+      const cap = document.createElement("div");
+      cap.className = "caption";
+      cap.innerHTML = `<span class="p"></span><span class="m"></span>`;
+      cap.querySelector(".p").textContent = item.prompt;
+      cap.querySelector(".m").textContent = item.ratio;
+      card.appendChild(frame);
+      card.appendChild(cap);
+
+      if (item.status === "done") {
+        const actions = document.createElement("div");
+        actions.className = "card-actions";
+        const copyBtn = document.createElement("button");
+        copyBtn.textContent = "Copy Prompt";
+        copyBtn.onclick = (e) => { e.stopPropagation(); copyPromptFromItem(item); };
+        const regenBtn = document.createElement("button");
+        regenBtn.textContent = "Regenerate";
+        regenBtn.onclick = (e) => { e.stopPropagation(); regenerateFromItem(item); };
+        actions.appendChild(copyBtn);
+        actions.appendChild(regenBtn);
+        card.appendChild(actions);
+      }
+
+      grid.appendChild(card);
+    }
+    updateSelectBar();
+  }
+
+  // ---------- multi-select download ----------
+  function toggleSelect(id) {
+    if (state.selected.has(id)) state.selected.delete(id);
+    else state.selected.add(id);
+    render();
+  }
+  function clearSelection() {
+    state.selected.clear();
+    render();
+  }
+  function updateSelectBar() {
+    // เผื่อ item ที่เคยเลือกไว้ถูกลบ/ยังไม่ done แล้ว (ไม่ควรเกิด แต่กันไว้)
+    const validIds = new Set(state.images.filter(x => x.status === "done").map(x => x.id));
+    for (const id of [...state.selected]) if (!validIds.has(id)) state.selected.delete(id);
+
+    const n = state.selected.size;
+    $("selectBar").style.display = n ? "" : "none";
+    $("selectCount").textContent = n + " รูปที่เลือก";
+  }
+
+  async function downloadSelected() {
+    const ids = [...state.selected];
+    if (!ids.length) return;
+    const items = ids.map(id => state.images.find(x => x.id === id)).filter(Boolean);
+    const format = $("lbFormat")?.value || "png";
+    for (const item of items) {
+      if (!item.url) continue;
+      let url = item.url;
+      let ext = format;
+      if (item.mode === "video") {
+        ext = "mp4";
+      } else {
+        try { url = await convertDataUrl(item.url, format); }
+        catch { url = item.url; }
+      }
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = randomFileName(ext);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      await sleep(150); // เว้นจังหวะกัน browser บล็อกดาวน์โหลดหลายไฟล์รวด
+    }
+    toast("ดาวน์โหลด " + items.length + " รูปแล้วค่ะ");
+  }
+
+  // ---------- video progress ----------
+  // API ไม่ส่ง % จริงมาให้ — เป็นค่าประเมินจากเวลาที่ผ่านไป ไต่ช้าลงเรื่อยๆ ค้างสูงสุด 95% จน job เสร็จจริง
+  const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9) ตรงกับ stroke-dasharray ใน CSS
+  function videoProgressPct(item) {
+    const elapsed = (Date.now() - item.startedAt) / 1000;
+    return Math.min(95, Math.round(95 * (1 - Math.exp(-elapsed / 60))));
+  }
+  function fmtElapsed(item) {
+    const s = Math.floor((Date.now() - item.startedAt) / 1000);
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+  function videoStatusText(item) {
+    return (item.jobStatus === "in_progress" ? "กำลังสร้าง… " : "รอคิว… ") + fmtElapsed(item);
+  }
+
+  function buildVideoProgress(item) {
+    const box = document.createElement("div");
+    box.className = "vid-prog";
+    box.dataset.vid = item.id;
+    const pct = item.startedAt ? videoProgressPct(item) : 0;
+    box.innerHTML =
+      '<div class="ring-wrap">' +
+        '<svg width="64" height="64" viewBox="0 0 64 64">' +
+          '<circle class="ring-bg" cx="32" cy="32" r="28"/>' +
+          '<circle class="prog-ring" cx="32" cy="32" r="28" style="stroke-dashoffset:' + (RING_C * (1 - pct / 100)) + '"/>' +
+        '</svg>' +
+        '<div class="prog-num">' + pct + '%</div>' +
+      '</div>' +
+      '<div class="prog-status">' + (item.startedAt ? videoStatusText(item) : "รอคิว…") + '</div>';
+    return box;
+  }
+
+  // อัปเดตเฉพาะตัวเลข/วงแหวนของ card ที่กำลังโหลด ไม่ render ทั้ง grid ใหม่
+  // (render ใหม่จะทำให้ <video> ของ card ที่เสร็จแล้วเริ่มเล่นใหม่หมด)
+  setInterval(() => {
+    if (currentMode !== "video") return;
+    for (const item of modeStates.video.images) {
+      if (item.status !== "loading" || !item.startedAt) continue;
+      const el = document.querySelector('.vid-prog[data-vid="' + item.id + '"]');
+      if (!el) continue;
+      const pct = videoProgressPct(item);
+      el.querySelector(".prog-num").textContent = pct + "%";
+      el.querySelector(".prog-ring").style.strokeDashoffset = String(RING_C * (1 - pct / 100));
+      el.querySelector(".prog-status").textContent = videoStatusText(item);
+    }
+  }, 1000);
+
+  // ---------- lightbox ----------
+  function doneIndices() {
+    return state.images.map((x, i) => x.status === "done" ? i : -1).filter(i => i >= 0);
+  }
+  function openLightbox(index) {
+    state.lbIndex = index;
+    updateLightbox();
+    $("lightbox").classList.add("open");
+  }
+  function updateLightbox() {
+    const item = state.images[state.lbIndex];
+    if (!item) return;
+    const isVid = item.mode === "video";
+    $("lbImg").style.display = isVid ? "none" : "";
+    $("lbVideo").style.display = isVid ? "" : "none";
+    $("lbFormat").style.display = isVid ? "none" : "";
+    if (isVid) {
+      $("lbImg").removeAttribute("src");
+      $("lbVideo").src = item.url;
+      $("lbInfo").textContent = item.modelName + "  ·  " + item.ratio + "  ·  " + item.duration + "s";
+    } else {
+      $("lbVideo").pause();
+      $("lbVideo").removeAttribute("src");
+      $("lbImg").src = item.url;
+      $("lbInfo").textContent = item.modelName + "  ·  " + item.ratio;
+    }
+    $("lbPrompt").textContent = item.prompt;
+    const ds = doneIndices();
+    const pos = ds.indexOf(state.lbIndex);
+    $("lbPrev").style.visibility = pos > 0 ? "visible" : "hidden";
+    $("lbNext").style.visibility = pos < ds.length - 1 ? "visible" : "hidden";
+  }
+  function lbStep(dir) {
+    const ds = doneIndices();
+    const pos = ds.indexOf(state.lbIndex);
+    const next = ds[pos + dir];
+    if (next !== undefined) { state.lbIndex = next; updateLightbox(); }
+  }
+  function closeLightbox() {
+    $("lightbox").classList.remove("open");
+    $("lbVideo").pause();
+    state.lbIndex = -1;
+  }
+
+  const RAND_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&";
+  function randomFileName(ext) {
+    let s = "";
+    for (let i = 0; i < 20; i++) s += RAND_CHARS[Math.floor(Math.random() * RAND_CHARS.length)];
+    return "atelier_" + s + "." + ext;
+  }
+
+  // แปลง data URL ต้นทาง (มักเป็น png) ไปเป็น jpg ผ่าน canvas เพราะ browser ไม่มี API แปลง format ตรงๆ
+  function convertDataUrl(url, format) {
+    return new Promise((resolve, reject) => {
+      if (format === "png") { resolve(url); return; }
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; // jpg ไม่มี alpha channel กันพื้นหลังโปร่งใสกลายเป็นดำ
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/jpeg", 0.95));
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  async function downloadCurrent() {
+    const item = state.images[state.lbIndex];
+    if (!item?.url) return;
+    if (item.mode === "video") {
+      const a = document.createElement("a");
+      a.href = item.url; // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
+      a.download = randomFileName("mp4");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+    const format = $("lbFormat").value; // "png" | "jpg"
+    let url;
+    try {
+      url = await convertDataUrl(item.url, format);
+    } catch {
+      toast("แปลงไฟล์ไม่สำเร็จ ดาวน์โหลดเป็นไฟล์ต้นฉบับแทนค่ะ");
+      url = item.url;
+    }
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = randomFileName(format);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // ---------- export / import session ----------
+  // เก็บเฉพาะ metadata ต่อโหมด (prompt, settings, queue, history) — ไม่รวมรูป/วิดีโอ เพราะเป็น data URL ใหญ่มาก
+  function exportSession() {
+    const data = {
+      atelier_session: 1,
+      exportedAt: new Date().toISOString(),
+      modes: {},
+    };
+    for (const mode of Object.keys(modeStates)) {
+      const s = modeStates[mode];
+      data.modes[mode] = {
+        prompt: s.prompt,
+        ratio: s.ratio,
+        count: s.count,
+        duration: s.duration,
+        audio: s.audio,
+        queue: s.queue,
+        history: s.history,
+      };
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "atelier-session.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    toast("Export session แล้วค่ะ");
+  }
+
+  function importSession(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let data;
+      try {
+        data = JSON.parse(reader.result);
+      } catch {
+        toast("ไฟล์ไม่ใช่ JSON ที่ถูกต้องค่ะ");
+        return;
+      }
+      if (!data || typeof data !== "object" || !data.modes) {
+        toast("ไฟล์นี้ไม่ใช่ session ของ Atelier ค่ะ");
+        return;
+      }
+      for (const mode of Object.keys(modeStates)) {
+        const m = data.modes[mode];
+        if (!m || typeof m !== "object") continue;
+        const s = modeStates[mode];
+        if (typeof m.prompt === "string") s.prompt = m.prompt;
+        if (typeof m.ratio === "string") s.ratio = m.ratio;
+        if (typeof m.count === "number") s.count = m.count;
+        if (typeof m.duration === "number") s.duration = m.duration;
+        if (typeof m.audio === "boolean") s.audio = m.audio;
+        if (Array.isArray(m.queue)) s.queue = m.queue.slice(0, MAX_QUEUE);
+        if (Array.isArray(m.history)) {
+          s.history = m.history.filter(x => typeof x === "string").slice(0, MAX_HISTORY);
+          saveHistory(mode);
+        }
+      }
+      // รีเฟรช UI ทั้งหมดของโหมดปัจจุบันให้ตรงกับ state ที่เพิ่ง import มา
+      $("prompt").value = state.prompt;
+      buildSegs();
+      updateSegAvailability();
+      renderQueue();
+      renderHistory();
+      syncChips();
+      updateGenerateEnabled();
+      toast("Import session แล้วค่ะ");
+    };
+    reader.readAsText(file);
+  }
+
+  // ---------- toast ----------
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
+  }
+
+  // ---------- mode switching ----------
+  const MODE_META = {
+    home: {
+      placeholder: "อธิบายภาพที่ต้องการ… เช่น a minimalist black and white portrait of a cat, studio lighting, high contrast",
+      empty: "ยังไม่มีภาพ — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
+      title: "Gallery",
+      countLabel: "Images",
+      hint: "รายชื่อโมเดลดึงสดจาก OpenRouter (เฉพาะโมเดลที่ generate ภาพได้) — <b>Enter</b> ใน prompt เพื่อสั่ง gen ได้เลย",
+    },
+    infographic: {
+      placeholder: "อธิบาย infographic ที่ต้องการ… เช่น 5 tips for better sleep, modern flat style, bilingual Thai-English",
+      empty: "ยังไม่มี infographic — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
+      title: "Infographic Gallery",
+      countLabel: "Images",
+      hint: "รายชื่อโมเดลดึงสดจาก OpenRouter (เฉพาะโมเดลที่ generate ภาพได้) — <b>Enter</b> ใน prompt เพื่อสั่ง gen ได้เลย",
+    },
+    video: {
+      placeholder: "อธิบายวิดีโอที่ต้องการ… เช่น a cat walking through neon-lit Tokyo streets at night, cinematic, slow dolly in",
+      empty: "ยังไม่มีวิดีโอ — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
+      title: "Video Gallery",
+      countLabel: "Clips",
+      hint: "วิดีโอ 720p ยาว 8–10 วิ — ใช้เวลาสร้างราวๆ 1–3 นาทีต่อคลิป ราคาประเมินอยู่ใต้ชื่อโมเดล — <b>Enter</b> เพื่อสั่ง gen ได้เลย",
+    },
+  };
+
+  function switchMode(mode) {
+    if (mode === currentMode) return;
+    currentMode = mode;
+    const isVideo = mode === "video";
+
+    $("modeTabs").querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.mode === mode));
+    $("prompt").placeholder = MODE_META[mode].placeholder;
+    $("prompt").value = state.prompt;
+    $("emptyText").textContent = MODE_META[mode].empty;
+    $("galleryTitle").textContent = MODE_META[mode].title;
+    $("countFieldLabel").textContent = MODE_META[mode].countLabel;
+    $("hintText").innerHTML = MODE_META[mode].hint;
+    $("durationField").style.display = isVideo ? "" : "none";
+    $("audioField").style.display = isVideo ? "" : "none";
+
+    populateModelSelect();
+    updateModelMeta();
+    buildKeywordTool();
+    buildSegs();
+    updateSegAvailability();
+    renderQueue();
+    renderHistory();
+    clearOptimizePanel();
+    render();
+    updateGenerateEnabled();
+    if ($("chatPanel").classList.contains("open")) $("chatModeTag").textContent = chatModeLabel();
+  }
+
+  // ---------- wire up ----------
+  $("modeTabs").addEventListener("click", e => {
+    const btn = e.target.closest("button[data-mode]");
+    if (btn) switchMode(btn.dataset.mode);
+  });
+  $("sideToggle").onclick = () => {
+    const collapsed = $("app").classList.toggle("collapsed");
+    $("sideToggle").textContent = collapsed ? "▶" : "◀";
+  };
+
+  // ---------- sidebar resize ----------
+  (() => {
+    const SIDEBAR_MIN = 240;
+    const SIDEBAR_MAX = 560;
+    const app = $("app");
+    const handle = $("sidebarResize");
+    const savedW = parseInt(localStorage.getItem("atelier_sidebar_w"), 10);
+    if (savedW && savedW >= SIDEBAR_MIN && savedW <= SIDEBAR_MAX) {
+      document.documentElement.style.setProperty("--sidebar-w", savedW + "px");
+    }
+    let dragging = false;
+    let startX = 0;
+    let startW = 0;
+    handle.addEventListener("mousedown", e => {
+      dragging = true;
+      startX = e.clientX;
+      startW = handle.parentElement.getBoundingClientRect().width;
+      handle.classList.add("dragging");
+      app.classList.add("resizing");
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", e => {
+      if (!dragging) return;
+      const w = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + (e.clientX - startX)));
+      document.documentElement.style.setProperty("--sidebar-w", w + "px");
+    });
+    window.addEventListener("mouseup", () => {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove("dragging");
+      app.classList.remove("resizing");
+      const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"), 10);
+      if (w) localStorage.setItem("atelier_sidebar_w", w);
+    });
+  })();
+  $("exportBtn").onclick = exportSession;
+  $("importBtn").onclick = () => $("importFile").click();
+  $("importFile").addEventListener("change", () => {
+    const file = $("importFile").files[0];
+    if (file) importSession(file);
+    $("importFile").value = "";
+  });
+
+  $("keyStatus").onclick = openKeyModal;
+  $("keySave").onclick = saveKey;
+  $("keyCancel").onclick = closeKeyModal;
+  $("keyInput").addEventListener("keydown", e => { if (e.key === "Enter") saveKey(); });
+  $("keyModal").addEventListener("click", e => { if (e.target === $("keyModal")) closeKeyModal(); });
+
+  $("model").addEventListener("change", () => { updateModelMeta(); updateSegAvailability(); });
+  $("selectDownloadBtn").onclick = downloadSelected;
+  $("selectClearBtn").onclick = clearSelection;
+  $("audioToggle").addEventListener("change", () => {
+    state.audio = $("audioToggle").checked;
+    updateModelMeta();
+  });
+  $("prompt").addEventListener("input", () => { state.prompt = $("prompt").value; updateGenerateEnabled(); syncChips(); });
+  $("prompt").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!$("generateBtn").disabled) generate(); }
+  });
+  $("generateBtn").onclick = generate;
+  $("queueBtn").onclick = addToQueue;
+  $("optimizeBtn").onclick = runOptimize;
+
+  $("lbClose").onclick = closeLightbox;
+  $("lbPrev").onclick = () => lbStep(-1);
+  $("lbNext").onclick = () => lbStep(1);
+  $("lbDownload").onclick = downloadCurrent;
+  $("lightbox").addEventListener("click", e => { if (e.target === $("lightbox") || e.target.classList.contains("lb-stage")) closeLightbox(); });
+  document.addEventListener("keydown", e => {
+    if (!$("lightbox").classList.contains("open")) return;
+    if (e.key === "Escape") closeLightbox();
+    if (e.key === "ArrowLeft") lbStep(-1);
+    if (e.key === "ArrowRight") lbStep(1);
+  });
+
+  $("chatFab").onclick = openChatPanel;
+  $("chatCloseBtn").onclick = closeChatPanel;
+  $("chatClearBtn").onclick = clearChatHistory;
+  $("chatSendBtn").onclick = sendChatMessage;
+  $("chatInput").addEventListener("input", () => {
+    updateChatSendEnabled();
+    const ta = $("chatInput");
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 100) + "px";
+  });
+  $("chatInput").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!$("chatSendBtn").disabled) sendChatMessage(); }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && $("chatPanel").classList.contains("open")) closeChatPanel();
+  });
+
+  buildSegs();
+  buildKeywordTool();
+  renderHistory();
+  refreshKeyUI();
+  loadModels();
+  loadVideoModels();
+  // เปิดมาให้ใส่ key ก่อนเลย ถ้ายังไม่มี
+  setTimeout(() => { if (!state.apiKey) openKeyModal(); }, 400);
+})();
+</script>
+</body>
+</html>

@@ -4,67 +4,82 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Atelier is an AI image/video generator web app backed by OpenRouter. The entire application lives in a single file, `index.html` — inline CSS and vanilla JS (an IIFE, no framework, no build step, no dependencies, no tests). UI text is Thai; code identifiers are English.
+Atelier is an AI image/video generator web app backed by OpenRouter. It's a client-only **React 19 + TypeScript + Tailwind CSS v4 + Vite** SPA (no backend, no router, no state library — a small hand-rolled store). UI text is Thai; code identifiers are English. Icons come from `lucide-react`.
 
-To run it, just open `index.html` in a browser (or serve it statically, e.g. `npx serve .` / `python -m http.server 8000`). There are no build, lint, or test commands.
+The original single-file vanilla-JS implementation is preserved at `legacy/index.html` for reference — it is feature-equivalent to the React app and can still be opened directly in a browser. Don't add features to it; it's frozen.
 
-## Architecture of index.html
+```bash
+npm run dev       # Vite dev server (default port 5173)
+npm run build     # tsc --noEmit (strict) + vite build → dist/
+npm run preview   # serve the production build (default port 4173)
+```
 
-### Per-mode state via Proxy
+There are no tests or lint config.
 
-The app has three modes — **Home** (general images), **Infographic** (restricted model set, infographic-specific prompt builder), **Video** — switchable via tabs. `apiKey` and the full fetched model lists are shared across modes (`shared` object), but `prompt`, `ratio`, `count`, `duration`, `audio`, `images`, `queue`, `lbIndex`, `seq`, and `selected` are each kept in a separate `freshModeState()` object per mode (`modeStates.home/.infographic/.video`).
+## Architecture
 
-`state` is a `Proxy` that transparently reads/writes to `shared` if the key exists there, otherwise to `modeStates[currentMode]`. This means switching `currentMode` instantly redirects all `state.x` access to that mode's own data — no manual copying. When adding new per-mode fields, add them to `freshModeState()`; when adding shared/global fields, add them to `shared`.
+```
+src/
+├── main.tsx / App.tsx        # bootstrap, layout, initial loadModels/loadVideoModels + key-modal auto-open
+├── index.css                 # Tailwind v4 @theme — the legacy palette mapped 1:1 (--color-bg, --color-surface, …)
+├── lib/
+│   ├── types.ts              # Mode, GenItem, ModeState, AppState, ORModel, …
+│   ├── constants.ts          # RATIOS/COUNTS/DURATIONS, KEYWORDS_BY_MODE, MODE_META, EXTRA_MODELS, PREFERRED, VIDEO_MODEL_IDS, MODE_MODEL_FILTER, model ids
+│   ├── store.ts              # the state singleton + mutate() + useApp() + localStorage persistence helpers
+│   ├── actions.ts            # ALL logic: model loading, generation, video polling, queue, history, optimizer, chat, export/import, downloads
+│   └── utils.ts              # keyword regex toggling, convertDataUrl, randomFileName, video price/progress helpers
+└── components/
+    ├── Header.tsx            # brand, mode tabs, Export/Import, API-key status
+    ├── Sidebar.tsx           # prompt + optimizer panel, history, keyword builder, model select, usage bar, segs, queue, generate
+    ├── Gallery.tsx           # grid + Card + VideoProgress + multi-select bar
+    ├── Lightbox.tsx / KeyModal.tsx / ChatPanel.tsx / Toast.tsx
+```
 
-UI updates flow through one `render()` function that rebuilds the whole gallery grid from `state.images` — there is no incremental DOM patching, so mutate state then call `render()`. The exception is video generation progress (ring/%), which is patched in-place by a `setInterval` ticker instead of a full `render()`, specifically to avoid restarting `<video>` playback on cards that already finished.
+### State model (store.ts)
 
-### Generation routing
+`state` is a **mutable singleton**; components subscribe via `useApp()` (a `useSyncExternalStore` on a version counter) and re-render whenever `mutate(fn?)` is called. This deliberately mirrors the legacy "mutate then `render()`" model: async flows (generation, video polling) mutate items in place from `actions.ts` and call `mutate()` to broadcast. **Every state change must go through `mutate()`** — direct mutation without it silently doesn't re-render.
 
-Each image/video in a batch or queue is an independent request with its own `status` (`loading`/`done`/`error`) and retry. Jobs are tagged with the mode they were started from (`item.mode`); if the user switches modes while a job is in flight, the result still lands in the correct mode's `images` array, and the screen only re-renders if that mode is still the one on screen.
+Per-mode state lives in `state.modes.home/.infographic/.video` (each a `ModeState`: `prompt`, `modelId`, `ratio`, `count`, `duration`, `audio`, `images`, `queue`, `history`, `selected`, `lbIndex`). `cur()` returns the active mode's slice. Shared/global fields (`apiKey`, model lists, chat, optimizer result, toast, …) sit directly on `AppState`. When adding a per-mode field, add it to `ModeState` + `freshModeState()`; global fields go on `AppState`.
 
-Three distinct request paths depending on mode + model capability:
+Persistence: only prompt history (`atelier_history_<mode>`), chat history (`atelier_chat_history`), and sidebar width (`atelier_sidebar_w`) survive a reload, via `localStorage`. `apiKey`, galleries, and queues are memory-only **by design** (see the note in the key modal).
+
+### Generation routing (actions.ts)
+
+Each image/video in a batch or queue is an independent request with its own `status` (`loading`/`done`/`error`) and retry. Items are tagged with the mode they were started from (`item.mode`); if the user switches modes while a job is in flight, the result still lands in the correct mode's `images` array (items are mutated by reference, then `mutate()` broadcasts).
+
+Three request paths, chosen in `runRequest`:
 - **image+text models** (e.g. Gemini, GPT Image) → `POST /chat/completions` with `modalities: ["image","text"]`; image comes back at `choices[0].message.images[0].image_url.url`.
-- **image-only models** (e.g. Grok Imagine) → `POST /api/v1/images` directly, because `chat/completions` errors with "No endpoints found" if you request the `text` modality from a model that doesn't support it. Routing decision is based on `architecture.output_modalities` from the model list.
-- **video mode** → `POST /api/v1/videos` returns a job id, polled via `GET /api/v1/videos/{id}` every 10s (10 min timeout); on `completed`, the file is immediately fetched from `unsigned_urls[0]` and kept as a blob in memory (signed URLs expire while the tab stays open). A `jobId` already in flight is resumed on retry instead of resubmitted, to avoid double charges.
+- **image-only models** (e.g. Grok Imagine) → `POST /api/v1/images` directly, because `chat/completions` errors with "No endpoints found" if you request the `text` modality from a model that doesn't support it. Routing decision is based on `architecture.output_modalities`.
+- **video mode** → `POST /api/v1/videos` returns a job id, polled via `GET /api/v1/videos/{id}` every 10s (10 min timeout); on `completed` the file is immediately fetched from `unsigned_urls[0]` (with the Authorization header — 401 without it) and kept as a blob URL. A `jobId` still on the item is **resumed** on retry instead of resubmitted, to avoid double charges; it's cleared on permanent failure/completion.
 
 Aspect ratio is sent via `image_config.aspect_ratio` on `chat/completions` **and** appended as a text hint to the prompt, since not all models honor `image_config`. The Image API and Video API take `aspect_ratio` as a native param instead.
 
 ### Model lists
 
-- **Home** — every OpenRouter model whose `architecture.output_modalities` includes `"image"`, with OpenAI models filtered down to `openai/gpt-image-2` only (all other `openai/*` are excluded — see the filter in `loadModels()`).
+- **Home** — every OpenRouter model whose `architecture.output_modalities` includes `"image"`, with OpenAI models filtered down to `openai/gpt-image-2` only (see the filter in `loadModels`).
 - **Infographic** — restricted via `MODE_MODEL_FILTER.infographic`, a regex allowlist applied on top of the same fetched list.
-- **Video** — separate fetch from `/api/v1/videos/models`, filtered to `VIDEO_MODEL_IDS`. Model capability fields (`supported_durations`, `supported_aspect_ratios`, `generate_audio`, `pricing_skus`) come straight from the API, and the duration/ratio/audio controls disable and snap automatically based on what the selected model actually supports — no hardcoded per-model UI logic.
-- `EXTRA_MODELS` merges in models OpenRouter's `/api/v1/models` doesn't list yet (e.g. Grok Imagine Image Quality); `PREFERRED` is a regex list that floats specific models to the top of the dropdown.
+- **Video** — separate fetch from `/api/v1/videos/models`, filtered to `VIDEO_MODEL_IDS`. Capability fields (`supported_durations`, `supported_aspect_ratios`, `generate_audio`, `pricing_skus`) come straight from the API; `applyVideoCapabilities()` snaps invalid duration/ratio/audio selections and the Sidebar disables unsupported buttons — no hardcoded per-model UI logic.
+- `EXTRA_MODELS` merges in models OpenRouter's `/api/v1/models` doesn't list yet; `PREFERRED` floats specific models to the top of the dropdown.
 
-> When changing which OpenAI model id is canonical, update it in **both** `EXTRA_MODELS` (fallback entry) and the `openai/*` allow-check in `loadModels()` — and check `MODE_MODEL_FILTER.infographic`, which references model ids independently and can drift out of sync.
+> When changing which OpenAI model id is canonical, update it in **both** `EXTRA_MODELS` (fallback entry) and the `openai/*` allow-check in `loadModels` — and check `MODE_MODEL_FILTER.infographic`, which references model ids independently and can drift out of sync.
 
-### Usage bar
+### Video progress ring
 
-There's no OpenRouter API for per-model spend, so cost is estimated client-side from each model's `pricing` (image) or `pricing_skus` (video, via `videoPricePerSec`) multiplied against completed (`status === "done"`) items in the current mode's `images`. This is session-only, resets per mode, and is recomputed on every `render()` (`updateUsageBar()`).
+The API sends no real progress; `videoProgressPct` estimates from elapsed time (`95 × (1 − e^(−t/60))`), capped at 95% until the job actually completes. The 1-second ticker lives inside the `VideoProgress` component (local `setTick` state), so only the ring re-renders — finished `<video>` cards keep stable React keys (`item.id`) and are never remounted, so playback isn't interrupted.
 
-### Multi-select download
+### LLM-assisted features (Optimizer & Chat)
 
-Each finished gallery card gets a checkbox (visible on hover or when selected) tracked by id in the per-mode `selected` Set. `downloadSelected()` reuses the same `convertDataUrl`/`randomFileName` helpers as the single-image lightbox download, looping over selected items with a short delay between each `<a download>` click to avoid the browser blocking rapid multi-file downloads.
+Both call the free text model `openai/gpt-oss-20b:free` (`OPTIMIZER_MODEL`/`CHAT_MODEL` in constants.ts) via `POST /chat/completions` — **verify this id still exists on OpenRouter before changing it**; free-tier ids get renamed/retired without notice. Free-tier responses are slow; that's expected, not a bug.
 
-### Prompt history
+- **Optimizer** (`runOptimize`) — instructs the model to return strict JSON `{prompt, keywords}` (markdown fences stripped defensively before `JSON.parse`). Result renders in the Sidebar panel: rewritten prompt (one-click apply) + keyword chips reusing `toggleKeyword`. `state.optimize` is reset on mode switch since it belongs to the prompt that was active.
+- **Chat with Atelier** (ChatPanel FAB) — one **global** conversation, not per-mode. The system prompt names the currently-open mode tab but knows nothing about the user's prompt or generated images.
 
-Each mode keeps `history` (array of prompt strings, newest first, deduped, capped at `MAX_HISTORY` = 30) in its `freshModeState()`, persisted to `localStorage` under `atelier_history_<mode>` (`loadHistory`/`saveHistory`/`addToHistory`/`removeFromHistory`). A successful `generate()` call records every distinct prompt in the batch/queue. The UI is a `<details>` panel (`renderHistory()`) rendered below the prompt textarea, hidden when empty.
+### Usage bar / multi-select / session export
 
-### Session export/import
-
-`exportSession()`/`importSession()` (wired to the header's Export/Import buttons) serialize/restore only lightweight per-mode metadata — `prompt`, `ratio`, `count`, `duration`, `audio`, `queue`, `history` — as a `.json` file. Deliberately excludes `images` (data URLs would make the file huge); imported sessions require the user to re-generate.
-
-### Copy prompt & regenerate
-
-Every finished card gets two buttons: **Copy Prompt** (`copyPromptFromItem`) copies the card's prompt back into the textarea of that item's own mode (switching mode if needed), and **Regenerate** (`regenerateFromItem`) re-submits the exact same prompt/model/ratio/duration/audio as a brand-new item via `runRequest`, without touching the current form state.
-
-### Prompt Optimizer & Chat with Atelier (LLM-assisted features)
-
-Two features call a free text model, `openai/gpt-oss-20b:free`, via the same `POST /chat/completions` endpoint used for image generation — **verify this id still exists on OpenRouter before changing it**, since free-tier model ids get renamed/retired without notice.
-
-- **Optimizer** (`runOptimize`, "✨ Optimize" button under the prompt field) — sends the current prompt with a system prompt instructing the model to return strict JSON `{prompt, keywords}` (fences stripped defensively before `JSON.parse`). Result renders in a panel: rewritten prompt (one-click apply, replaces the textarea) plus keyword chips that reuse the existing `toggleKeyword()` from the Prompt Builder. Panel state (`optimizeResult`) is cleared on mode switch since it's specific to whatever prompt was active.
-- **Chat with Atelier** (floating action button, bottom-right) — a general Q&A assistant for prompt/style advice. `chatMessages` (role/content pairs) persist to `localStorage` (`atelier_chat_history`, capped at `MAX_CHAT_HISTORY` = 60) independent of mode — it's a single global conversation, not per-mode state. The system prompt (`chatSystemPrompt()`) tells the model which mode tab the user is currently viewing (Home/Infographic/Video) but nothing about their actual prompt or generated images.
+- **Usage bar** (in Sidebar) — no OpenRouter spend API exists, so cost is estimated from `pricing` (image) / `pricing_skus` (video, `videoPricePerSec`) × completed items in the current mode. Session-only.
+- **Multi-select download** — per-mode `selected: Set<number>`; `downloadSelected` loops with a 150ms delay between `<a download>` clicks to avoid browser blocking.
+- **Export/Import** — JSON of per-mode metadata only (`prompt`, `ratio`, `count`, `duration`, `audio`, `queue`, `history`), never images. The format is identical to what the legacy app produced, so old exports still import.
 
 ### Styling
 
-CSS custom properties are defined in `:root` (dark theme). Follow the existing variables (`--bg`, `--surface`, `--surface-2`, `--border`, `--border-strong`, `--accent`, `--text`, `--text-dim`, `--text-faint`, `--radius`, `--mono`) rather than hardcoding colors.
+Tailwind v4 with the theme defined in `src/index.css` via `@theme` — the same palette names as legacy (`--color-bg`, `--color-surface`, `--color-surface-2`, `--color-border`, `--color-border-strong`, `--color-text`, `--color-text-dim`, `--color-text-faint`, `--color-accent`, `--color-accent-ink`, `--color-danger`). Use the mapped utilities (`bg-surface`, `text-text-dim`, `border-border-strong`, …) rather than hardcoding colors. Dark theme only.
