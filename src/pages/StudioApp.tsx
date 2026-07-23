@@ -1,15 +1,15 @@
 import { useEffect } from "react";
-import Header from "./components/Header";
-import Sidebar from "./components/Sidebar";
-import Gallery from "./components/Gallery";
-import Lightbox from "./components/Lightbox";
-import KeyModal from "./components/KeyModal";
-import ChatPanel from "./components/ChatPanel";
-import Toast from "./components/Toast";
-import { loadModels, loadVideoModels } from "./lib/actions";
-import { mutate, state, useApp } from "./lib/store";
+import Header from "../components/Header";
+import Sidebar from "../components/Sidebar";
+import Gallery from "../components/Gallery";
+import Lightbox from "../components/Lightbox";
+import KeyModal from "../components/KeyModal";
+import ChatPanel from "../components/ChatPanel";
+import Toast from "../components/Toast";
+import { loadModels, loadVideoModels } from "../lib/actions";
+import { mutate, state, useApp } from "../lib/store";
 
-export default function App() {
+export default function StudioApp() {
   const s = useApp();
 
   useEffect(() => {

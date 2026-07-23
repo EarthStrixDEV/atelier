@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Atelier</title>
+<script>
+  // GitHub Pages เสิร์ฟไฟล์ static เท่านั้น ไม่รู้จัก client-side route เช่น /atelier/studio
+  // เลย redirect ทุก path ที่ไม่เจอไฟล์จริงกลับไปที่ / พร้อม encode path เดิมไว้ใน query string
+  // ให้ index.html decode กลับด้วย history.replaceState ก่อน React router จะ mount (ดู index.html)
+  var path = location.pathname + location.search + location.hash;
+  location.replace("/atelier/?redirect=" + encodeURIComponent(path));
+</script>
+</head>
+<body></body>
+</html>

@@ -25,7 +25,7 @@ export const CHAT_MODEL = "openai/gpt-oss-20b:free";
 // โมเดลที่แต่ละโหมดอนุญาตให้เลือกได้ (null = ไม่จำกัด ใช้ list เต็ม)
 export const MODE_MODEL_FILTER: Record<Mode, RegExp[] | null> = {
   home: null,
-  infographic: [/^openai\/gpt-5\.4-image-2$/i, /^google\/gemini-3-pro-image$/i],
+  infographic: [/^openai\/gpt-image-2$/i, /^google\/gemini-3-pro-image$/i],
   video: null, // โหมด video ใช้ list แยก (videoModels) ไม่ผ่าน filter นี้
 };
 
@@ -49,8 +49,8 @@ export const EXTRA_MODELS: ORModel[] = [
     architecture: { output_modalities: ["image"] },
   },
   {
-    id: "openai/gpt-5.4-image-2",
-    name: "OpenAI: GPT-5.4 Image 2",
+    id: "openai/gpt-image-2",
+    name: "OpenAI: GPT Image 2",
     pricing: {},
     architecture: { output_modalities: ["image", "text"] },
   },
@@ -124,5 +124,5 @@ export const MODE_META: Record<Mode, { placeholder: string; empty: string; title
 };
 
 export function modeLabel(mode: Mode): string {
-  return mode === "video" ? "Video" : mode === "infographic" ? "Infographic" : "Home";
+  return mode === "video" ? "Video" : mode === "infographic" ? "Infographic" : "General";
 }

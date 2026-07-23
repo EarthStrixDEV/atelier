@@ -7,6 +7,14 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+  // คู่กับ public/404.html — ถ้ามาจาก redirect ให้คืน path เดิมกลับเข้า history ก่อน router mount
+  (function () {
+    var params = new URLSearchParams(location.search);
+    var redirect = params.get("redirect");
+    if (redirect) history.replaceState(null, "", redirect);
+  })();
+</script>
 <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
