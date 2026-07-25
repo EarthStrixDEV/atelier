@@ -47,6 +47,7 @@ function freshModeState(mode: Mode): ModeState {
     count: 1,
     duration: 8,
     audio: false,
+    refs: [], // memory-only โดยตั้งใจ เช่นเดียวกับ apiKey/gallery — data URL ใหญ่เกินจะลง localStorage
     images: [],
     queue: [],
     history: loadHistory(mode),

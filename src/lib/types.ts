@@ -14,6 +14,16 @@ export interface ORModel {
   generate_audio?: boolean;
 }
 
+/** ประเภทของภาพอ้างอิงที่แนบไปกับ prompt — กำหนดข้อความกำกับที่ส่งให้โมเดล */
+export type RefKind = "ref" | "style" | "facial";
+
+export interface RefImage {
+  kind: RefKind;
+  /** data URL (base64) — อ่านจากไฟล์ที่ผู้ใช้เลือก แล้วส่งตรงเป็น image_url */
+  dataUrl: string;
+  name: string;
+}
+
 export interface GenItem {
   id: number;
   status: GenStatus;
@@ -29,6 +39,8 @@ export interface GenItem {
   startedAt: number | null;
   errMsg: string;
   mode: Mode;
+  /** snapshot ของ ref ตอนกดสร้าง — retry/regenerate ใช้ชุดเดิมแม้ผู้ใช้เปลี่ยน ref ใน sidebar ไปแล้ว */
+  refs: RefImage[];
 }
 
 export interface QueueJob {
@@ -39,6 +51,7 @@ export interface QueueJob {
   count: number;
   duration: number;
   audio: boolean;
+  refs: RefImage[];
 }
 
 export interface ChatMsg {
@@ -58,6 +71,7 @@ export interface ModeState {
   count: number;
   duration: number;
   audio: boolean;
+  refs: RefImage[];
   images: GenItem[];
   queue: QueueJob[];
   history: string[];

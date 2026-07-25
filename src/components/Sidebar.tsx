@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clock, Plus, Sparkles } from "lucide-react";
+import { Clock, ImagePlus, Plus, Sparkles } from "lucide-react";
 import {
-  COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_QUEUE, MODE_META, RATIOS,
+  COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_QUEUE, MAX_REFS_PER_KIND, MODE_META,
+  RATIOS, REF_KINDS,
 } from "../lib/constants";
 import {
-  addToQueue, applyOptimizedPrompt, clearOptimize, computeItemCost, currentModel,
-  generate, loadModels, loadVideoModels, modelsForMode, removeFromHistory,
-  removeFromQueue, runOptimize, selectModel, setPrompt, toggleKeyword,
-  usePromptFromHistory,
+  addRefImages, addToQueue, applyOptimizedPrompt, clearOptimize, clearRefImages,
+  computeItemCost, currentModel, generate, loadModels, loadVideoModels,
+  modelsForMode, refsSupported, removeFromHistory, removeFromQueue, removeRefImage,
+  runOptimize, selectModel, setPrompt, toggleKeyword, usePromptFromHistory,
 } from "../lib/actions";
 import { mutate, useApp } from "../lib/store";
 import { hasKeyword, videoPricePerSec } from "../lib/utils";
@@ -83,6 +84,7 @@ export default function Sidebar() {
 
   const sourceLoaded = isVideo ? s.videoModels.length > 0 : s.models.length > 0;
   const sourceFailed = isVideo ? s.videoModelsFailed : s.modelsFailed;
+  const canAttachRefs = refsSupported();
   const hasPrompt = !!ms.prompt.trim();
   const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0);
 
@@ -242,6 +244,81 @@ export default function Sidebar() {
             </details>
           ))}
         </div>
+      </div>
+
+      {/* Attach reference / style / facial */}
+      <div>
+        <label className={fieldLabel}>
+          Attach Reference
+          {ms.refs.length > 0 && (
+            <button
+              className="ml-2 cursor-pointer font-semibold normal-case tracking-normal text-text-faint hover:text-danger"
+              onClick={clearRefImages}
+            >
+              ล้างทั้งหมด ({ms.refs.length})
+            </button>
+          )}
+        </label>
+        {!canAttachRefs ? (
+          <p className="text-[11.5px] leading-relaxed text-text-faint">
+            {isVideo
+              ? "โหมด Video ยังไม่รองรับการแนบภาพอ้างอิงค่ะ"
+              : "โมเดลนี้สร้างภาพได้อย่างเดียว (image-only) จึงแนบภาพอ้างอิงไม่ได้ — เลือกโมเดลแบบ image+text เช่น Gemini หรือ GPT Image ค่ะ"}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-[7px]">
+            {REF_KINDS.map(({ kind, label, hint }) => {
+              const items = ms.refs.filter(r => r.kind === kind);
+              const full = items.length >= MAX_REFS_PER_KIND;
+              return (
+                <div key={kind} className="rounded-lg border border-border bg-surface p-2.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[11.5px] font-semibold text-text">{label}</span>
+                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[10.5px] text-text-faint" title={hint}>{hint}</span>
+                  </div>
+                  {items.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {items.map((ref, i) => (
+                        <div key={kind + i} className="group relative h-14 w-14 overflow-hidden rounded-md border border-border-strong">
+                          <img src={ref.dataUrl} alt={ref.name} title={ref.name} className="h-full w-full object-cover" />
+                          <button
+                            className="absolute right-0 top-0 cursor-pointer bg-bg/80 px-1 text-[10px] leading-4 text-text-dim hover:text-danger"
+                            title={"ลบ " + ref.name}
+                            onClick={() => removeRefImage(ref)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <label
+                    className={
+                      "mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-dashed py-[7px] text-[11.5px] font-semibold transition-colors " +
+                      (full
+                        ? "cursor-not-allowed border-border text-text-faint opacity-50"
+                        : "cursor-pointer border-border-strong text-text-dim hover:border-text hover:text-text")
+                    }
+                  >
+                    <ImagePlus size={12} />
+                    {full ? `ครบ ${MAX_REFS_PER_KIND} รูปแล้ว` : "แนบรูป"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={full}
+                      className="hidden"
+                      onChange={e => {
+                        if (e.target.files?.length) addRefImages(kind, e.target.files);
+                        e.target.value = ""; // เคลียร์เพื่อให้เลือกไฟล์เดิมซ้ำได้
+                      }}
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Model */}

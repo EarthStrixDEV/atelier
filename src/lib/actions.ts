@@ -1,10 +1,11 @@
 import {
   CHAT_MODEL, DURATIONS, EXTRA_MODELS, MAX_CHAT_HISTORY, MAX_HISTORY, MAX_QUEUE,
-  MODE_MODEL_FILTER, OPTIMIZER_MODEL, PREFERRED, RATIOS, VIDEO_MODEL_IDS,
+  MAX_REFS_PER_KIND, MAX_REF_BYTES, MODE_MODEL_FILTER, OPTIMIZER_MODEL, PREFERRED,
+  RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
   VIDEO_POLL_MS, VIDEO_RESOLUTION, VIDEO_TIMEOUT_MS, modeLabel,
 } from "./constants";
 import { cur, mutate, saveChatHistory, saveHistory, state, toast } from "./store";
-import type { GenItem, Mode, ORModel, QueueJob } from "./types";
+import type { GenItem, Mode, ORModel, QueueJob, RefImage, RefKind } from "./types";
 import { convertDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -141,6 +142,63 @@ export function usePromptFromHistory(prompt: string) {
   mutate(() => { cur().prompt = prompt; });
 }
 
+// ---------- reference images ----------
+/**
+ * แนบ ref ได้เฉพาะ path ที่ /chat/completions รองรับ image input จริง
+ * — video mode ไปที่ /api/v1/videos และ image-only model ไปที่ /api/v1/images ซึ่งไม่ได้ verify ว่ารับ ref
+ */
+export function refsSupported(): boolean {
+  if (state.mode === "video") return false;
+  const m = currentModel();
+  const outs = m?.architecture?.output_modalities || [];
+  return !(outs.length && !outs.includes("text"));
+}
+
+export function refsOfKind(kind: RefKind): RefImage[] {
+  return cur().refs.filter(r => r.kind === kind);
+}
+
+const readAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error("อ่านไฟล์ไม่สำเร็จ"));
+    fr.readAsDataURL(file);
+  });
+
+export async function addRefImages(kind: RefKind, files: FileList | File[]) {
+  const mode = state.mode; // ผู้ใช้อาจสลับโหมดระหว่างรออ่านไฟล์ — ผูก ref กับโหมดที่กดแนบ
+  for (const file of Array.from(files)) {
+    if (!file.type.startsWith("image/")) { toast(`"${file.name}" ไม่ใช่ไฟล์รูปค่ะ`); continue; }
+    if (file.size > MAX_REF_BYTES) {
+      toast(`"${file.name}" ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ`);
+      continue;
+    }
+    if (state.modes[mode].refs.filter(r => r.kind === kind).length >= MAX_REFS_PER_KIND) {
+      toast(`แนบได้สูงสุด ${MAX_REFS_PER_KIND} รูปต่อประเภทค่ะ`);
+      break;
+    }
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      mutate(() => { state.modes[mode].refs.push({ kind, dataUrl, name: file.name }); });
+    } catch (e) {
+      toast(errMsg(e));
+    }
+  }
+}
+
+export function removeRefImage(ref: RefImage) {
+  mutate(() => {
+    const refs = cur().refs;
+    const i = refs.indexOf(ref);
+    if (i !== -1) refs.splice(i, 1);
+  });
+}
+
+export function clearRefImages() {
+  mutate(() => { cur().refs = []; });
+}
+
 // ---------- queue ----------
 export function addToQueue() {
   const ms = cur();
@@ -156,6 +214,7 @@ export function addToQueue() {
       count: ms.count,
       duration: ms.duration,
       audio: ms.audio,
+      refs: refsSupported() ? ms.refs.slice() : [],
     });
   });
   toast("เพิ่มเข้าคิวแล้วค่ะ (" + ms.queue.length + "/" + MAX_QUEUE + ")");
@@ -178,7 +237,11 @@ export function generate() {
     const prompt = ms.prompt.trim();
     const model = currentModel();
     if (!prompt || !model) return;
-    jobs = [{ prompt, model: model.id, modelName: model.name || model.id, ratio: ms.ratio, count: ms.count, duration: ms.duration, audio: ms.audio }];
+    jobs = [{
+      prompt, model: model.id, modelName: model.name || model.id, ratio: ms.ratio,
+      count: ms.count, duration: ms.duration, audio: ms.audio,
+      refs: refsSupported() ? ms.refs.slice() : [],
+    }];
   }
 
   const mode = state.mode;
@@ -206,6 +269,7 @@ export function generate() {
           startedAt: null,
           errMsg: "",
           mode,
+          refs: job.refs ?? [], // session ที่ import มาจากไฟล์เก่าไม่มีฟิลด์นี้
         };
         s.modes[mode].images.unshift(item);
         batch.push(item);
@@ -322,17 +386,44 @@ async function requestViaImageAPI(item: GenItem): Promise<string> {
   return url;
 }
 
+type ChatPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+/**
+ * ประกอบ content ของ user message
+ * ไม่มี ref → ส่ง string ล้วนเหมือนเดิม (บางโมเดลจุกจิกกับ content array เมื่อไม่มีรูป)
+ * มี ref → text นำ + [คำกำกับประเภท, รูป] เรียงต่อกัน เพราะ API ไม่มี param บอกว่ารูปไหนเป็น style/face
+ */
+function buildChatContent(item: GenItem, promptText: string): string | ChatPart[] {
+  const refs = item.refs ?? [];
+  if (!refs.length) return promptText;
+
+  const parts: ChatPart[] = [{ type: "text", text: promptText }];
+  let n = 0;
+  for (const { kind, label, instruction } of REF_KINDS) {
+    for (const ref of refs.filter(r => r.kind === kind)) {
+      n++;
+      parts.push({ type: "text", text: `Image ${n} — ${label}: ${instruction}` });
+      parts.push({ type: "image_url", image_url: { url: ref.dataUrl } });
+    }
+  }
+  parts.push({
+    type: "text",
+    text: "Use the attached images only as references as instructed above; generate a new image, do not return an attached image unchanged.",
+  });
+  return parts;
+}
+
 async function requestViaChat(item: GenItem): Promise<string> {
+  // aspect ratio ผ่าน image_config (โมเดลที่ไม่รองรับจะ ignore หรือใช้ hint ใน prompt แทน)
+  const promptText = item.ratio !== "1:1" ? item.prompt + "\n\nAspect ratio: " + item.ratio : item.prompt;
   const body: Record<string, unknown> = {
     model: item.model,
-    messages: [{ role: "user", content: item.prompt }],
+    messages: [{ role: "user", content: buildChatContent(item, promptText) }],
     modalities: ["image", "text"],
   };
-  // aspect ratio ผ่าน image_config (โมเดลที่ไม่รองรับจะ ignore หรือใช้ hint ใน prompt แทน)
-  if (item.ratio !== "1:1") {
-    body.image_config = { aspect_ratio: item.ratio };
-    body.messages = [{ role: "user", content: item.prompt + "\n\nAspect ratio: " + item.ratio }];
-  }
+  if (item.ratio !== "1:1") body.image_config = { aspect_ratio: item.ratio };
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
@@ -387,6 +478,7 @@ export function regenerateFromItem(item: GenItem) {
       startedAt: null,
       errMsg: "",
       mode: item.mode,
+      refs: item.refs,
     };
     s.modes[item.mode].images.unshift(newItem);
   });
@@ -494,7 +586,8 @@ export function exportSession() {
       count: s.count,
       duration: s.duration,
       audio: s.audio,
-      queue: s.queue,
+      // ตัด refs ออก — data URL ใหญ่มาก และคง format ให้เข้ากันได้กับ export เดิม
+      queue: s.queue.map(({ refs: _refs, ...q }) => q),
       history: s.history,
     };
   }
@@ -531,7 +624,10 @@ export function importSession(file: File) {
         if (typeof m.count === "number") s.count = m.count;
         if (typeof m.duration === "number") s.duration = m.duration;
         if (typeof m.audio === "boolean") s.audio = m.audio;
-        if (Array.isArray(m.queue)) s.queue = (m.queue as QueueJob[]).slice(0, MAX_QUEUE);
+        // ref images เป็น memory-only โดยตั้งใจ — ตัดออกจาก queue ที่ import มา (ถ้าไฟล์มีติดมา)
+        if (Array.isArray(m.queue)) {
+          s.queue = (m.queue as QueueJob[]).slice(0, MAX_QUEUE).map(q => ({ ...q, refs: [] }));
+        }
         if (Array.isArray(m.history)) {
           s.history = (m.history as unknown[]).filter((x): x is string => typeof x === "string").slice(0, MAX_HISTORY);
           saveHistory(mode);

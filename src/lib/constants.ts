@@ -1,9 +1,38 @@
-import type { Mode, ORModel } from "./types";
+import type { Mode, ORModel, RefKind } from "./types";
 
 export const MODES: Mode[] = ["home", "infographic", "video"];
 export const MAX_QUEUE = 5;
 export const MAX_HISTORY = 30;
 export const MAX_CHAT_HISTORY = 60;
+
+// ---------- reference images ----------
+export const MAX_REF_BYTES = 4 * 1024 * 1024; // ต่อไฟล์ — data URL ใหญ่กว่านี้ทำให้ request บวมจนโมเดลมักปฏิเสธ
+export const MAX_REFS_PER_KIND = 2;
+
+/**
+ * ต่อ ref kind: label ที่โชว์ใน UI + คำกำกับที่ส่งให้โมเดลใน content array
+ * โมเดลไม่มี param แยกสำหรับ "นี่คือ style ref" — ต้องบอกด้วยข้อความคู่กับรูปแต่ละใบ
+ */
+export const REF_KINDS: { kind: RefKind; label: string; hint: string; instruction: string }[] = [
+  {
+    kind: "ref",
+    label: "Reference",
+    hint: "องค์ประกอบ / subject / ฉากที่ต้องการให้ยึดตาม",
+    instruction: "COMPOSITION REFERENCE — follow the subject, layout and overall composition of this image.",
+  },
+  {
+    kind: "style",
+    label: "Style",
+    hint: "โทนสี แสง เทคนิค การเรนเดอร์",
+    instruction: "STYLE REFERENCE — copy the art style, color palette, lighting and rendering technique of this image, but not its subject.",
+  },
+  {
+    kind: "facial",
+    label: "Facial",
+    hint: "ใบหน้าตัวละครที่ต้องคงเอกลักษณ์",
+    instruction: "FACIAL IDENTITY REFERENCE — preserve this person's facial identity and features exactly in the generated image.",
+  },
+];
 
 export const RATIOS = [
   { v: "1:1", w: 14, h: 14 },
