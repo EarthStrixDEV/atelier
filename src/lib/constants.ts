@@ -108,6 +108,115 @@ interface KeywordGroup {
   items: string[];
 }
 
+/** สร้าง keyword 50 รายการจากคู่คำ 10 x 5 โดยคงลำดับเดิมทุกครั้ง */
+function keywordPairs(left: readonly string[], right: readonly string[], join: (a: string, b: string) => string): string[] {
+  return left.flatMap(a => right.map(b => join(a, b)));
+}
+
+const GENERAL_KEYWORD_ADDITIONS: Record<string, string[]> = {
+  style: keywordPairs(
+    ["editorial", "vintage", "surreal", "fantasy", "retro-futuristic", "art deco", "gothic", "bohemian", "Japanese-inspired", "Scandinavian"],
+    ["photography", "digital illustration", "concept art", "poster art", "mixed media"],
+    (a, b) => `${a} ${b}`,
+  ),
+  lighting: keywordPairs(
+    ["soft diffused", "hard directional", "volumetric", "low-key", "high-key", "moonlit", "candlelit", "overcast", "sunset", "underwater"],
+    ["key lighting", "rim lighting", "side lighting", "ambient lighting", "spotlight"],
+    (a, b) => `${a} ${b}`,
+  ),
+  camera: keywordPairs(
+    ["eye-level", "low-angle", "high-angle", "Dutch-angle", "over-the-shoulder", "bird's-eye", "worm's-eye", "three-quarter", "profile", "front-facing"],
+    ["extreme close-up", "medium shot", "full-body shot", "establishing shot", "telephoto shot"],
+    (a, b) => `${a} ${b}`,
+  ),
+  mood: keywordPairs(
+    ["serene", "mysterious", "joyful", "melancholic", "romantic", "tense", "nostalgic", "ethereal", "playful", "epic"],
+    ["earth-tone palette", "jewel-tone palette", "muted palette", "monochromatic palette", "complementary palette"],
+    (a, b) => `${a}, ${b}`,
+  ),
+  detail: keywordPairs(
+    ["ultra-fine", "intricate", "crisp", "natural", "polished", "weathered", "handcrafted", "ornate", "subtle", "hyperreal"],
+    ["surface textures", "material details", "facial details", "environment details", "micro details"],
+    (a, b) => `${a} ${b}`,
+  ),
+  pose: keywordPairs(
+    ["confident", "relaxed", "elegant", "dynamic", "candid", "heroic", "graceful", "playful", "thoughtful", "dramatic"],
+    ["standing pose", "seated pose", "walking pose", "turning pose", "reaching pose"],
+    (a, b) => `${a} ${b}`,
+  ),
+  prop: keywordPairs(
+    ["holding a lantern", "holding a camera", "carrying a backpack", "holding a smartphone", "holding a sword", "holding a paintbrush", "carrying a suitcase", "holding a vinyl record", "holding a map", "holding a crystal"],
+    ["in a library", "in a forest", "on a rooftop", "at a train station", "inside a modern studio"],
+    (a, b) => `${a} ${b}`,
+  ),
+  subject: keywordPairs(
+    ["female astronaut", "male detective", "fashion model", "street musician", "forest guardian", "fox", "owl", "tiger", "white rabbit", "android"],
+    ["portrait", "full-body character", "in an urban scene", "in a natural habitat", "in a fantasy world"],
+    (a, b) => `${a} ${b}`,
+  ),
+  character: keywordPairs(
+    ["silver hair", "auburn hair", "wavy black hair", "platinum blond hair", "braided hair", "buzz cut", "shoulder-length hair", "messy hair", "side-swept hair", "twin-tail hair"],
+    ["with amber eyes", "with green eyes", "with a gentle smile", "with a determined expression", "with delicate facial features"],
+    (a, b) => `${a} ${b}`,
+  ),
+  effect: keywordPairs(
+    ["floating embers", "sparkling dust", "light trails", "electric arcs", "water splashes", "shattered glass", "falling petals", "fog layers", "holographic glow", "ink clouds"],
+    ["in the foreground", "around the subject", "in the background", "with cinematic depth", "with subtle intensity"],
+    (a, b) => `${a} ${b}`,
+  ),
+  clothing: keywordPairs(
+    ["tailored blazer", "oversized sweater", "trench coat", "silk blouse", "denim jacket", "evening gown", "utility jumpsuit", "athletic outfit", "fantasy armor", "futuristic bodysuit"],
+    ["in neutral colors", "in vibrant colors", "with gold accents", "with layered accessories", "with intricate embroidery"],
+    (a, b) => `${a} ${b}`,
+  ),
+};
+
+const INFOGRAPHIC_KEYWORD_ADDITIONS: Record<string, string[]> = {
+  style: keywordPairs(
+    ["editorial", "Swiss", "Bauhaus", "geometric", "organic", "playful", "luxury", "tech", "retro", "paper-cut"],
+    ["infographic style", "data poster style", "visual report style", "educational graphic style", "presentation graphic style"],
+    (a, b) => `${a} ${b}`,
+  ),
+  layout: keywordPairs(
+    ["modular", "asymmetrical", "radial", "zigzag", "pyramid", "funnel", "roadmap", "dashboard", "card-based", "flowchart"],
+    ["portrait layout", "landscape layout", "square layout", "mobile-first layout", "print-ready layout"],
+    (a, b) => `${a} ${b}`,
+  ),
+  language: keywordPairs(
+    ["formal Thai", "friendly Thai", "concise English", "professional English", "Thai-English bilingual", "Japanese", "Chinese", "Korean", "Spanish", "language-neutral"],
+    ["short labels", "clear captions", "plain-language copy", "headline-focused copy", "icon-supported copy"],
+    (a, b) => `${a} with ${b}`,
+  ),
+  header: keywordPairs(
+    ["oversized", "compact", "editorial", "split", "ribbon", "boxed", "gradient", "illustrated", "number-led", "question-led"],
+    ["title header", "title and subtitle", "title with icon", "title with statistic", "title with category label"],
+    (a, b) => `${a} ${b}`,
+  ),
+  detail: keywordPairs(
+    ["research-backed", "executive-summary", "beginner-friendly", "expert-level", "data-rich", "story-driven", "icon-led", "chart-led", "illustration-led", "minimal"],
+    ["content detail", "data callouts", "supporting notes", "key takeaways", "source annotations"],
+    (a, b) => `${a} ${b}`,
+  ),
+  segmentation: keywordPairs(
+    ["two-column", "three-column", "four-quadrant", "six-card", "eight-card", "step-by-step", "chapter-based", "problem-solution", "cause-effect", "question-answer"],
+    ["section structure", "information flow", "content breakdown", "visual hierarchy", "story sequence"],
+    (a, b) => `${a} ${b}`,
+  ),
+};
+
+const VIDEO_KEYWORD_ADDITIONS: Record<string, string[]> = {
+  camera: keywordPairs(
+    ["gentle", "rapid", "smooth", "dramatic", "subtle", "handheld", "stabilized", "cinematic", "aerial", "ground-level"],
+    ["push-in movement", "pull-back movement", "lateral tracking", "orbit movement", "vertical reveal"],
+    (a, b) => `${a} ${b}`,
+  ),
+  frametime: keywordPairs(
+    ["gradual", "sudden", "rhythmic", "cinematic", "dreamlike", "energetic", "subtle", "dramatic", "seamless", "stylized"],
+    ["slowdown", "speed-up", "time jump", "loop transition", "freeze-frame transition"],
+    (a, b) => `${a} ${b}`,
+  ),
+};
+
 const HOME_KEYWORDS: KeywordGroup[] = [
   { label: "สไตล์", items: ["photorealistic", "cinematic", "anime style", "watercolor", "oil painting", "minimalist", "cyberpunk", "3D render"] },
   { label: "แสง", items: ["studio lighting", "golden hour", "soft light", "neon lights", "dramatic lighting", "backlit"] },
@@ -120,22 +229,46 @@ const HOME_KEYWORDS: KeywordGroup[] = [
   { label: "Character Detail", items: ["blue eyes", "long hair", "short hair", "curly hair", "freckles", "sharp jawline", "muscular build", "slim build", "scar on cheek", "tattoos"] },
   { label: "Visual Effect", items: ["motion blur", "lens flare", "particle effects", "glowing aura", "smoke effect", "rain effect", "double exposure", "chromatic aberration"] },
   { label: "Clothing", items: ["business suit", "casual streetwear", "traditional Thai dress", "leather jacket", "summer dress", "military uniform", "kimono", "hoodie and jeans"] },
-];
+].map((group, index) => ({
+  ...group,
+  items: [
+    ...group.items,
+    ...GENERAL_KEYWORD_ADDITIONS[["style", "lighting", "camera", "mood", "detail", "pose", "prop", "subject", "character", "effect", "clothing"][index]],
+  ],
+}));
+
+const INFOGRAPHIC_KEYWORDS: KeywordGroup[] = [
+  { label: "Style", items: ["flat design", "corporate style", "modern minimal", "hand-drawn style", "isometric", "gradient style", "line art icons", "3D illustrative"] },
+  { label: "Layout", items: ["vertical layout", "horizontal layout", "grid layout", "circular layout", "timeline layout", "comparison layout", "single-column layout", "poster layout"] },
+  { label: "Language", items: ["Thai text", "English text", "bilingual Thai-English", "no text, icons only"] },
+  { label: "Header", items: ["bold title header", "centered header", "banner header", "subtitle included", "icon beside title"] },
+  { label: "Detail", items: ["data-heavy detail", "minimal text detail", "with icons", "with charts", "with statistics", "with illustrations"] },
+  { label: "Segmentation", items: ["3-step process", "4-part breakdown", "5-part breakdown", "before/after comparison", "timeline segments", "numbered sections", "pros vs cons split"] },
+].map((group, index) => ({
+  ...group,
+  items: [
+    ...group.items,
+    ...INFOGRAPHIC_KEYWORD_ADDITIONS[["style", "layout", "language", "header", "detail", "segmentation"][index]],
+  ],
+}));
+
+const VIDEO_CONTROL_KEYWORDS: KeywordGroup[] = [
+  { label: "Camera Control", items: ["slow dolly in", "dolly out", "pan left", "pan right", "tilt up", "crane shot", "orbit around subject", "tracking shot", "handheld camera", "FPV drone shot", "static camera", "zoom in slowly"] },
+  { label: "Frametime Control", items: ["slow motion", "timelapse", "fast motion", "speed ramp", "freeze frame ending", "seamless loop", "reverse motion", "long take"] },
+].map((group, index) => ({
+  ...group,
+  items: [
+    ...group.items,
+    ...VIDEO_KEYWORD_ADDITIONS[["camera", "frametime"][index]],
+  ],
+}));
 
 export const KEYWORDS_BY_MODE: Record<Mode, KeywordGroup[]> = {
   home: HOME_KEYWORDS,
-  infographic: [
-    { label: "Style", items: ["flat design", "corporate style", "modern minimal", "hand-drawn style", "isometric", "gradient style", "line art icons", "3D illustrative"] },
-    { label: "Layout", items: ["vertical layout", "horizontal layout", "grid layout", "circular layout", "timeline layout", "comparison layout", "single-column layout", "poster layout"] },
-    { label: "Language", items: ["Thai text", "English text", "bilingual Thai-English", "no text, icons only"] },
-    { label: "Header", items: ["bold title header", "centered header", "banner header", "subtitle included", "icon beside title"] },
-    { label: "Detail", items: ["data-heavy detail", "minimal text detail", "with icons", "with charts", "with statistics", "with illustrations"] },
-    { label: "Segmentation", items: ["3-step process", "4-part breakdown", "5-part breakdown", "before/after comparison", "timeline segments", "numbered sections", "pros vs cons split"] },
-  ],
+  infographic: INFOGRAPHIC_KEYWORDS,
   // โหมด video: สองกลุ่มเฉพาะวิดีโออยู่บนสุด (กลุ่มแรกเปิด default) ตามด้วยกลุ่มเดิมของ Home ทั้งหมด
   video: [
-    { label: "Camera Control", items: ["slow dolly in", "dolly out", "pan left", "pan right", "tilt up", "crane shot", "orbit around subject", "tracking shot", "handheld camera", "FPV drone shot", "static camera", "zoom in slowly"] },
-    { label: "Frametime Control", items: ["slow motion", "timelapse", "fast motion", "speed ramp", "freeze frame ending", "seamless loop", "reverse motion", "long take"] },
+    ...VIDEO_CONTROL_KEYWORDS,
     ...HOME_KEYWORDS,
   ],
 };
