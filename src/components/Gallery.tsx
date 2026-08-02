@@ -8,6 +8,7 @@ import {
 import { useApp } from "../lib/store";
 import type { GenItem } from "../lib/types";
 import { ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
+import PromptComposer from "./PromptComposer";
 
 const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9)
 
@@ -142,8 +143,14 @@ export default function Gallery() {
   const validIds = new Set(ms.images.filter(x => x.status === "done").map(x => x.id));
   const selectedCount = [...ms.selected].filter(id => validIds.has(id)).length;
 
+  const centerPrompt = s.promptPlacement === "center";
+
   return (
-    <main className="flex-1 overflow-y-auto p-7 max-[860px]:p-5">
+    <main className="relative flex min-w-0 flex-1 overflow-hidden">
+      <div className={
+        "min-w-0 flex-1 overflow-y-auto p-7 max-[860px]:p-5 " +
+        (centerPrompt ? "pb-44 max-[860px]:pb-40" : "")
+      }>
       <div className="mb-[18px] flex items-baseline justify-between">
         <h2 className="text-[13px] font-semibold uppercase tracking-[1.2px] text-text-dim">{meta.title}</h2>
         <div className="flex items-center gap-3">
@@ -182,6 +189,21 @@ export default function Gallery() {
           {ms.images.map((item, i) => (
             <Card key={item.id} item={item} index={i} selected={ms.selected.has(item.id)} />
           ))}
+        </div>
+      )}
+      </div>
+      {centerPrompt && !s.chatOpen && (
+        <div className="pointer-events-none absolute inset-x-6 bottom-[max(24px,env(safe-area-inset-bottom))] z-40 flex justify-center max-[860px]:inset-x-3 max-[860px]:bottom-[max(12px,env(safe-area-inset-bottom))]">
+          <div className="pointer-events-auto w-full max-w-[720px]">
+            <PromptComposer placement="center" />
+          </div>
+        </div>
+      )}
+      {centerPrompt && s.chatOpen && (
+        <div className="pointer-events-none absolute bottom-6 left-6 right-[404px] z-40 flex justify-center max-[860px]:hidden">
+          <div className="pointer-events-auto w-full max-w-[720px]">
+            <PromptComposer placement="center" />
+          </div>
         </div>
       )}
     </main>

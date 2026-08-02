@@ -1,9 +1,18 @@
 import { useSyncExternalStore } from "react";
-import type { AppState, ChatMsg, Mode, ModeState } from "./types";
+import type { AppState, ChatMsg, Mode, ModeState, PromptPlacement } from "./types";
 import { MAX_CHAT_HISTORY } from "./constants";
 
 const HISTORY_KEY_PREFIX = "atelier_history_";
 const CHAT_HISTORY_KEY = "atelier_chat_history";
+export const PROMPT_PLACEMENT_KEY = "atelier_prompt_placement";
+
+function loadPromptPlacement(): PromptPlacement {
+  try {
+    return localStorage.getItem(PROMPT_PLACEMENT_KEY) === "center" ? "center" : "sidebar";
+  } catch {
+    return "sidebar";
+  }
+}
 
 function loadHistory(mode: Mode): string[] {
   try {
@@ -77,6 +86,7 @@ export const state: AppState = {
   optimize: { status: "idle", result: null, error: "" },
   toast: { msg: "", n: 0 },
   sidebarCollapsed: false,
+  promptPlacement: loadPromptPlacement(),
   lbFormat: "png",
 };
 

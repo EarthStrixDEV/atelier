@@ -1,6 +1,7 @@
 export type Mode = "home" | "infographic" | "video";
 export type GenStatus = "loading" | "done" | "error";
 export type ImgFormat = "png" | "jpg";
+export type PromptPlacement = "sidebar" | "center";
 
 export interface ORModel {
   id: string;
@@ -99,5 +100,6 @@ export interface AppState {
   };
   toast: { msg: string; n: number };
   sidebarCollapsed: boolean;
+  promptPlacement: PromptPlacement;
   lbFormat: ImgFormat;
 }

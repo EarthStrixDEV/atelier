@@ -63,9 +63,16 @@ body {
   .hero-copy, .hero-art, .hero-float { animation: none; }
 }
 
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
+/* Hide scrollbar chrome globally while preserving wheel, trackpad, touch, and keyboard scrolling. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
 
 /* native <details> marker ของ keyword group */
 details.kw-group > summary { list-style: none; }

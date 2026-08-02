@@ -12,6 +12,7 @@ import {
 } from "../lib/actions";
 import { mutate, useApp } from "../lib/store";
 import { hasKeyword, videoPricePerSec } from "../lib/utils";
+import PromptComposer from "./PromptComposer";
 
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 560;
@@ -111,7 +112,10 @@ export default function Sidebar() {
         onMouseDown={onDragStart}
       />
 
-      {/* Prompt + Optimizer */}
+      {s.promptPlacement === "sidebar" && <PromptComposer placement="sidebar" />}
+
+      {/* Legacy prompt markup retained temporarily while the shared composer owns rendering. */}
+      {false && <>
       <div>
         <label htmlFor="prompt" className={fieldLabel}>Prompt</label>
         <textarea
@@ -151,13 +155,13 @@ export default function Sidebar() {
             <>
               <div className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-text-faint">Prompt ที่จูนแล้ว</div>
               <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 px-[11px] py-2.5 text-[12.5px] leading-relaxed text-text">
-                {s.optimize.result.prompt}
+                {s.optimize.result!.prompt}
               </div>
-              {s.optimize.result.keywords.length > 0 && (
+              {s.optimize.result!.keywords.length > 0 && (
                 <>
                   <div className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-text-faint">Keyword แนะนำ (กดเพื่อเพิ่มเข้า prompt ปัจจุบัน)</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {s.optimize.result.keywords.map(kw => (
+                    {s.optimize.result!.keywords.map(kw => (
                       <button
                         key={kw}
                         className={
@@ -186,6 +190,7 @@ export default function Sidebar() {
           )}
         </div>
       )}
+      </>}
 
       {/* Prompt history */}
       {ms.history.length > 0 && (

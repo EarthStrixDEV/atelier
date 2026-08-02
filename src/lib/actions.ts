@@ -4,8 +4,8 @@ import {
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
   VIDEO_POLL_MS, VIDEO_RESOLUTION, VIDEO_TIMEOUT_MS, modeLabel,
 } from "./constants";
-import { cur, mutate, saveChatHistory, saveHistory, state, toast } from "./store";
-import type { GenItem, Mode, ORModel, QueueJob, RefImage, RefKind } from "./types";
+import { cur, mutate, PROMPT_PLACEMENT_KEY, saveChatHistory, saveHistory, state, toast } from "./store";
+import type { GenItem, Mode, ORModel, PromptPlacement, QueueJob, RefImage, RefKind } from "./types";
 import { convertDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -101,6 +101,16 @@ export function applyVideoCapabilities() {
 // ---------- prompt / mode ----------
 export function setPrompt(v: string) {
   mutate(() => { cur().prompt = v; });
+}
+
+export function setPromptPlacement(placement: PromptPlacement) {
+  mutate(s => {
+    s.promptPlacement = placement;
+    if (placement === "sidebar") s.sidebarCollapsed = false;
+  });
+  try {
+    localStorage.setItem(PROMPT_PLACEMENT_KEY, placement);
+  } catch { /* preference persistence is best-effort */ }
 }
 
 export function toggleKeyword(kw: string) {
