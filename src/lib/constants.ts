@@ -89,6 +89,18 @@ export const EXTRA_MODELS: ORModel[] = [
     pricing: { image: "0.000002" },
     architecture: { output_modalities: ["image", "text"] },
   },
+  {
+    id: "microsoft/mai-image-2.5-pro",
+    name: "Microsoft: MAI-Image-2.5 Pro",
+    pricing: {},
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "krea/krea-2-large",
+    name: "Krea: Krea 2 Large",
+    pricing: { image: "0.06" },
+    architecture: { output_modalities: ["image"] },
+  },
 ];
 
 interface KeywordGroup {
