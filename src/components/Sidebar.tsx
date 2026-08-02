@@ -259,11 +259,57 @@ export default function Sidebar() {
             </button>
           )}
         </label>
-        {!canAttachRefs ? (
+        {isVideo ? (
+          <div className="overflow-hidden rounded-card border border-border bg-surface">
+            {ms.refs[0] ? (
+              <div className="group relative aspect-video overflow-hidden bg-surface-2">
+                <img src={ms.refs[0].dataUrl} alt={ms.refs[0].name} className="h-full w-full object-cover" />
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/90 to-transparent px-3 pb-2.5 pt-8">
+                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white" title={ms.refs[0].name}>{ms.refs[0].name}</span>
+                  <button
+                    type="button"
+                    className="shrink-0 cursor-pointer rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[10.5px] font-semibold text-white backdrop-blur transition-colors hover:border-danger hover:text-danger"
+                    onClick={() => removeRefImage(ms.refs[0])}
+                  >
+                    ลบภาพ
+                  </button>
+                </div>
+                <span className="absolute left-2.5 top-2.5 rounded-full border border-white/20 bg-black/60 px-2 py-1 text-[9.5px] font-semibold uppercase tracking-[.12em] text-white backdrop-blur">First frame</span>
+              </div>
+            ) : (
+              <label className="flex cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-transparent px-4 py-7 text-center transition-colors hover:border-border-strong hover:bg-surface-2">
+                <span className="grid h-10 w-10 place-items-center rounded-full border border-border-strong bg-surface-2 text-text-dim"><ImagePlus size={17} /></span>
+                <span className="text-xs font-semibold text-text">แนบภาพเริ่มต้น</span>
+                <span className="max-w-[230px] text-[10.5px] leading-relaxed text-text-faint">ภาพนี้จะเป็นเฟรมแรกสำหรับ Image-to-Video · สูงสุด 4MB</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files?.length) addRefImages("ref", e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+            {ms.refs[0] && (
+              <label className="flex cursor-pointer items-center justify-center gap-1.5 border-t border-border py-2.5 text-[11px] font-semibold text-text-dim transition-colors hover:bg-surface-2 hover:text-text">
+                <ImagePlus size={12} /> เปลี่ยนภาพ
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files?.length) addRefImages("ref", e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
+        ) : !canAttachRefs ? (
           <p className="text-[11.5px] leading-relaxed text-text-faint">
-            {isVideo
-              ? "โหมด Video ยังไม่รองรับการแนบภาพอ้างอิงค่ะ"
-              : "โมเดลนี้สร้างภาพได้อย่างเดียว (image-only) จึงแนบภาพอ้างอิงไม่ได้ — เลือกโมเดลแบบ image+text เช่น Gemini หรือ GPT Image ค่ะ"}
+            โมเดลนี้สร้างภาพได้อย่างเดียว (image-only) จึงแนบภาพอ้างอิงไม่ได้ — เลือกโมเดลแบบ image+text เช่น Gemini หรือ GPT Image ค่ะ
           </p>
         ) : (
           <div className="flex flex-col gap-[7px]">

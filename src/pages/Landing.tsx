@@ -79,7 +79,7 @@ export default function Landing() {
       {/* nav */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2.5">
-          <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-9 w-9 object-contain" />
+          <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[54px] w-[54px] object-contain" />
           <span className="text-[15px] font-semibold tracking-[0.2px]">
             Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">image studio</span>
           </span>

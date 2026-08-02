@@ -143,12 +143,9 @@ export function usePromptFromHistory(prompt: string) {
 }
 
 // ---------- reference images ----------
-/**
- * แนบ ref ได้เฉพาะ path ที่ /chat/completions รองรับ image input จริง
- * — video mode ไปที่ /api/v1/videos และ image-only model ไปที่ /api/v1/images ซึ่งไม่ได้ verify ว่ารับ ref
- */
+/** แนบ ref ผ่าน /chat/completions สำหรับภาพ และ frame_images สำหรับ Image-to-Video */
 export function refsSupported(): boolean {
-  if (state.mode === "video") return false;
+  if (state.mode === "video") return true;
   const m = currentModel();
   const outs = m?.architecture?.output_modalities || [];
   return !(outs.length && !outs.includes("text"));
@@ -168,7 +165,8 @@ const readAsDataUrl = (file: File) =>
 
 export async function addRefImages(kind: RefKind, files: FileList | File[]) {
   const mode = state.mode; // ผู้ใช้อาจสลับโหมดระหว่างรออ่านไฟล์ — ผูก ref กับโหมดที่กดแนบ
-  for (const file of Array.from(files)) {
+  const selectedFiles = mode === "video" ? Array.from(files).slice(0, 1) : Array.from(files);
+  for (const file of selectedFiles) {
     if (!file.type.startsWith("image/")) { toast(`"${file.name}" ไม่ใช่ไฟล์รูปค่ะ`); continue; }
     if (file.size > MAX_REF_BYTES) {
       toast(`"${file.name}" ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ`);
@@ -180,7 +178,10 @@ export async function addRefImages(kind: RefKind, files: FileList | File[]) {
     }
     try {
       const dataUrl = await readAsDataUrl(file);
-      mutate(() => { state.modes[mode].refs.push({ kind, dataUrl, name: file.name }); });
+      mutate(() => {
+        if (mode === "video") state.modes[mode].refs = [{ kind: "ref", dataUrl, name: file.name }];
+        else state.modes[mode].refs.push({ kind, dataUrl, name: file.name });
+      });
     } catch (e) {
       toast(errMsg(e));
     }
@@ -322,6 +323,13 @@ async function requestVideo(item: GenItem): Promise<string> {
       resolution: VIDEO_RESOLUTION,
       aspect_ratio: item.ratio,
     };
+    if (item.refs[0]) {
+      body.frame_images = [{
+        type: "image_url",
+        image_url: { url: item.refs[0].dataUrl },
+        frame_type: "first_frame",
+      }];
+    }
     if (m?.generate_audio) body.generate_audio = !!item.audio;
     const res = await fetch("https://openrouter.ai/api/v1/videos", {
       method: "POST",
