@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   ArrowRight, Image, Layers, Video, Zap, ShieldCheck, Wand2,
-  Sparkles, Palette, Sun, Camera, Smile, Shirt,
+  Sparkles, Palette, Sun, Camera, Smile, Shirt, Play,
 } from "lucide-react";
 
 const HIGHLIGHTS = [
@@ -79,7 +79,7 @@ export default function Landing() {
       {/* nav */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2.5">
-          <div className="grid h-8 w-8 place-items-center rounded-md bg-accent text-sm font-extrabold text-accent-ink">A</div>
+          <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-9 w-9 object-contain" />
           <span className="text-[15px] font-semibold tracking-[0.2px]">
             Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">image studio</span>
           </span>
@@ -93,34 +93,50 @@ export default function Landing() {
       </header>
 
       {/* hero */}
-      <section className="mx-auto flex max-w-4xl flex-col items-center px-6 pb-24 pt-16 text-center sm:pt-24">
-        <span className="rounded-full border border-border bg-surface px-3.5 py-1.5 text-xs font-medium text-text-dim">
-          ขับเคลื่อนโดย OpenRouter · ไม่มี backend
-        </span>
-        <h1 className="mt-7 text-4xl font-bold leading-[1.15] tracking-tight sm:text-6xl">
-          สร้างภาพและวิดีโอด้วย AI
-          <br />
-          ในสตูดิโอเดียว
-        </h1>
-        <p className="mt-6 max-w-xl text-balance text-[15px] leading-relaxed text-text-dim sm:text-base">
-          เลือกโมเดล AI ได้อิสระจาก OpenRouter สร้างภาพ, infographic และวิดีโอสั้น
-          พร้อม prompt builder และเครื่องมือช่วยจูน prompt ในตัว — ไม่ต้องติดตั้ง ไม่ต้องสมัครสมาชิก
-        </p>
-        <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
-          <Link
-            to="/studio"
-            className="flex items-center gap-2 rounded-full bg-accent px-6 py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
-          >
-            เริ่มสร้างเลย <ArrowRight size={15} />
-          </Link>
-          <a
-            href="https://openrouter.ai/keys"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 rounded-full border border-border px-6 py-3 text-sm font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
-          >
-            รับ API Key ฟรี
-          </a>
+      <section className="hero-grid relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-12 sm:pt-20">
+        <div className="hero-glow" aria-hidden="true" />
+        <div className="relative z-10 grid items-center gap-14 lg:grid-cols-[1.02fr_.98fr]">
+          <div className="hero-copy">
+            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 px-3.5 py-1.5 text-xs font-medium text-text-dim backdrop-blur">
+              <span className="h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_12px_white]" />
+              AI creative studio · ขับเคลื่อนโดย OpenRouter
+            </span>
+            <h1 className="mt-8 text-[clamp(3.3rem,7vw,6.6rem)] font-bold leading-[.88] tracking-[-.065em]">
+              Imagine.<br /><span className="hero-outline">Compose.</span><br />Create.
+            </h1>
+            <p className="mt-8 max-w-lg text-balance text-[15px] leading-7 text-text-dim sm:text-base">
+              เปลี่ยนทุกไอเดียให้เป็นภาพ อินโฟกราฟิก และวิดีโอ ด้วยโมเดล AI ชั้นนำในสตูดิโอเดียว — คุณกำกับ ที่เหลือให้ Atelier สร้าง
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-3">
+              <Link to="/studio" className="group flex items-center gap-2 rounded-full bg-accent px-6 py-3.5 text-sm font-semibold text-accent-ink transition-transform hover:-translate-y-0.5">
+                เปิด Creative Studio <ArrowRight size={15} className="transition-transform group-hover:translate-x-1" />
+              </Link>
+              <a href="#modes" className="flex items-center gap-2 rounded-full border border-border px-5 py-3.5 text-sm font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text">
+                <Play size={13} fill="currentColor" /> ดูความสามารถ
+              </a>
+            </div>
+            <div className="mt-11 flex items-center gap-7 border-t border-border pt-5 text-[11px] uppercase tracking-[.16em] text-text-faint">
+              <span>Image</span><span>Infographic</span><span>Video</span>
+            </div>
+          </div>
+          <div className="hero-art relative mx-auto aspect-[4/5] w-full max-w-[530px]" aria-label="ตัวอย่างพื้นที่สร้างสรรค์ของ Atelier">
+            <div className="absolute inset-[7%_8%_8%_8%] rotate-[3deg] rounded-[2rem] border border-white/15 bg-[#141414] shadow-2xl" />
+            <div className="absolute inset-[3%_13%_12%_3%] -rotate-[4deg] overflow-hidden rounded-[2rem] border border-white/15 bg-[#d9d5cc] text-[#0a0a0a] shadow-[0_30px_90px_rgba(0,0,0,.55)]">
+              <div className="absolute inset-0 opacity-35 [background-image:radial-gradient(#111_0.7px,transparent_0.7px)] [background-size:7px_7px]" />
+              <span className="absolute left-6 top-6 font-mono text-[10px] uppercase tracking-[.2em]">Atelier / 001</span>
+              <img src="/atelier/assets/atelier-logo.png" alt="" className="absolute left-1/2 top-1/2 w-[68%] -translate-x-1/2 -translate-y-1/2 invert" />
+              <div className="absolute bottom-6 left-6 right-6 flex items-end justify-between border-t border-black/30 pt-3">
+                <span className="text-xs font-bold uppercase tracking-[.14em]">Make ideas visible</span><Sparkles size={17} />
+              </div>
+            </div>
+            <div className="hero-float absolute -right-1 top-[16%] rounded-xl border border-white/15 bg-black/75 px-4 py-3 backdrop-blur-md">
+              <span className="block text-[10px] uppercase tracking-[.18em] text-text-faint">Model</span><span className="mt-1 block text-xs font-semibold">GPT Image 2</span>
+            </div>
+            <div className="hero-float hero-float-delay absolute -bottom-1 left-[3%] flex items-center gap-3 rounded-xl border border-white/15 bg-black/75 px-4 py-3 backdrop-blur-md">
+              <div className="grid h-8 w-8 place-items-center rounded-lg bg-white text-black"><Wand2 size={15} /></div>
+              <div><span className="block text-xs font-semibold">Prompt optimized</span><span className="text-[10px] text-text-faint">Ready to generate</span></div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -155,7 +171,7 @@ export default function Landing() {
       </section>
 
       {/* modes */}
-      <section className="border-t border-border bg-surface/40">
+      <section id="modes" className="border-t border-border bg-surface/40">
         <div className="mx-auto max-w-6xl px-6 py-24">
           <div className="max-w-2xl">
             <span className="text-xs font-semibold uppercase tracking-[1.5px] text-text-faint">Modes</span>

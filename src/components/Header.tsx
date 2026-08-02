@@ -18,7 +18,7 @@ export default function Header() {
         >
           {s.sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
-        <div className="grid h-[26px] w-[26px] place-items-center rounded-md bg-accent text-sm font-extrabold text-accent-ink">A</div>
+        <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-7 w-7 object-contain" />
         <h1 className="text-[15px] font-semibold tracking-[0.2px]">
           Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">image studio</span>
         </h1>
