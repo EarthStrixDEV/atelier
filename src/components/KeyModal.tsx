@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { mutate, toast, useApp } from "../lib/store";
+import { mutate, saveApiKey, state, toast, useApp } from "../lib/store";
 
 export default function KeyModal() {
   const s = useApp();
@@ -14,14 +14,31 @@ export default function KeyModal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.keyModalOpen]);
 
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!state.apiKey) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
   if (!s.keyModalOpen) return null;
 
   const save = () => {
     const v = value.trim();
     mutate(st => { st.apiKey = v; st.keyModalOpen = false; });
+    saveApiKey(v);
     if (v) toast("บันทึก API Key แล้วค่ะ");
   };
   const close = () => mutate(st => { st.keyModalOpen = false; });
+  const remove = () => {
+    setValue("");
+    mutate(st => { st.apiKey = ""; });
+    saveApiKey("");
+    toast("ลบ API Key แล้วค่ะ");
+  };
 
   return (
     <div
@@ -47,12 +64,20 @@ export default function KeyModal() {
           <button className="flex-1 cursor-pointer rounded-[9px] border border-border py-[11px] text-[13px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={close}>
             ยกเลิก
           </button>
+          <button
+            className="flex-1 cursor-pointer rounded-[9px] border border-border py-[11px] text-[13px] font-semibold text-danger transition-colors hover:border-danger disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={remove}
+            disabled={!s.apiKey}
+          >
+            ลบ
+          </button>
           <button className="flex-1 cursor-pointer rounded-[9px] bg-accent py-[11px] text-[13px] font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={save}>
             บันทึก
           </button>
         </div>
         <p className="mt-3.5 text-[11px] leading-relaxed text-text-faint">
-          Key เก็บไว้ในหน่วยความจำของหน้านี้เท่านั้น ไม่ถูกบันทึกลงเครื่องหรือส่งไปที่อื่นนอกจาก OpenRouter — ปิดหน้าแล้วต้องใส่ใหม่ค่ะ
+          Key เก็บไว้ใน session ของแท็บนี้เท่านั้น ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — Refresh ได้สบาย แต่ปิดแท็บแล้วต้องใส่ใหม่ค่ะ
+          ระบบจะเตือนก่อนปิดแท็บถ้ายังมี key อยู่
         </p>
       </div>
     </div>

@@ -41,7 +41,7 @@ src/
 
 Per-mode state lives in `state.modes.home/.infographic/.video` (each a `ModeState`: `prompt`, `modelId`, `ratio`, `count`, `duration`, `audio`, `images`, `queue`, `history`, `selected`, `lbIndex`). `cur()` returns the active mode's slice. Shared/global fields (`apiKey`, model lists, chat, optimizer result, toast, …) sit directly on `AppState`. When adding a per-mode field, add it to `ModeState` + `freshModeState()`; global fields go on `AppState`.
 
-Persistence: only prompt history (`atelier_history_<mode>`), chat history (`atelier_chat_history`), and sidebar width (`atelier_sidebar_w`) survive a reload, via `localStorage`. `apiKey`, galleries, and queues are memory-only **by design** (see the note in the key modal).
+Persistence: prompt history (`atelier_history_<mode>`), chat history (`atelier_chat_history`), and sidebar width (`atelier_sidebar_w`) survive a reload, via `localStorage`. The API key (`atelier_api_key`) survives a reload too, but via `sessionStorage` — it's cleared when the tab/browser closes, unlike the `localStorage` fields. Galleries and queues are memory-only **by design** and are lost on reload (see the note in the key modal).
 
 ### Generation routing (actions.ts)
 

@@ -14,6 +14,23 @@ function loadPromptPlacement(): PromptPlacement {
   }
 }
 
+const API_KEY_KEY = "atelier_api_key";
+
+function loadApiKey(): string {
+  try {
+    return sessionStorage.getItem(API_KEY_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveApiKey(key: string) {
+  try {
+    if (key) sessionStorage.setItem(API_KEY_KEY, key);
+    else sessionStorage.removeItem(API_KEY_KEY);
+  } catch { /* sessionStorage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+}
+
 function loadHistory(mode: Mode): string[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY_PREFIX + mode);
@@ -65,9 +82,9 @@ function freshModeState(mode: Mode): ModeState {
   };
 }
 
-// apiKey เก็บใน memory เท่านั้น (ไม่ persist) — โดยตั้งใจ เช่นเดียวกับ legacy
+// apiKey เก็บใน sessionStorage — อยู่รอด refresh แต่หายเมื่อปิด tab/browser
 export const state: AppState = {
-  apiKey: "",
+  apiKey: loadApiKey(),
   models: [],
   videoModels: [],
   modelsFailed: false,
