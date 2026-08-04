@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Download, ImageIcon, Music, RefreshCw } from "lucide-react";
-import { MODE_META } from "../lib/constants";
+import { Check, Clapperboard, Copy, Download, ImageIcon, ListVideo, Music, RefreshCw } from "lucide-react";
+import { MODE_META, isVideoMode } from "../lib/constants";
 import {
-  clearSelection, copyPromptFromItem, downloadSelected, openLightbox,
+  clearSelection, copyPromptFromItem, downloadSelected, openExtendTool, openLightbox,
   regenerateFromItem, retry, toggleSelect,
 } from "../lib/actions";
 import { useApp } from "../lib/store";
@@ -42,7 +42,7 @@ function VideoProgress({ item }: { item: GenItem }) {
 }
 
 function Card({ item, index, selected }: { item: GenItem; index: number; selected: boolean }) {
-  const isVid = item.mode === "video";
+  const isVid = isVideoMode(item.mode);
   const isAud = item.mode === "audio";
   const done = item.status === "done";
 
@@ -132,6 +132,15 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
           >
             <RefreshCw size={10} /> Regenerate
           </button>
+          {item.mode === "cinematic" && (
+            <button
+              className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-accent/60 py-1.5 text-[10.5px] font-semibold text-text transition-colors hover:bg-accent hover:text-accent-ink"
+              title="เลือกเฟรมจากคลิปนี้ไปเป็นเฟรมแรกของ scene ถัดไป"
+              onClick={e => { e.stopPropagation(); openExtendTool(item); }}
+            >
+              <ListVideo size={10} /> Extend
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -144,7 +153,7 @@ export default function Gallery() {
   const meta = MODE_META[s.mode];
   const done = ms.images.filter(x => x.status === "done").length;
   const loading = ms.images.filter(x => x.status === "loading").length;
-  const unit = s.mode === "video" ? " clip" : s.mode === "audio" ? " song" : " image";
+  const unit = s.mode === "cinematic" ? " scene" : s.mode === "video" ? " clip" : s.mode === "audio" ? " song" : " image";
 
   // เผื่อ item ที่เคยเลือกไว้ถูกลบ/ยังไม่ done — กรองเฉพาะที่ยัง valid
   const validIds = new Set(ms.images.filter(x => x.status === "done").map(x => x.id));
@@ -190,6 +199,8 @@ export default function Gallery() {
         <div className="flex min-h-[380px] flex-col items-center justify-center gap-3.5 rounded-[14px] border border-dashed border-border text-text-faint">
           {s.mode === "audio"
             ? <Music size={44} className="opacity-40" strokeWidth={1.4} />
+            : s.mode === "cinematic"
+            ? <Clapperboard size={44} className="opacity-40" strokeWidth={1.4} />
             : <ImageIcon size={44} className="opacity-40" strokeWidth={1.4} />}
           <p className="text-[13px]">{meta.empty}</p>
         </div>

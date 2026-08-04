@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { isVideoMode } from "../lib/constants";
 import { closeLightbox, doneIndices, downloadCurrent, lbStep } from "../lib/actions";
 import { mutate, useApp } from "../lib/store";
 
@@ -22,7 +23,7 @@ export default function Lightbox() {
 
   if (!open) return null;
 
-  const isVid = item.mode === "video";
+  const isVid = isVideoMode(item.mode);
   const isAud = item.mode === "audio";
   const ds = doneIndices();
   const pos = ds.indexOf(ms.lbIndex);

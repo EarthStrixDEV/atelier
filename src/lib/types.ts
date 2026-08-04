@@ -1,4 +1,4 @@
-export type Mode = "home" | "infographic" | "video" | "audio";
+export type Mode = "home" | "infographic" | "video" | "cinematic" | "audio";
 export type GenStatus = "loading" | "done" | "error";
 export type ImgFormat = "png" | "jpg";
 export type PromptPlacement = "sidebar" | "center";
@@ -100,6 +100,8 @@ export interface AppState {
     result: OptimizeResult | null;
     error: string;
   };
+  /** id ของ item ที่เปิด TimeFrame & Extend tool อยู่ (โหมด cinematic) — null = ปิด */
+  extendItemId: number | null;
   toast: { msg: string; n: number };
   sidebarCollapsed: boolean;
   promptPlacement: PromptPlacement;

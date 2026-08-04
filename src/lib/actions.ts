@@ -3,7 +3,7 @@ import {
   CHAT_MODEL, DURATIONS, EXTRA_MODELS, MAX_CHAT_HISTORY, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MODE_MODEL_FILTER, OPTIMIZER_MODEL, PREFERRED,
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
-  VIDEO_POLL_MS, VIDEO_RESOLUTION, VIDEO_TIMEOUT_MS, modeLabel,
+  VIDEO_POLL_MS, VIDEO_RESOLUTION, VIDEO_TIMEOUT_MS, isVideoMode, modeLabel,
 } from "./constants";
 import { cur, mutate, PROMPT_PLACEMENT_KEY, saveChatHistory, saveHistory, state, toast } from "./store";
 import type { GenItem, Mode, ORModel, PromptPlacement, QueueJob, RefImage, RefKind } from "./types";
@@ -13,7 +13,7 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "
 
 // ---------- models ----------
 export function modelsForMode(mode: Mode): ORModel[] {
-  if (mode === "video") return state.videoModels;
+  if (isVideoMode(mode)) return state.videoModels;
   if (mode === "audio") return state.audioModels;
   const filter = MODE_MODEL_FILTER[mode];
   if (!filter) return state.models;
@@ -87,7 +87,7 @@ export function selectModel(id: string) {
 // เปิด/ปิดค่า duration + ratio + audio ตาม capability ของโมเดลวิดีโอที่เลือกอยู่
 // ถ้าค่าที่เลือกไว้ใช้ไม่ได้ snap ไปค่าที่ใกล้ที่สุดที่โมเดลรองรับ — พอร์ตจาก updateSegAvailability
 export function applyVideoCapabilities() {
-  if (state.mode !== "video") return;
+  if (!isVideoMode(state.mode)) return;
   const m = currentModel();
   const ms = cur();
   const durs = m?.supported_durations?.length ? m.supported_durations : null;
@@ -165,7 +165,7 @@ export function usePromptFromHistory(prompt: string) {
 /** แนบ ref ผ่าน /chat/completions สำหรับภาพ และ frame_images สำหรับ Image-to-Video */
 export function refsSupported(): boolean {
   if (state.mode === "audio") return false; // ยังไม่รองรับ image-to-music — ตัด ref ออกทั้งโหมด
-  if (state.mode === "video") return true;
+  if (isVideoMode(state.mode)) return true;
   const m = currentModel();
   const outs = m?.architecture?.output_modalities || [];
   return !(outs.length && !outs.includes("text"));
@@ -185,7 +185,7 @@ const readAsDataUrl = (file: File) =>
 
 export async function addRefImages(kind: RefKind, files: FileList | File[]) {
   const mode = state.mode; // ผู้ใช้อาจสลับโหมดระหว่างรออ่านไฟล์ — ผูก ref กับโหมดที่กดแนบ
-  const selectedFiles = mode === "video" ? Array.from(files).slice(0, 1) : Array.from(files);
+  const selectedFiles = isVideoMode(mode) ? Array.from(files).slice(0, 1) : Array.from(files);
   for (const file of selectedFiles) {
     if (!file.type.startsWith("image/")) { toast(`"${file.name}" ไม่ใช่ไฟล์รูปค่ะ`); continue; }
     if (file.size > MAX_REF_BYTES) {
@@ -199,7 +199,7 @@ export async function addRefImages(kind: RefKind, files: FileList | File[]) {
     try {
       const dataUrl = await readAsDataUrl(file);
       mutate(() => {
-        if (mode === "video") state.modes[mode].refs = [{ kind: "ref", dataUrl, name: file.name }];
+        if (isVideoMode(mode)) state.modes[mode].refs = [{ kind: "ref", dataUrl, name: file.name }];
         else state.modes[mode].refs.push({ kind, dataUrl, name: file.name });
       });
     } catch (e) {
@@ -302,7 +302,7 @@ export function generate() {
 
 async function runRequest(item: GenItem) {
   try {
-    if (item.mode === "video") {
+    if (isVideoMode(item.mode)) {
       item.url = await requestVideo(item);
     } else if (item.mode === "audio") {
       item.url = await requestAudio(item);
@@ -577,6 +577,30 @@ export function regenerateFromItem(item: GenItem) {
   toast("กำลังสร้างซ้ำค่ะ~");
 }
 
+// ---------- TimeFrame & Extend tool (โหมด cinematic) ----------
+export function openExtendTool(item: GenItem) {
+  mutate(s => { s.extendItemId = item.id; });
+}
+
+export function closeExtendTool() {
+  mutate(s => { s.extendItemId = null; });
+}
+
+/**
+ * รับเฟรมที่ผู้ใช้เลือกจาก timeline ของ scene เดิม มาตั้งเป็น First frame (Image-to-Video)
+ * ของ scene ถัดไปในโหมด cinematic — prompt เดิมถูก prefill ให้ถ้าช่องยังว่าง เพื่อแก้ต่อเป็นเนื้อเรื่องถัดไป
+ */
+export function applyExtendFrame(item: GenItem, frameDataUrl: string, timeSec: number) {
+  const tc = Math.floor(timeSec / 60) + ":" + String(Math.floor(timeSec % 60)).padStart(2, "0");
+  mutate(s => {
+    const ms = s.modes.cinematic;
+    ms.refs = [{ kind: "ref", dataUrl: frameDataUrl, name: `เฟรม ${tc} จาก scene ก่อนหน้า` }];
+    if (!ms.prompt.trim()) ms.prompt = item.prompt;
+    s.extendItemId = null;
+  });
+  toast("ตั้งเฟรมเริ่มต้นของ scene ถัดไปแล้วค่ะ — ปรับ prompt แล้วกด Generate ได้เลย");
+}
+
 // ---------- multi-select download ----------
 export function toggleSelect(id: number) {
   mutate(() => {
@@ -600,7 +624,7 @@ export async function downloadSelected() {
     if (!item.url) continue;
     let url = item.url;
     let ext: string = format;
-    if (item.mode === "video") {
+    if (isVideoMode(item.mode)) {
       ext = "mp4";
     } else if (item.mode === "audio") {
       ext = "mp3"; // blob URL — ดาวน์โหลดตรงได้เลย
@@ -635,8 +659,8 @@ export async function downloadCurrent() {
   const ms = cur();
   const item = ms.images[ms.lbIndex];
   if (!item?.url) return;
-  if (item.mode === "video" || item.mode === "audio") {
-    triggerDownload(item.url, randomFileName(item.mode === "video" ? "mp4" : "mp3")); // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
+  if (isVideoMode(item.mode) || item.mode === "audio") {
+    triggerDownload(item.url, randomFileName(item.mode === "audio" ? "mp3" : "mp4")); // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
     return;
   }
   let url: string;
@@ -652,7 +676,7 @@ export async function downloadCurrent() {
 // ---------- usage ----------
 export function computeItemCost(item: GenItem): number | null {
   if (item.mode === "audio") return AUDIO_MODEL_PRICES[item.model] ?? null;
-  if (item.mode === "video") {
+  if (isVideoMode(item.mode)) {
     const m = state.videoModels.find(x => x.id === item.model);
     if (!m) return null;
     const pps = videoPricePerSec(m, item.audio);
@@ -743,6 +767,7 @@ export async function runOptimize() {
   mutate(s => { s.optimize = { status: "loading", result: null, error: "" }; });
 
   const modeName = state.mode === "audio" ? "music generation"
+    : state.mode === "cinematic" ? "cinematic video generation (scenes that continue from a previous shot)"
     : state.mode === "video" ? "video generation"
     : state.mode === "infographic" ? "infographic generation" : "image generation";
   const sys = "You are a prompt engineer helping a user write better prompts for AI " + modeName + ". "
@@ -805,7 +830,8 @@ function chatSystemPrompt(): string {
     + "You help the user brainstorm ideas, design prompts (style, lighting, composition, mood, camera work, musical genre and instrumentation), "
     + "and give practical advice about generating images, videos and music with AI models. "
     + "The user is currently in the \"" + modeLabel(state.mode) + "\" tab of the app "
-    + "(General = images, Infographic = infographic images, Video = short video clips, Audio = songs/music). "
+    + "(General = images, Infographic = infographic images, Video = short video clips, "
+    + "Cinematic = video scenes that can be extended frame-to-frame into a continuing story, Audio = songs/music). "
     + "Keep answers concise and practical. When useful, suggest a ready-to-use prompt. Respond in the same "
     + "language the user writes in (Thai or English).";
 }

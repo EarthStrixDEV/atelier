@@ -3,6 +3,7 @@ import Header from "../components/Header";
 import Sidebar from "../components/Sidebar";
 import Gallery from "../components/Gallery";
 import Lightbox from "../components/Lightbox";
+import ExtendTool from "../components/ExtendTool";
 import KeyModal from "../components/KeyModal";
 import ChatPanel from "../components/ChatPanel";
 import Toast from "../components/Toast";
@@ -30,6 +31,7 @@ export default function StudioApp() {
         <Gallery />
       </div>
       <Lightbox />
+      <ExtendTool />
       <KeyModal />
       <ChatPanel />
       <Toast />

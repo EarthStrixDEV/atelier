@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, ImagePlus, Plus, Sparkles } from "lucide-react";
 import {
   AUDIO_MODEL_PRICES, COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_QUEUE,
-  MAX_REFS_PER_KIND, MODE_META, RATIOS, REF_KINDS,
+  MAX_REFS_PER_KIND, MODE_META, RATIOS, REF_KINDS, isVideoMode,
 } from "../lib/constants";
 import {
   addRefImages, addToQueue, applyOptimizedPrompt, clearOptimize, clearRefImages,
@@ -30,7 +30,7 @@ export default function Sidebar() {
   const s = useApp();
   const ms = s.modes[s.mode];
   const meta = MODE_META[s.mode];
-  const isVideo = s.mode === "video";
+  const isVideo = isVideoMode(s.mode);
   const isAudio = s.mode === "audio";
   const model = currentModel();
   const list = modelsForMode(s.mode);
