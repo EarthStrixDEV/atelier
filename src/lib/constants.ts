@@ -1,6 +1,6 @@
 import type { Mode, ORModel, RefKind } from "./types";
 
-export const MODES: Mode[] = ["home", "infographic", "video"];
+export const MODES: Mode[] = ["home", "infographic", "video", "audio"];
 export const MAX_QUEUE = 5;
 export const MAX_HISTORY = 30;
 export const MAX_CHAT_HISTORY = 60;
@@ -56,6 +56,7 @@ export const MODE_MODEL_FILTER: Record<Mode, RegExp[] | null> = {
   home: null,
   infographic: [/^openai\/gpt-image-2$/i, /^google\/gemini-3-pro-image$/i],
   video: null, // โหมด video ใช้ list แยก (videoModels) ไม่ผ่าน filter นี้
+  audio: null, // โหมด audio ใช้ list แยก (audioModels) ไม่ผ่าน filter นี้
 };
 
 // โหมด video ใช้ endpoint แยก (/api/v1/videos/models) — เรียงตามลำดับใน array นี้
@@ -65,6 +66,34 @@ export const VIDEO_MODEL_IDS = [
   "kwaivgi/kling-v3.0-std",
   "bytedance/seedance-2.0",
 ];
+
+// โหมด audio: คัดจาก /api/v1/models เดียวกับภาพ — เรียงตามลำดับใน array นี้
+export const AUDIO_MODEL_IDS = [
+  "google/lyria-3-pro-preview",
+  "google/lyria-3-clip-preview",
+];
+
+// fallback เผื่อ /api/v1/models ยังไม่ list โมเดล Lyria (merge ตาม id ไม่ให้ซ้ำ)
+export const AUDIO_EXTRA_MODELS: ORModel[] = [
+  {
+    id: "google/lyria-3-pro-preview",
+    name: "Google: Lyria 3 Pro (เพลงเต็ม)",
+    pricing: {},
+    architecture: { output_modalities: ["audio"] },
+  },
+  {
+    id: "google/lyria-3-clip-preview",
+    name: "Google: Lyria 3 Clip (คลิป 30 วิ)",
+    pricing: {},
+    architecture: { output_modalities: ["audio"] },
+  },
+];
+
+// ราคาต่อเพลง/คลิป — OpenRouter ไม่ส่งราคา per-song มาใน pricing ปกติ จึง fix ไว้ที่นี่
+export const AUDIO_MODEL_PRICES: Record<string, number> = {
+  "google/lyria-3-pro-preview": 0.08,
+  "google/lyria-3-clip-preview": 0.04,
+};
 
 // โมเดลที่พี่เอิร์ธอยากได้ ให้ลอยขึ้นบนสุดของ dropdown ถ้ามีบน OpenRouter
 export const PREFERRED = [/grok.*imagine.*quality/i, /grok.*imagine/i, /gpt.*image/i];
@@ -263,6 +292,15 @@ const VIDEO_CONTROL_KEYWORDS: KeywordGroup[] = [
   ],
 }));
 
+const AUDIO_KEYWORDS: KeywordGroup[] = [
+  { label: "แนวเพลง", items: ["pop", "rock", "jazz", "lo-fi hip hop", "EDM", "acoustic folk", "classical orchestral", "synthwave", "R&B", "Thai pop", "city pop", "bossa nova"] },
+  { label: "อารมณ์", items: ["upbeat", "melancholic", "dreamy", "energetic", "romantic", "epic cinematic", "chill and relaxing", "dark and moody", "nostalgic", "hopeful"] },
+  { label: "เครื่องดนตรี", items: ["piano", "acoustic guitar", "electric guitar", "strings section", "synthesizer", "808 bass", "live drums", "saxophone", "violin solo", "brass section"] },
+  { label: "เสียงร้อง", items: ["female vocals", "male vocals", "duet", "choir harmonies", "instrumental only", "whispery vocals", "powerful belting vocals", "rap verse"] },
+  { label: "จังหวะ / Tempo", items: ["slow tempo", "mid-tempo", "fast tempo", "driving beat", "waltz rhythm", "swing groove", "syncopated rhythm", "steady 4/4 groove"] },
+  { label: "โปรดักชัน", items: ["studio quality", "live recording feel", "vintage analog warmth", "modern polished production", "minimal arrangement", "lush arrangement", "wide stereo mix", "tape saturation"] },
+];
+
 export const KEYWORDS_BY_MODE: Record<Mode, KeywordGroup[]> = {
   home: HOME_KEYWORDS,
   infographic: INFOGRAPHIC_KEYWORDS,
@@ -271,6 +309,7 @@ export const KEYWORDS_BY_MODE: Record<Mode, KeywordGroup[]> = {
     ...VIDEO_CONTROL_KEYWORDS,
     ...HOME_KEYWORDS,
   ],
+  audio: AUDIO_KEYWORDS,
 };
 
 export const MODE_META: Record<Mode, { placeholder: string; empty: string; title: string; countLabel: string; hint: string }> = {
@@ -295,8 +334,15 @@ export const MODE_META: Record<Mode, { placeholder: string; empty: string; title
     countLabel: "Clips",
     hint: "วิดีโอ 720p ยาว 8–10 วิ — ใช้เวลาสร้างราวๆ 1–3 นาทีต่อคลิป ราคาประเมินอยู่ใต้ชื่อโมเดล — Enter เพื่อสั่ง gen ได้เลย",
   },
+  audio: {
+    placeholder: "อธิบายเพลงที่ต้องการ… เช่น an upbeat Thai pop song about summer love, female vocals, acoustic guitar",
+    empty: "ยังไม่มีเพลง — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
+    title: "Audio Gallery",
+    countLabel: "Songs",
+    hint: "Lyria 3 Pro สร้างเพลงเต็ม (~$0.08/เพลง) ส่วน Clip สร้างคลิป 30 วิ (~$0.04/คลิป) — ใช้เวลาราวๆ 1–2 นาทีต่อเพลง Enter เพื่อสั่ง gen ได้เลย",
+  },
 };
 
 export function modeLabel(mode: Mode): string {
-  return mode === "video" ? "Video" : mode === "infographic" ? "Infographic" : "General";
+  return mode === "audio" ? "Audio" : mode === "video" ? "Video" : mode === "infographic" ? "Infographic" : "General";
 }

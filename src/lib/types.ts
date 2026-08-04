@@ -1,4 +1,4 @@
-export type Mode = "home" | "infographic" | "video";
+export type Mode = "home" | "infographic" | "video" | "audio";
 export type GenStatus = "loading" | "done" | "error";
 export type ImgFormat = "png" | "jpg";
 export type PromptPlacement = "sidebar" | "center";
@@ -84,6 +84,8 @@ export interface AppState {
   apiKey: string;
   models: ORModel[];
   videoModels: ORModel[];
+  /** โมเดลเสียง (Lyria) — คัดจาก fetch เดียวกับ models ตาม AUDIO_MODEL_IDS + fallback */
+  audioModels: ORModel[];
   modelsFailed: boolean;
   videoModelsFailed: boolean;
   mode: Mode;

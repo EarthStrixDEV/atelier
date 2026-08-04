@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Download, ImageIcon, RefreshCw } from "lucide-react";
+import { Check, Copy, Download, ImageIcon, Music, RefreshCw } from "lucide-react";
 import { MODE_META } from "../lib/constants";
 import {
   clearSelection, copyPromptFromItem, downloadSelected, openLightbox,
@@ -43,6 +43,7 @@ function VideoProgress({ item }: { item: GenItem }) {
 
 function Card({ item, index, selected }: { item: GenItem; index: number; selected: boolean }) {
   const isVid = item.mode === "video";
+  const isAud = item.mode === "audio";
   const done = item.status === "done";
 
   return (
@@ -54,7 +55,7 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
       }
       onClick={done ? () => openLightbox(index) : undefined}
     >
-      <div className="relative w-full bg-surface-2" style={{ aspectRatio: ratioCSS(item.ratio) }}>
+      <div className="relative w-full bg-surface-2" style={{ aspectRatio: isAud ? "2 / 1" : ratioCSS(item.ratio) }}>
         <span className="pointer-events-none absolute left-2 top-2 z-1 max-w-[calc(100%-16px)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-border-strong bg-[rgba(10,10,10,.72)] px-[9px] py-[3px] font-mono text-[9.5px] text-text backdrop-blur-sm" title={item.model}>
           {item.modelName}
         </span>
@@ -62,6 +63,12 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
         {done && (
           isVid ? (
             <video src={item.url ?? undefined} muted loop autoPlay playsInline className="absolute inset-0 block h-full w-full object-cover" />
+          ) : isAud ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 pt-6">
+              <Music size={26} className="text-text-dim" />
+              {/* stopPropagation กันคลิกที่ตัวเล่นเพลงแล้วเปิด lightbox */}
+              <audio src={item.url ?? undefined} controls className="h-9 w-full" onClick={e => e.stopPropagation()} />
+            </div>
           ) : (
             <img src={item.url ?? undefined} alt={item.prompt} className="absolute inset-0 block h-full w-full object-cover" />
           )
@@ -108,7 +115,7 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
 
       <div className="flex justify-between gap-2.5 border-t border-border px-3 py-2.5 text-[11px] text-text-dim">
         <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{item.prompt}</span>
-        <span className="shrink-0 font-mono text-[10px] text-text-faint">{item.ratio}</span>
+        <span className="shrink-0 font-mono text-[10px] text-text-faint">{isAud ? "mp3" : item.ratio}</span>
       </div>
 
       {done && (
@@ -137,7 +144,7 @@ export default function Gallery() {
   const meta = MODE_META[s.mode];
   const done = ms.images.filter(x => x.status === "done").length;
   const loading = ms.images.filter(x => x.status === "loading").length;
-  const unit = s.mode === "video" ? " clip" : " image";
+  const unit = s.mode === "video" ? " clip" : s.mode === "audio" ? " song" : " image";
 
   // เผื่อ item ที่เคยเลือกไว้ถูกลบ/ยังไม่ done — กรองเฉพาะที่ยัง valid
   const validIds = new Set(ms.images.filter(x => x.status === "done").map(x => x.id));
@@ -181,7 +188,9 @@ export default function Gallery() {
 
       {!ms.images.length ? (
         <div className="flex min-h-[380px] flex-col items-center justify-center gap-3.5 rounded-[14px] border border-dashed border-border text-text-faint">
-          <ImageIcon size={44} className="opacity-40" strokeWidth={1.4} />
+          {s.mode === "audio"
+            ? <Music size={44} className="opacity-40" strokeWidth={1.4} />
+            : <ImageIcon size={44} className="opacity-40" strokeWidth={1.4} />}
           <p className="text-[13px]">{meta.empty}</p>
         </div>
       ) : (

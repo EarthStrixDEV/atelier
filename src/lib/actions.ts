@@ -1,4 +1,5 @@
 import {
+  AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
   CHAT_MODEL, DURATIONS, EXTRA_MODELS, MAX_CHAT_HISTORY, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MODE_MODEL_FILTER, OPTIMIZER_MODEL, PREFERRED,
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
@@ -13,6 +14,7 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "
 // ---------- models ----------
 export function modelsForMode(mode: Mode): ORModel[] {
   if (mode === "video") return state.videoModels;
+  if (mode === "audio") return state.audioModels;
   const filter = MODE_MODEL_FILTER[mode];
   if (!filter) return state.models;
   return state.models.filter(m => filter.some(re => re.test(m.id)));
@@ -35,13 +37,20 @@ export async function loadModels() {
     const res = await fetch("https://openrouter.ai/api/v1/models");
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    const list: ORModel[] = ((data.data || []) as ORModel[]).filter(m =>
+    const fetched = (data.data || []) as ORModel[];
+    const list: ORModel[] = fetched.filter(m =>
       (m.architecture?.output_modalities || []).includes("image") &&
       (!m.id.startsWith("openai/") || m.id === "openai/gpt-image-2")
     );
     for (const em of EXTRA_MODELS) {
       if (!list.some(m => m.id === em.id)) list.push(em);
     }
+    // โมเดลเสียง (Lyria) มาจาก fetch เดียวกัน — คัดตาม allowlist + เติม fallback ถ้ายังไม่ list
+    const audioList: ORModel[] = fetched.filter(m => AUDIO_MODEL_IDS.includes(m.id));
+    for (const em of AUDIO_EXTRA_MODELS) {
+      if (!audioList.some(m => m.id === em.id)) audioList.push(em);
+    }
+    audioList.sort((a, b) => AUDIO_MODEL_IDS.indexOf(a.id) - AUDIO_MODEL_IDS.indexOf(b.id));
     const rank = (m: ORModel) => {
       for (let i = 0; i < PREFERRED.length; i++) {
         if (PREFERRED[i].test(m.id) || PREFERRED[i].test(m.name || "")) return i;
@@ -49,7 +58,7 @@ export async function loadModels() {
       return PREFERRED.length;
     };
     list.sort((a, b) => rank(a) - rank(b) || (a.name || a.id).localeCompare(b.name || b.id));
-    mutate(s => { s.models = list; ensureModelSelection(); applyVideoCapabilities(); });
+    mutate(s => { s.models = list; s.audioModels = audioList; ensureModelSelection(); applyVideoCapabilities(); });
   } catch (e) {
     mutate(s => { s.modelsFailed = true; });
     toast("โหลดรายชื่อโมเดลไม่สำเร็จ: " + errMsg(e));
@@ -155,6 +164,7 @@ export function usePromptFromHistory(prompt: string) {
 // ---------- reference images ----------
 /** แนบ ref ผ่าน /chat/completions สำหรับภาพ และ frame_images สำหรับ Image-to-Video */
 export function refsSupported(): boolean {
+  if (state.mode === "audio") return false; // ยังไม่รองรับ image-to-music — ตัด ref ออกทั้งโหมด
   if (state.mode === "video") return true;
   const m = currentModel();
   const outs = m?.architecture?.output_modalities || [];
@@ -294,6 +304,8 @@ async function runRequest(item: GenItem) {
   try {
     if (item.mode === "video") {
       item.url = await requestVideo(item);
+    } else if (item.mode === "audio") {
+      item.url = await requestAudio(item);
     } else {
       const m = state.models.find(x => x.id === item.model);
       const outs = m?.architecture?.output_modalities || [];
@@ -386,6 +398,67 @@ async function requestVideo(item: GenItem): Promise<string> {
       throw new Error(pd.error?.message || (typeof pd.error === "string" ? pd.error : "การสร้างวิดีโอล้มเหลว"));
     }
   }
+}
+
+// Lyria สร้างเพลงผ่าน chat/completions แต่บังคับ stream:true — เสียงทยอยมาเป็น
+// base64 chunk ใน delta.audio.data ต้อง decode ทีละ chunk (ต่อ base64 string ตรงๆ ไม่ได้
+// เพราะ padding) แล้วค่อยรวม bytes เป็น blob MP3 ตอนจบ
+async function requestAudio(item: GenItem): Promise<string> {
+  item.startedAt = Date.now();
+  mutate();
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: item.model,
+      messages: [{ role: "user", content: item.prompt }],
+      modalities: ["text", "audio"],
+      audio: { format: "mp3" },
+      stream: true,
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error?.message || ("HTTP " + res.status));
+  }
+  if (!res.body) throw new Error("เบราว์เซอร์ไม่รองรับ streaming response");
+
+  const chunks: Uint8Array[] = [];
+  const pushB64 = (b64: string) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    chunks.push(bytes);
+  };
+
+  type AudioChunk = {
+    error?: { message?: string };
+    choices?: { delta?: { audio?: { data?: string } }; message?: { audio?: { data?: string } } }[];
+  };
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? ""; // บรรทัดสุดท้ายอาจยังมาไม่ครบ — เก็บไว้รอ chunk ถัดไป
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t.startsWith("data:")) continue;
+      const payload = t.slice(5).trim();
+      if (payload === "[DONE]") continue;
+      let j: AudioChunk;
+      try { j = JSON.parse(payload); } catch { continue; }
+      if (j.error) throw new Error(j.error.message || "การสร้างเพลงล้มเหลว");
+      const c = j.choices?.[0];
+      const b64 = c?.delta?.audio?.data ?? c?.message?.audio?.data;
+      if (b64) pushB64(b64);
+    }
+  }
+  if (!chunks.length) throw new Error("ไม่พบเสียงใน response");
+  return URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "audio/mpeg" }));
 }
 
 async function requestViaImageAPI(item: GenItem): Promise<string> {
@@ -529,6 +602,8 @@ export async function downloadSelected() {
     let ext: string = format;
     if (item.mode === "video") {
       ext = "mp4";
+    } else if (item.mode === "audio") {
+      ext = "mp3"; // blob URL — ดาวน์โหลดตรงได้เลย
     } else {
       try { url = await convertDataUrl(item.url, format); }
       catch { url = item.url; }
@@ -560,8 +635,8 @@ export async function downloadCurrent() {
   const ms = cur();
   const item = ms.images[ms.lbIndex];
   if (!item?.url) return;
-  if (item.mode === "video") {
-    triggerDownload(item.url, randomFileName("mp4")); // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
+  if (item.mode === "video" || item.mode === "audio") {
+    triggerDownload(item.url, randomFileName(item.mode === "video" ? "mp4" : "mp3")); // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
     return;
   }
   let url: string;
@@ -576,6 +651,7 @@ export async function downloadCurrent() {
 
 // ---------- usage ----------
 export function computeItemCost(item: GenItem): number | null {
+  if (item.mode === "audio") return AUDIO_MODEL_PRICES[item.model] ?? null;
   if (item.mode === "video") {
     const m = state.videoModels.find(x => x.id === item.model);
     if (!m) return null;
@@ -666,7 +742,9 @@ export async function runOptimize() {
 
   mutate(s => { s.optimize = { status: "loading", result: null, error: "" }; });
 
-  const modeName = state.mode === "video" ? "video generation" : state.mode === "infographic" ? "infographic generation" : "image generation";
+  const modeName = state.mode === "audio" ? "music generation"
+    : state.mode === "video" ? "video generation"
+    : state.mode === "infographic" ? "infographic generation" : "image generation";
   const sys = "You are a prompt engineer helping a user write better prompts for AI " + modeName + ". "
     + "Given the user's rough prompt, rewrite it into a more detailed, vivid, well-structured prompt in English "
     + "(keep any names/subjects the user specified). Also suggest 6-10 short keyword phrases (style, lighting, "
@@ -727,7 +805,7 @@ function chatSystemPrompt(): string {
     + "You help the user brainstorm ideas, design prompts (style, lighting, composition, mood, camera work), "
     + "and give practical advice about generating images and videos with AI models. "
     + "The user is currently in the \"" + modeLabel(state.mode) + "\" tab of the app "
-    + "(General = images, Infographic = infographic images, Video = short video clips). "
+    + "(General = images, Infographic = infographic images, Video = short video clips, Audio = songs/music). "
     + "Keep answers concise and practical. When useful, suggest a ready-to-use prompt. Respond in the same "
     + "language the user writes in (Thai or English).";
 }

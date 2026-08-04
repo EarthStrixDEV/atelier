@@ -23,6 +23,7 @@ export default function Lightbox() {
   if (!open) return null;
 
   const isVid = item.mode === "video";
+  const isAud = item.mode === "audio";
   const ds = doneIndices();
   const pos = ds.indexOf(ms.lbIndex);
 
@@ -30,11 +31,12 @@ export default function Lightbox() {
     <div className="fixed inset-0 z-100 flex flex-col bg-[rgba(5,5,5,.94)] backdrop-blur-lg">
       <div className="flex shrink-0 items-center justify-between px-6 py-4">
         <div className="font-mono text-xs text-text-dim">
-          {item.modelName}&nbsp;&nbsp;·&nbsp;&nbsp;{item.ratio}
+          {item.modelName}
+          {!isAud && <>&nbsp;&nbsp;·&nbsp;&nbsp;{item.ratio}</>}
           {isVid && <>&nbsp;&nbsp;·&nbsp;&nbsp;{item.duration}s</>}
         </div>
         <div className="flex gap-2.5">
-          {!isVid && (
+          {!isVid && !isAud && (
             <select
               className="cursor-pointer appearance-none rounded-lg border border-border-strong bg-transparent px-2 py-2 text-xs text-text outline-none focus:border-accent"
               title="รูปแบบไฟล์ที่จะดาวน์โหลด"
@@ -68,6 +70,8 @@ export default function Lightbox() {
         )}
         {isVid ? (
           <video src={item.url ?? undefined} controls className="max-h-full max-w-full rounded-lg shadow-[0_20px_80px_rgba(0,0,0,.6)]" />
+        ) : isAud ? (
+          <audio src={item.url ?? undefined} controls autoPlay className="w-full max-w-[560px]" />
         ) : (
           <img src={item.url ?? undefined} alt="preview" className="max-h-full max-w-full rounded-lg shadow-[0_20px_80px_rgba(0,0,0,.6)]" />
         )}

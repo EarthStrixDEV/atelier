@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, ImagePlus, Plus, Sparkles } from "lucide-react";
 import {
-  COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_QUEUE, MAX_REFS_PER_KIND, MODE_META,
-  RATIOS, REF_KINDS,
+  AUDIO_MODEL_PRICES, COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_QUEUE,
+  MAX_REFS_PER_KIND, MODE_META, RATIOS, REF_KINDS,
 } from "../lib/constants";
 import {
   addRefImages, addToQueue, applyOptimizedPrompt, clearOptimize, clearRefImages,
@@ -31,6 +31,7 @@ export default function Sidebar() {
   const ms = s.modes[s.mode];
   const meta = MODE_META[s.mode];
   const isVideo = s.mode === "video";
+  const isAudio = s.mode === "audio";
   const model = currentModel();
   const list = modelsForMode(s.mode);
 
@@ -83,7 +84,7 @@ export default function Sidebar() {
   const vRatios = isVideo && model?.supported_aspect_ratios?.length ? model.supported_aspect_ratios : null;
   const audioOk = isVideo && !!model?.generate_audio;
 
-  const sourceLoaded = isVideo ? s.videoModels.length > 0 : s.models.length > 0;
+  const sourceLoaded = isVideo ? s.videoModels.length > 0 : isAudio ? s.audioModels.length > 0 : s.models.length > 0;
   const sourceFailed = isVideo ? s.videoModelsFailed : s.modelsFailed;
   const canAttachRefs = refsSupported();
   const hasPrompt = !!ms.prompt.trim();
@@ -94,6 +95,9 @@ export default function Sidebar() {
     if (isVideo) {
       const pps = videoPricePerSec(model, ms.audio);
       modelMeta = model.id + (pps != null ? "  ·  ~$" + (pps * ms.duration).toFixed(2) + " / คลิป " + ms.duration + " วิ" : "");
+    } else if (isAudio) {
+      const p = AUDIO_MODEL_PRICES[model.id];
+      modelMeta = model.id + (p != null ? "  ·  ~$" + p.toFixed(2) + " / เพลง" : "");
     } else {
       const p = model.pricing?.image && parseFloat(model.pricing.image) > 0
         ? "$" + (parseFloat(model.pricing.image) * 1000).toFixed(3).replace(/\.?0+$/, "") + " / 1k img"
@@ -251,8 +255,8 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Attach reference / style / facial */}
-      <div>
+      {/* Attach reference / style / facial — โหมด audio ไม่รองรับภาพอ้างอิง */}
+      {!isAudio && <div>
         <label className={fieldLabel}>
           Attach Reference
           {ms.refs.length > 0 && (
@@ -370,7 +374,7 @@ export default function Sidebar() {
             })}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Model */}
       <div>
@@ -423,8 +427,8 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Aspect ratio */}
-      <div>
+      {/* Aspect ratio — ไม่มีผลกับเสียง */}
+      {!isAudio && <div>
         <label className={fieldLabel}>Aspect Ratio</label>
         <div className="grid grid-cols-5 gap-1.5">
           {RATIOS.map(r => {
@@ -442,7 +446,7 @@ export default function Sidebar() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Duration (video) */}
       {isVideo && (
@@ -510,7 +514,8 @@ export default function Sidebar() {
                 <div className="min-w-0 flex-1">
                   <div className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text">{q.prompt}</div>
                   <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10px] text-text-faint">
-                    {q.modelName} · {q.ratio}
+                    {q.modelName}
+                    {!isAudio && <> · {q.ratio}</>}
                     {isVideo && <> · {q.duration}s{q.audio ? " 🔊" : ""}</>}
                     {" · ×"}{q.count}
                   </div>
