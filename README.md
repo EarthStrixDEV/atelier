@@ -2,7 +2,7 @@
 
 # 🎨 Atelier
 
-**AI Image & Video Studio — สร้างภาพและวิดีโอด้วย AI ผ่าน OpenRouter**
+**AI Media Studio — สร้างภาพ วิดีโอ และเพลงด้วย AI ผ่าน OpenRouter**
 
 *React + TypeScript + Tailwind CSS — client-only ไม่มี backend*
 

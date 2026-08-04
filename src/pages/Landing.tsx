@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import {
-  ArrowRight, Image, Layers, Video, Zap, ShieldCheck, Wand2,
+  ArrowRight, Image, Layers, Music, Video, Zap, ShieldCheck, Wand2,
   Sparkles, Palette, Sun, Camera, Smile, Shirt, Play,
 } from "lucide-react";
 
@@ -38,6 +38,11 @@ const MODEL_GROUPS = [
     desc: "4 โมเดลวิดีโอชั้นนำ ความยาว 8–10 วินาที ที่ 720p",
     models: ["Grok Imagine Video", "Veo 3.1 Fast", "Kling v3.0 Standard", "Seedance 2.0"],
   },
+  {
+    label: "Audio",
+    desc: "สร้างเพลงเต็มหรือคลิปสั้นจาก text prompt ด้วย Lyria 3",
+    models: ["Lyria 3 Pro (เพลงเต็ม)", "Lyria 3 Clip (คลิป 30 วินาที)"],
+  },
 ];
 
 const MODES = [
@@ -62,6 +67,13 @@ const MODES = [
     subtitle: "คลิปสั้นจากข้อความ",
     desc: "สร้างวิดีโอความยาว 8–10 วินาทีที่ 720p จาก text prompt เดียว รองรับ 4 โมเดลวิดีโอชั้นนำ พร้อมตัวเลือกเสียง ปุ่ม duration/aspect ratio ที่ปรับอัตโนมัติตามความสามารถของแต่ละโมเดล และแสดง progress การสร้างแบบเรียลไทม์จนกว่างานจะเสร็จ",
   },
+  {
+    icon: Music,
+    tag: "04",
+    title: "Audio",
+    subtitle: "เพลงจากข้อความ",
+    desc: "สร้างเพลงและดนตรีจาก text prompt ด้วย Google Lyria 3 — เลือกได้ทั้งเพลงเต็มที่มีท่อน verse/chorus ครบ หรือคลิปสั้น 30 วินาที พร้อม Prompt Builder 6 หมวดสำหรับแนวเพลง อารมณ์ เครื่องดนตรี เสียงร้อง และจังหวะ ฟังในแอปได้ทันทีและดาวน์โหลดเป็น MP3",
+  },
 ];
 
 const PROMPT_BUILDER_GROUPS = [
@@ -81,7 +93,7 @@ export default function Landing() {
         <div className="flex items-center gap-2.5">
           <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[54px] w-[54px] object-contain" />
           <span className="text-[15px] font-semibold tracking-[0.2px]">
-            Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">image studio</span>
+            Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">AI media studio</span>
           </span>
         </div>
         <Link
@@ -99,13 +111,13 @@ export default function Landing() {
           <div className="hero-copy">
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 px-3.5 py-1.5 text-xs font-medium text-text-dim backdrop-blur">
               <span className="h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_12px_white]" />
-              AI creative studio · ขับเคลื่อนโดย OpenRouter
+              AI Media Studio · ขับเคลื่อนโดย OpenRouter
             </span>
             <h1 className="mt-8 text-[clamp(3.3rem,7vw,6.6rem)] font-bold leading-[.88] tracking-[-.065em]">
               Imagine.<br /><span className="hero-outline">Compose.</span><br />Create.
             </h1>
             <p className="mt-8 max-w-lg text-balance text-[15px] leading-7 text-text-dim sm:text-base">
-              เปลี่ยนทุกไอเดียให้เป็นภาพ อินโฟกราฟิก และวิดีโอ ด้วยโมเดล AI ชั้นนำในสตูดิโอเดียว — คุณกำกับ ที่เหลือให้ Atelier สร้าง
+              Atelier ยกระดับจาก image studio สู่ AI Media Studio เต็มรูปแบบ — เปลี่ยนทุกไอเดียให้เป็นภาพ อินโฟกราฟิก วิดีโอ และเพลง ด้วยโมเดล AI ชั้นนำในสตูดิโอเดียว คุณกำกับ ที่เหลือให้ Atelier สร้าง
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <Link to="/studio" className="group flex items-center gap-2 rounded-full bg-accent px-6 py-3.5 text-sm font-semibold text-accent-ink transition-transform hover:-translate-y-0.5">
@@ -116,7 +128,7 @@ export default function Landing() {
               </a>
             </div>
             <div className="mt-11 flex items-center gap-7 border-t border-border pt-5 text-[11px] uppercase tracking-[.16em] text-text-faint">
-              <span>Image</span><span>Infographic</span><span>Video</span>
+              <span>Image</span><span>Infographic</span><span>Video</span><span>Audio</span>
             </div>
           </div>
           <div className="hero-art relative mx-auto aspect-[4/5] w-full max-w-[530px]" aria-label="ตัวอย่างพื้นที่สร้างสรรค์ของ Atelier">
@@ -151,7 +163,7 @@ export default function Landing() {
               เลือกโมเดลที่เหมาะกับงานแต่ละชิ้นได้อิสระตามโหมดที่ใช้งาน
             </p>
           </div>
-          <div className="mt-12 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {MODEL_GROUPS.map(g => (
               <div key={g.label} className="rounded-card border border-border bg-surface p-6">
                 <span className="text-[11px] font-semibold uppercase tracking-[1.2px] text-text-faint">{g.label}</span>
@@ -214,7 +226,7 @@ export default function Landing() {
             <h2 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">แต่ง prompt ได้โดยไม่ต้องพิมพ์เอง</h2>
             <p className="mt-4 text-[14px] leading-relaxed text-text-dim">
               คลิก keyword สำเร็จรูปแล้วต่อท้าย prompt ให้อัตโนมัติ คลิกซ้ำเพื่อเอาออก
-              ชุด keyword ปรับตามโหมดที่ใช้งานอยู่ — General มี 11 หมวด, Infographic มี 6 หมวด, Video มี 13 หมวด
+              ชุด keyword ปรับตามโหมดที่ใช้งานอยู่ — General มี 11 หมวด, Infographic มี 6 หมวด, Video มี 13 หมวด, Audio มี 6 หมวด
             </p>
           </div>
           <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
