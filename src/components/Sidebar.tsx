@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, ImagePlus, Plus, Sparkles } from "lucide-react";
 import {
   AUDIO_MODEL_PRICES, COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_QUEUE,
-  MAX_REFS_PER_KIND, MODE_META, RATIOS, REF_KINDS, isVideoMode,
+  MAX_REFS_PER_KIND, modelRequiresRefImage, MODE_META, RATIOS, REF_KINDS, isVideoMode,
 } from "../lib/constants";
 import {
   addRefImages, addToQueue, applyOptimizedPrompt, clearOptimize, clearRefImages,
@@ -66,18 +66,37 @@ export default function Sidebar() {
   }, []);
 
   // usage bar: ประเมินค่าใช้จ่ายจากงานที่ done ในโหมดปัจจุบัน (session-only)
+  // เก็บทั้งยอดรวมและ count/duration ต่อโมเดล เพื่อแสดง label อธิบายวิธีคิดราคา (n หน่วย × rate/หน่วย)
   const done = ms.images.filter(x => x.status === "done");
-  const byModel = new Map<string, number>();
+  type UsageGroup = { totalCost: number; count: number; totalSeconds: number };
+  const byModel = new Map<string, UsageGroup>();
   let usageTotal = 0;
   let hasUnknown = false;
   for (const item of done) {
     const cost = computeItemCost(item);
     if (cost == null) { hasUnknown = true; continue; }
     usageTotal += cost;
-    byModel.set(item.modelName, (byModel.get(item.modelName) || 0) + cost);
+    const g = byModel.get(item.modelName) ?? { totalCost: 0, count: 0, totalSeconds: 0 };
+    g.totalCost += cost;
+    g.count += 1;
+    g.totalSeconds += item.duration || 0;
+    byModel.set(item.modelName, g);
   }
-  const usageRows = [...byModel.entries()].sort((a, b) => b[1] - a[1]);
-  const usageMax = usageRows[0]?.[1] || 1;
+  const usageRows = [...byModel.entries()].sort((a, b) => b[1].totalCost - a[1].totalCost);
+  const usageMax = usageRows[0]?.[1].totalCost || 1;
+  const usageBreakdown = (name: string, g: UsageGroup): string => {
+    // rate ต่อหน่วยคำนวณย้อนจากยอดรวม/จำนวนหน่วย — ครอบคลุมเคสที่ราคาต่างกันในกลุ่มเดียวกัน (เช่น video เปิด/ปิดเสียง) ด้วยค่าเฉลี่ย
+    if (isVideo) {
+      const rate = g.totalSeconds > 0 ? g.totalCost / g.totalSeconds : 0;
+      return `${g.totalSeconds} วิ ใช้ ${name} ที่ ~$${rate.toFixed(4)}/วิ`;
+    }
+    if (isAudio) {
+      const rate = g.totalCost / g.count;
+      return `${g.count} เพลง ใช้ ${name} ที่ ~$${rate.toFixed(4)}/เพลง`;
+    }
+    const rate = g.totalCost / g.count;
+    return `${g.count} รูป ใช้ ${name} ที่ ~$${rate.toFixed(4)}/รูป`;
+  };
 
   // capability ของโมเดลวิดีโอ — ใช้ disable ปุ่ม (การ snap ค่าเกิดใน applyVideoCapabilities แล้ว)
   const durs = isVideo && model?.supported_durations?.length ? model.supported_durations : null;
@@ -88,7 +107,8 @@ export default function Sidebar() {
   const sourceFailed = isVideo ? s.videoModelsFailed : s.modelsFailed;
   const canAttachRefs = refsSupported();
   const hasPrompt = !!ms.prompt.trim();
-  const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0);
+  const needsRefImage = isVideo && modelRequiresRefImage(model?.id) && !ms.refs[0];
+  const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage;
 
   let modelMeta = "";
   if (model) {
@@ -269,7 +289,12 @@ export default function Sidebar() {
           )}
         </label>
         {isVideo ? (
-          <div className="overflow-hidden rounded-card border border-border bg-surface">
+          <div className={"overflow-hidden rounded-card border bg-surface " + (needsRefImage ? "border-danger" : "border-border")}>
+            {needsRefImage && (
+              <p className="border-b border-danger/40 bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
+                โมเดลนี้เป็น Image-to-Video ล้วน — ต้องแนบภาพอ้างอิงก่อนถึงจะ Generate ได้ค่ะ
+              </p>
+            )}
             {ms.refs[0] ? (
               <div className="group relative aspect-video overflow-hidden bg-surface-2">
                 <img src={ms.refs[0].dataUrl} alt={ms.refs[0].name} className="h-full w-full object-cover" />
@@ -288,7 +313,7 @@ export default function Sidebar() {
             ) : (
               <label className="flex cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-transparent px-4 py-7 text-center transition-colors hover:border-border-strong hover:bg-surface-2">
                 <span className="grid h-10 w-10 place-items-center rounded-full border border-border-strong bg-surface-2 text-text-dim"><ImagePlus size={17} /></span>
-                <span className="text-xs font-semibold text-text">แนบภาพเริ่มต้น</span>
+                <span className="text-xs font-semibold text-text">{needsRefImage ? "แนบภาพเริ่มต้น (จำเป็น)" : "แนบภาพเริ่มต้น"}</span>
                 <span className="max-w-[230px] text-[10.5px] leading-relaxed text-text-faint">ภาพนี้จะเป็นเฟรมแรกสำหรับ Image-to-Video · สูงสุด 4MB</span>
                 <input
                   type="file"
@@ -411,15 +436,21 @@ export default function Sidebar() {
           <label className={fieldLabel}>
             Usage <span className="normal-case tracking-normal">~${usageTotal.toFixed(4)}{hasUnknown ? " (บางโมเดลไม่ทราบราคา)" : ""}</span>
           </label>
-          <div className="flex flex-col gap-2">
-            {usageRows.map(([name, cost]) => (
+          <div className="flex flex-col gap-2.5">
+            {usageRows.map(([name, g]) => (
               <div key={name}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-text-dim" title={name}>{name}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-text-faint">${cost.toFixed(4)}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-text-faint">${g.totalCost.toFixed(4)}</span>
+                </div>
+                <div
+                  className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-text-faint"
+                  title={usageBreakdown(name, g)}
+                >
+                  {usageBreakdown(name, g)}
                 </div>
                 <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
-                  <div className="h-full rounded-full bg-accent" style={{ width: (cost / usageMax) * 100 + "%" }} />
+                  <div className="h-full rounded-full bg-accent" style={{ width: (g.totalCost / usageMax) * 100 + "%" }} />
                 </div>
               </div>
             ))}
@@ -543,7 +574,7 @@ export default function Sidebar() {
       </button>
       <button
         className="-mt-3 flex w-full cursor-pointer items-center justify-center gap-1 rounded-card border border-dashed border-border-strong py-2.5 text-[12.5px] font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
-        disabled={!(list.length > 0 && hasPrompt && ms.queue.length < MAX_QUEUE)}
+        disabled={!(list.length > 0 && hasPrompt && ms.queue.length < MAX_QUEUE) || needsRefImage}
         onClick={addToQueue}
       >
         <Plus size={13} /> เพิ่มเข้าคิว (สูงสุด {MAX_QUEUE})

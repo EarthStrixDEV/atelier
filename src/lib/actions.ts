@@ -1,7 +1,7 @@
 import {
   AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
   CHAT_MODEL, DURATIONS, EXTRA_MODELS, MAX_CHAT_HISTORY, MAX_HISTORY, MAX_QUEUE,
-  MAX_REFS_PER_KIND, MAX_REF_BYTES, MODE_MODEL_FILTER, OPTIMIZER_MODEL, PREFERRED,
+  MAX_REFS_PER_KIND, MAX_REF_BYTES, MODE_MODEL_FILTER, modelRequiresRefImage, OPTIMIZER_MODEL, PREFERRED,
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
   VIDEO_POLL_MS, VIDEO_RESOLUTION, VIDEO_TIMEOUT_MS, isVideoMode, modeLabel,
 } from "./constants";
@@ -175,6 +175,12 @@ export function refsOfKind(kind: RefKind): RefImage[] {
   return cur().refs.filter(r => r.kind === kind);
 }
 
+/** โมเดลวิดีโอบางตัว (เช่น Grok Imagine Video 1.5) เป็น Image-to-Video ล้วน — ต้องแนบภาพก่อนถึง generate ได้ */
+export function refImageMissing(): boolean {
+  if (!isVideoMode(state.mode)) return false;
+  return modelRequiresRefImage(currentModel()?.id) && !cur().refs[0];
+}
+
 const readAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const fr = new FileReader();
@@ -226,6 +232,7 @@ export function addToQueue() {
   const prompt = ms.prompt.trim();
   const m = currentModel();
   if (!prompt || !m || ms.queue.length >= MAX_QUEUE) return;
+  if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)"); return; }
   mutate(() => {
     ms.queue.push({
       prompt,
@@ -258,6 +265,7 @@ export function generate() {
     const prompt = ms.prompt.trim();
     const model = currentModel();
     if (!prompt || !model) return;
+    if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)"); return; }
     jobs = [{
       prompt, model: model.id, modelName: model.name || model.id, ratio: ms.ratio,
       count: ms.count, duration: ms.duration, audio: ms.audio,

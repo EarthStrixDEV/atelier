@@ -35,8 +35,11 @@ const MODEL_GROUPS = [
   },
   {
     label: "Video",
-    desc: "4 โมเดลวิดีโอชั้นนำ ความยาว 8–10 วินาที ที่ 720p",
-    models: ["Grok Imagine Video", "Veo 3.1 Fast", "Kling v3.0 Standard", "Seedance 2.0"],
+    desc: "10 โมเดลวิดีโอชั้นนำ ความยาว 8–10 วินาที ที่ 720p",
+    models: [
+      "Grok Imagine Video", "Grok Imagine Video 1.5", "Veo 3.1 Fast", "Veo 3.1 Lite",
+      "Kling v3.0 Standard", "Seedance 2.0", "Flux 3 Video", "Runway Gen-4.5", "Wan 2.7", "Wan 2.6",
+    ],
   },
   {
     label: "Audio",
@@ -65,7 +68,7 @@ const MODES = [
     tag: "03",
     title: "Video",
     subtitle: "คลิปสั้นจากข้อความ",
-    desc: "สร้างวิดีโอความยาว 8–10 วินาทีที่ 720p จาก text prompt เดียว รองรับ 4 โมเดลวิดีโอชั้นนำ พร้อมตัวเลือกเสียง ปุ่ม duration/aspect ratio ที่ปรับอัตโนมัติตามความสามารถของแต่ละโมเดล และแสดง progress การสร้างแบบเรียลไทม์จนกว่างานจะเสร็จ",
+    desc: "สร้างวิดีโอความยาว 8–10 วินาทีที่ 720p จาก text prompt เดียว รองรับ 10 โมเดลวิดีโอชั้นนำ พร้อมตัวเลือกเสียง ปุ่ม duration/aspect ratio ที่ปรับอัตโนมัติตามความสามารถของแต่ละโมเดล และแสดง progress การสร้างแบบเรียลไทม์จนกว่างานจะเสร็จ",
   },
   {
     icon: Music,

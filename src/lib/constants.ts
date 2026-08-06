@@ -66,10 +66,21 @@ export const MODE_MODEL_FILTER: Record<Mode, RegExp[] | null> = {
 // โหมด video ใช้ endpoint แยก (/api/v1/videos/models) — เรียงตามลำดับใน array นี้
 export const VIDEO_MODEL_IDS = [
   "x-ai/grok-imagine-video",
+  "x-ai/grok-imagine-video-1.5",
   "google/veo-3.1-fast",
+  "google/veo-3.1-lite",
   "kwaivgi/kling-v3.0-std",
   "bytedance/seedance-2.0",
+  "black-forest-labs/flux-3-video",
+  "runway/gen-4.5",
+  "alibaba/wan-2.7",
+  "alibaba/wan-2.6",
 ];
+
+// โมเดลวิดีโอที่เป็น Image-to-Video ล้วน — ไม่รับ text-to-video จึงต้องบังคับแนบภาพอ้างอิงก่อน generate ได้
+export const IMAGE_TO_VIDEO_ONLY_MODEL_IDS = ["x-ai/grok-imagine-video-1.5"];
+export const modelRequiresRefImage = (modelId: string | null | undefined): boolean =>
+  !!modelId && IMAGE_TO_VIDEO_ONLY_MODEL_IDS.includes(modelId);
 
 // โหมด audio: คัดจาก /api/v1/models เดียวกับภาพ — เรียงตามลำดับใน array นี้
 export const AUDIO_MODEL_IDS = [
