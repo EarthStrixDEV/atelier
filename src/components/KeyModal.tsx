@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Check, KeyRound, Trash2, X } from "lucide-react";
 import { mutate, saveApiKey, state, toast, useApp } from "../lib/store";
 
 export default function KeyModal() {
@@ -42,11 +43,11 @@ export default function KeyModal() {
 
   return (
     <div
-      className="fixed inset-0 z-200 grid place-items-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-200 grid place-items-center bg-black/50 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) close(); }}
     >
       <div className="w-[min(440px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-7">
-        <h3 className="mb-1.5 text-base font-bold">OpenRouter API Key</h3>
+        <h3 className="mb-1.5 flex items-center gap-1.5 text-base font-bold"><KeyRound size={16} /> OpenRouter API Key</h3>
         <p className="mb-[18px] text-[12.5px] leading-relaxed text-text-dim">
           สร้าง key ได้ที่ <a className="text-text underline" href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>
         </p>
@@ -61,18 +62,18 @@ export default function KeyModal() {
           className="w-full rounded-card border border-border bg-bg px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent"
         />
         <div className="mt-4 flex gap-2.5">
-          <button className="flex-1 cursor-pointer rounded-[9px] border border-border py-[11px] text-[13px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={close}>
-            ยกเลิก
+          <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] border border-border py-[11px] text-[13px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={close}>
+            <X size={14} /> ยกเลิก
           </button>
           <button
-            className="flex-1 cursor-pointer rounded-[9px] border border-border py-[11px] text-[13px] font-semibold text-danger transition-colors hover:border-danger disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] border border-border py-[11px] text-[13px] font-semibold text-danger transition-colors hover:border-danger disabled:cursor-not-allowed disabled:opacity-40"
             onClick={remove}
             disabled={!s.apiKey}
           >
-            ลบ
+            <Trash2 size={14} /> ลบ
           </button>
-          <button className="flex-1 cursor-pointer rounded-[9px] bg-accent py-[11px] text-[13px] font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={save}>
-            บันทึก
+          <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] bg-accent py-[11px] text-[13px] font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={save}>
+            <Check size={14} /> บันทึก
           </button>
         </div>
         <p className="mt-3.5 text-[11px] leading-relaxed text-text-faint">

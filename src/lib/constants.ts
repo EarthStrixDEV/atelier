@@ -50,9 +50,14 @@ export const VIDEO_RESOLUTION = "720p"; // fix ค่าเดียว — ท�
 export const VIDEO_POLL_MS = 10000;
 export const VIDEO_TIMEOUT_MS = 10 * 60 * 1000;
 
-// โมเดล LLM ฟรีสำหรับ Prompt Optimizer และ Chat with Atelier
+// โมเดล LLM ฟรีสำหรับ Prompt Optimizer, Chat with Atelier และ Grill me
 export const OPTIMIZER_MODEL = "openai/gpt-oss-20b:free";
 export const CHAT_MODEL = "openai/gpt-oss-20b:free";
+export const GRILL_MODEL = "openai/gpt-oss-20b:free";
+/** ช่วงจำนวนคำถามของ Grill me — LLM ตัดสินใจเองว่าจะจบกี่ข้อในช่วงนี้ตามความซับซ้อนของบรีฟ */
+export const MIN_GRILL_QUESTIONS = 6;
+/** hard-cap กันสัมภาษณ์ยืดเยื้อไม่จบ (บังคับที่โค้ดจริงจะยังไม่ทำ — อาศัย system prompt เป็นหลัก) */
+export const MAX_GRILL_QUESTIONS = 10;
 
 // โมเดลที่แต่ละโหมดอนุญาตให้เลือกได้ (null = ไม่จำกัด ใช้ list เต็ม)
 export const MODE_MODEL_FILTER: Record<Mode, RegExp[] | null> = {

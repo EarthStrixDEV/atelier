@@ -94,7 +94,7 @@ export default function Landing() {
       {/* nav */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2.5">
-          <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[54px] w-[54px] object-contain" />
+          <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[54px] w-[54px] object-contain invert" />
           <span className="text-[15px] font-semibold tracking-[0.2px]">
             Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">AI media studio</span>
           </span>
@@ -113,7 +113,7 @@ export default function Landing() {
         <div className="relative z-10 grid items-center gap-14 lg:grid-cols-[1.02fr_.98fr]">
           <div className="hero-copy">
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 px-3.5 py-1.5 text-xs font-medium text-text-dim backdrop-blur">
-              <span className="h-1.5 w-1.5 rounded-full bg-white shadow-[0_0_12px_white]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_12px_var(--color-accent)]" />
               AI Media Studio · ขับเคลื่อนโดย OpenRouter
             </span>
             <h1 className="mt-8 text-[clamp(3.3rem,7vw,6.6rem)] font-bold leading-[.88] tracking-[-.065em]">
@@ -135,20 +135,20 @@ export default function Landing() {
             </div>
           </div>
           <div className="hero-art relative mx-auto aspect-[4/5] w-full max-w-[530px]" aria-label="ตัวอย่างพื้นที่สร้างสรรค์ของ Atelier">
-            <div className="absolute inset-[7%_8%_8%_8%] rotate-[3deg] rounded-[2rem] border border-white/15 bg-[#141414] shadow-2xl" />
-            <div className="absolute inset-[3%_13%_12%_3%] -rotate-[4deg] overflow-hidden rounded-[2rem] border border-white/15 bg-[#d9d5cc] text-[#0a0a0a] shadow-[0_30px_90px_rgba(0,0,0,.55)]">
-              <div className="absolute inset-0 opacity-35 [background-image:radial-gradient(#111_0.7px,transparent_0.7px)] [background-size:7px_7px]" />
+            <div className="absolute inset-[7%_8%_8%_8%] rotate-[3deg] rounded-[2rem] border border-border-strong bg-surface-2 shadow-2xl" />
+            <div className="absolute inset-[3%_13%_12%_3%] -rotate-[4deg] overflow-hidden rounded-[2rem] border border-border-strong bg-[#0a0a0a] text-white shadow-[0_30px_90px_rgba(0,0,0,.18)]">
+              <div className="absolute inset-0 opacity-35 [background-image:radial-gradient(#fff_0.7px,transparent_0.7px)] [background-size:7px_7px]" />
               <span className="absolute left-6 top-6 font-mono text-[10px] uppercase tracking-[.2em]">Atelier / 001</span>
-              <img src="/atelier/assets/atelier-logo.png" alt="" className="absolute left-1/2 top-1/2 w-[68%] -translate-x-1/2 -translate-y-1/2 invert" />
-              <div className="absolute bottom-6 left-6 right-6 flex items-end justify-between border-t border-black/30 pt-3">
+              <img src="/atelier/assets/atelier-logo.png" alt="" className="absolute left-1/2 top-1/2 w-[68%] -translate-x-1/2 -translate-y-1/2" />
+              <div className="absolute bottom-6 left-6 right-6 flex items-end justify-between border-t border-white/25 pt-3">
                 <span className="text-xs font-bold uppercase tracking-[.14em]">Make ideas visible</span><Sparkles size={17} />
               </div>
             </div>
-            <div className="hero-float absolute -right-1 top-[16%] rounded-xl border border-white/15 bg-black/75 px-4 py-3 backdrop-blur-md">
+            <div className="hero-float absolute -right-1 top-[16%] rounded-xl border border-border-strong bg-surface/95 px-4 py-3 shadow-lg backdrop-blur-md">
               <span className="block text-[10px] uppercase tracking-[.18em] text-text-faint">Model</span><span className="mt-1 block text-xs font-semibold">GPT Image 2</span>
             </div>
-            <div className="hero-float hero-float-delay absolute -bottom-1 left-[3%] flex items-center gap-3 rounded-xl border border-white/15 bg-black/75 px-4 py-3 backdrop-blur-md">
-              <div className="grid h-8 w-8 place-items-center rounded-lg bg-white text-black"><Wand2 size={15} /></div>
+            <div className="hero-float hero-float-delay absolute -bottom-1 left-[3%] flex items-center gap-3 rounded-xl border border-border-strong bg-surface/95 px-4 py-3 shadow-lg backdrop-blur-md">
+              <div className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-accent-ink"><Wand2 size={15} /></div>
               <div><span className="block text-xs font-semibold">Prompt optimized</span><span className="text-[10px] text-text-faint">Ready to generate</span></div>
             </div>
           </div>

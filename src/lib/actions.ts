@@ -1,12 +1,16 @@
 import {
   AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
-  CHAT_MODEL, DURATIONS, EXTRA_MODELS, MAX_CHAT_HISTORY, MAX_HISTORY, MAX_QUEUE,
-  MAX_REFS_PER_KIND, MAX_REF_BYTES, MODE_MODEL_FILTER, modelRequiresRefImage, OPTIMIZER_MODEL, PREFERRED,
+  CHAT_MODEL, DURATIONS, EXTRA_MODELS, GRILL_MODEL, MAX_CHAT_HISTORY, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
+  MAX_REFS_PER_KIND, MAX_REF_BYTES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage, OPTIMIZER_MODEL, PREFERRED,
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
   VIDEO_POLL_MS, VIDEO_RESOLUTION, VIDEO_TIMEOUT_MS, isVideoMode, modeLabel,
 } from "./constants";
+import {
+  autoSaveBlob, forgetAutoSaveDir, fsAccessSupported, isAutoSaveDirConnected, peekSavedDirName,
+  pickAutoSaveDir, reconnectAutoSaveDir, urlToBlob,
+} from "./fsAccess";
 import { cur, mutate, PROMPT_PLACEMENT_KEY, saveChatHistory, saveHistory, state, toast } from "./store";
-import type { GenItem, Mode, ORModel, PromptPlacement, QueueJob, RefImage, RefKind } from "./types";
+import type { ChatMsg, GenItem, GrillPrompt, Mode, ORModel, PromptPlacement, QueueJob, RefImage, RefKind } from "./types";
 import { convertDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -332,6 +336,77 @@ async function runRequest(item: GenItem) {
   }
   // item ถูก mutate ตรงๆ ใน array ของโหมดต้นทาง — broadcast ทีเดียวพอ ทุกโหมดได้ state ถูกต้อง
   mutate();
+  if (item.status === "done") autoSaveItem(item); // fire-and-forget — ไม่บล็อก UI, error แค่ toast เตือน
+}
+
+// ---------- auto save ----------
+async function autoSaveItem(item: GenItem) {
+  if (!state.autoSaveEnabled || !item.url || !isAutoSaveDirConnected()) return;
+  try {
+    const ext = isVideoMode(item.mode) ? "mp4" : item.mode === "audio" ? "mp3" : state.lbFormat;
+    const blob = await urlToBlob(
+      isVideoMode(item.mode) || item.mode === "audio" ? item.url : await convertDataUrl(item.url, state.lbFormat)
+    );
+    await autoSaveBlob(blob, randomFileName(ext));
+  } catch (e) {
+    // permission หมดอายุ/ถูกถอน — ปิด auto-save อัตโนมัติกันแจ้งเตือนซ้ำทุกภาพ
+    mutate(s => { s.autoSaveEnabled = false; s.autoSaveDirName = null; });
+    toast("Auto Save หยุดทำงาน: " + errMsg(e));
+  }
+}
+
+export function isAutoSaveSupported(): boolean {
+  return fsAccessSupported();
+}
+
+/** เปิด directory picker ใหม่ — ต้องเรียกจาก user gesture (onClick) เท่านั้น */
+export async function connectAutoSaveDir() {
+  mutate(s => { s.autoSaveConnecting = true; });
+  try {
+    const name = await pickAutoSaveDir();
+    mutate(s => { s.autoSaveDirName = name; s.autoSaveEnabled = true; s.autoSaveSavedDirName = null; });
+    toast(`เชื่อมต่อ Auto Save กับ "${name}" แล้วค่ะ`);
+  } catch (e) {
+    // user กด cancel ที่ picker ก็โยน AbortError มาเหมือนกัน — เงียบไว้ไม่ต้อง toast
+    if (e instanceof Error && e.name !== "AbortError") toast(errMsg(e));
+  } finally {
+    mutate(s => { s.autoSaveConnecting = false; });
+  }
+}
+
+/** ตรวจว่ามี directory เก่าจาก session ก่อนไหม — เรียกตอนแอปโหลด (ยังไม่ขอ permission) */
+export async function checkSavedAutoSaveDir() {
+  if (!fsAccessSupported()) return;
+  const name = await peekSavedDirName();
+  if (name) mutate(s => { s.autoSaveSavedDirName = name; });
+}
+
+/** ขอ permission ซ้ำกับ directory เดิม — ต้องเรียกจาก user gesture (onClick) เท่านั้น */
+export async function reconnectSavedAutoSaveDir() {
+  mutate(s => { s.autoSaveConnecting = true; });
+  try {
+    const name = await reconnectAutoSaveDir();
+    mutate(s => { s.autoSaveDirName = name; s.autoSaveEnabled = true; s.autoSaveSavedDirName = null; });
+    toast(`เชื่อมต่อ Auto Save กับ "${name}" อีกครั้งแล้วค่ะ`);
+  } catch (e) {
+    // permission ถูกปฏิเสธ/handle เสีย — เคลียร์ IndexedDB กันปุ่มค้างโชว์ให้กดซ้ำไม่จบ
+    await forgetAutoSaveDir();
+    mutate(s => { s.autoSaveSavedDirName = null; });
+    toast(errMsg(e));
+  } finally {
+    mutate(s => { s.autoSaveConnecting = false; });
+  }
+}
+
+export function toggleAutoSaveEnabled() {
+  mutate(s => { s.autoSaveEnabled = !s.autoSaveEnabled; });
+}
+
+/** ยกเลิกการเชื่อมต่อ directory ทั้งหมด — ลบ handle ที่จำไว้ใน IndexedDB ด้วย */
+export async function disconnectAutoSaveDir() {
+  await forgetAutoSaveDir();
+  mutate(s => { s.autoSaveEnabled = false; s.autoSaveDirName = null; });
+  toast("ยกเลิกการเชื่อมต่อ Auto Save แล้วค่ะ");
 }
 
 // Video API เป็น async job: submit ได้ job id แล้ว poll จน completed ค่อยได้ URL
@@ -833,6 +908,14 @@ export function clearOptimize() {
 }
 
 // ---------- chat with atelier ----------
+// กันคำตอบแบบ "AI slop" — ใช้ร่วมกันทั้ง Chat with Atelier และ Grill me
+// (ห้ามเกริ่นนำ/วกวน, ต้องเจาะจงไม่คลุมเครือ, ห้ามเดาข้อมูลที่ไม่มี — ถามกลับแทน)
+const ANTI_SLOP_RULES =
+  "Never pad your response with preamble, filler, or unnecessary summaries — get straight to the point. "
+  + "Be specific and concrete, never vague: instead of generic terms like 'better lighting' or 'more detail', "
+  + "name the actual technique or descriptor (e.g. 'golden hour rim light', 'shallow depth of field'). "
+  + "Never guess or invent details the user hasn't given you — if something is missing or ambiguous, ask instead of assuming.";
+
 function chatSystemPrompt(): string {
   return "You are the in-app assistant for Atelier, an AI media studio built on OpenRouter that generates images, infographics, videos and music. "
     + "You help the user brainstorm ideas, design prompts (style, lighting, composition, mood, camera work, musical genre and instrumentation), "
@@ -841,7 +924,7 @@ function chatSystemPrompt(): string {
     + "(General = images, Infographic = infographic images, Video = short video clips, "
     + "Cinematic = video scenes that can be extended frame-to-frame into a continuing story, Audio = songs/music). "
     + "Keep answers concise and practical. When useful, suggest a ready-to-use prompt. Respond in the same "
-    + "language the user writes in (Thai or English).";
+    + "language the user writes in (Thai or English). " + ANTI_SLOP_RULES;
 }
 
 export async function sendChatMessage(text: string) {
@@ -884,4 +967,155 @@ export async function sendChatMessage(text: string) {
 export function clearChatHistory() {
   mutate(s => { s.chatMessages = []; });
   saveChatHistory();
+}
+
+// ---------- grill me ----------
+// LLM สัมภาษณ์ทีละคำถามจนข้อมูลพอ (หรือครบเพดาน) แล้ว "ตกผลึก" เป็นชุด prompt หลายมุมมอง
+// โปรโตคอล: คำถามเป็น plain text — ตอนตกผลึกโมเดลต้องตอบ JSON ล้วน จึงแยกได้ด้วยการลอง parse
+
+function grillModeNoun(): string {
+  return state.mode === "audio" ? "a song / music"
+    : state.mode === "cinematic" ? "a cinematic video scene"
+    : state.mode === "video" ? "a short video clip"
+    : state.mode === "infographic" ? "an infographic image" : "an image";
+}
+
+function grillSystemPrompt(): string {
+  return "You are an expert creative interviewer for Atelier, an AI media studio. The user wants to create "
+    + grillModeNoun() + " with an AI model (current tab: " + modeLabel(state.mode) + "). "
+    + "Interview the user to sharpen their idea: subject, purpose, style, mood, lighting, composition, camera work "
+    + "(for music: genre, mood, instruments, vocals, tempo). "
+    + "Rules: ask exactly ONE short, specific question per turn, in Thai, with no preamble and no summaries. "
+    + "Use your judgment on how many questions the brief actually needs — simple ideas may need as few as "
+    + MIN_GRILL_QUESTIONS + ", more complex or ambiguous ones may need up to " + MAX_GRILL_QUESTIONS + ", "
+    + "but never exceed " + MAX_GRILL_QUESTIONS + " questions in the whole conversation. "
+    + "When you have enough information, when the limit is reached, or when the user asks you to finish, "
+    + "respond with ONLY valid JSON — no markdown fences, no other text — in this exact shape: "
+    + '{"done": true, "prompts": [{"title": "ชื่อมุมมองสั้นๆ ภาษาไทย", "prompt": "detailed English prompt"}]} '
+    + "with 3-5 prompts, each taking a distinctly different creative angle (style / composition / mood) on the same brief. "
+    + ANTI_SLOP_RULES;
+}
+
+/** ลอง parse คำตอบเป็นผลตกผลึก — คืน null ถ้าเป็นคำถามธรรมดา (plain text จะ parse ไม่ผ่าน) */
+function parseGrillReply(raw: string): GrillPrompt[] | null {
+  const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  let parsed: { done?: unknown; prompts?: unknown };
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return null;
+  }
+  if (!parsed || parsed.done !== true || !Array.isArray(parsed.prompts)) return null;
+  const prompts = parsed.prompts
+    .filter((p): p is GrillPrompt =>
+      !!p && typeof (p as GrillPrompt).title === "string" && typeof (p as GrillPrompt).prompt === "string" && !!(p as GrillPrompt).prompt.trim())
+    .map(p => ({ title: p.title.trim(), prompt: p.prompt.trim() }))
+    .slice(0, 5);
+  return prompts.length ? prompts : null;
+}
+
+async function callGrillLLM(messages: ChatMsg[]): Promise<string> {
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: GRILL_MODEL,
+      messages: [
+        { role: "system", content: grillSystemPrompt() },
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+      ],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
+  const reply = data.choices?.[0]?.message?.content;
+  if (!reply) throw new Error("โมเดลไม่ตอบข้อความกลับมาค่ะ");
+  return String(reply).trim();
+}
+
+export function openGrill() {
+  mutate(s => { s.grillOpen = true; s.chatOpen = false; }); // แผงซ้อนตำแหน่งเดียวกับ Chat — เปิดทีละอัน
+}
+
+export function closeGrill() {
+  mutate(s => { s.grillOpen = false; });
+}
+
+export function resetGrill() {
+  mutate(s => { s.grillMessages = []; s.grillResult = null; });
+}
+
+export async function sendGrillAnswer(text: string) {
+  const t = text.trim();
+  if (!t || state.grillPending || state.grillResult) return;
+  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+
+  mutate(s => { s.grillMessages.push({ role: "user", content: t }); s.grillPending = true; });
+  try {
+    const raw = await callGrillLLM(state.grillMessages);
+    const prompts = parseGrillReply(raw);
+    if (prompts) {
+      mutate(s => {
+        s.grillResult = prompts;
+        s.grillMessages.push({ role: "assistant", content: `ตกผลึกได้ ${prompts.length} prompt แล้วค่ะ เลือกใช้ด้านล่างได้เลย~` });
+      });
+    } else {
+      mutate(s => { s.grillMessages.push({ role: "assistant", content: raw }); });
+    }
+  } catch (e) {
+    mutate(s => { s.grillMessages.push({ role: "assistant", content: "⚠️ " + errMsg(e) }); });
+  } finally {
+    mutate(s => { s.grillPending = false; });
+  }
+}
+
+/** บังคับตกผลึกทันที — ส่งคำสั่งปิดสัมภาษณ์ให้โมเดลโดยไม่แสดงเป็น bubble ในบทสนทนา */
+export async function finishGrill() {
+  if (state.grillPending || state.grillResult || !state.grillMessages.length) return;
+  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+
+  mutate(s => { s.grillPending = true; });
+  try {
+    const raw = await callGrillLLM([
+      ...state.grillMessages,
+      { role: "user", content: "Stop interviewing. Output the final JSON now, based on everything discussed so far." },
+    ]);
+    const prompts = parseGrillReply(raw);
+    if (!prompts) throw new Error("แปลผลตกผลึกไม่สำเร็จค่ะ ลองกดตกผลึกอีกครั้งนะคะ");
+    mutate(s => {
+      s.grillResult = prompts;
+      s.grillMessages.push({ role: "assistant", content: `ตกผลึกได้ ${prompts.length} prompt แล้วค่ะ เลือกใช้ด้านล่างได้เลย~` });
+    });
+  } catch (e) {
+    mutate(s => { s.grillMessages.push({ role: "assistant", content: "⚠️ " + errMsg(e) }); });
+  } finally {
+    mutate(s => { s.grillPending = false; });
+  }
+}
+
+export function applyGrillPrompt(p: GrillPrompt) {
+  mutate(() => { cur().prompt = p.prompt; });
+  toast(`ใช้ prompt "${p.title}" แล้วค่ะ`);
+}
+
+/** เพิ่ม prompt จากผลตกผลึกเข้าคิวโดยตรง ใช้ model/settings ปัจจุบันของโหมด — ไม่แตะช่อง prompt */
+export function queueGrillPrompt(p: GrillPrompt) {
+  const ms = cur();
+  const m = currentModel();
+  if (!m) { toast("ยังไม่ได้เลือกโมเดลค่ะ"); return; }
+  if (ms.queue.length >= MAX_QUEUE) { toast(`คิวเต็มแล้วค่ะ (${MAX_QUEUE}/${MAX_QUEUE})`); return; }
+  if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)"); return; }
+  mutate(() => {
+    ms.queue.push({
+      prompt: p.prompt,
+      model: m.id,
+      modelName: m.name || m.id,
+      ratio: ms.ratio,
+      count: ms.count,
+      duration: ms.duration,
+      audio: ms.audio,
+      refs: refsSupported() ? ms.refs.slice() : [],
+    });
+  });
+  toast(`เพิ่ม "${p.title}" เข้าคิวแล้วค่ะ (${ms.queue.length}/${MAX_QUEUE})`);
 }

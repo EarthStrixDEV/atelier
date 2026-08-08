@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, SkipForward, X } from "lucide-react";
+import { Clapperboard, ListVideo, Pause, Play, SkipForward, X } from "lucide-react";
 import { applyExtendFrame, closeExtendTool } from "../lib/actions";
 import { toast, useApp } from "../lib/store";
 
@@ -51,13 +51,13 @@ export default function ExtendTool() {
 
   return (
     <div
-      className="fixed inset-0 z-200 grid place-items-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-200 grid place-items-center bg-black/50 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) closeExtendTool(); }}
     >
       <div className="w-[min(720px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-6">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-base font-bold">TimeFrame &amp; Extend</h3>
+            <h3 className="flex items-center gap-1.5 text-base font-bold"><Clapperboard size={16} /> TimeFrame &amp; Extend</h3>
             <p className="mt-1 text-[12.5px] leading-relaxed text-text-dim">
               เลื่อน timeline เลือกเฟรมที่ต้องการ — เฟรมนั้นจะเป็นเฟรมแรกของ scene ถัดไปค่ะ
             </p>
@@ -122,10 +122,10 @@ export default function ExtendTool() {
         </div>
 
         <button
-          className="mt-4 w-full cursor-pointer rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985]"
+          className="mt-4 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985]"
           onClick={useFrame}
         >
-          ใช้เฟรม {fmtTc(time)} สร้าง Scene ถัดไป
+          <ListVideo size={15} /> ใช้เฟรม {fmtTc(time)} สร้าง Scene ถัดไป
         </button>
         <p className="mt-3 text-[11px] leading-relaxed text-text-faint">
           เฟรมที่เลือกจะไปอยู่ในช่อง Attach Reference เป็น First frame (Image-to-Video) และ prompt เดิมของ scene นี้จะถูกใส่ให้ถ้าช่อง prompt ยังว่าง — แก้ prompt เป็นเหตุการณ์ถัดไปแล้วกด Generate ได้เลยค่ะ

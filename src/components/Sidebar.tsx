@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clock, ImagePlus, Plus, Sparkles } from "lucide-react";
+import {
+  Clock, CircleDollarSign, Cpu, Hash, ImagePlus, ListOrdered, ListTree,
+  Plus, RectangleHorizontal, Sparkles, Trash2, Volume2, X,
+} from "lucide-react";
 import {
   AUDIO_MODEL_PRICES, COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_QUEUE,
   MAX_REFS_PER_KIND, modelRequiresRefImage, MODE_META, RATIOS, REF_KINDS, isVideoMode,
@@ -233,11 +236,11 @@ export default function Sidebar() {
                   {p}
                 </button>
                 <button
-                  className="shrink-0 cursor-pointer px-1 py-0.5 text-xs text-text-faint hover:text-danger"
+                  className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint hover:text-danger"
                   title="ลบออกจากประวัติ"
                   onClick={() => removeFromHistory(s.mode, p)}
                 >
-                  ✕
+                  <X size={12} />
                 </button>
               </div>
             ))}
@@ -247,7 +250,7 @@ export default function Sidebar() {
 
       {/* Prompt builder */}
       <div>
-        <label className={fieldLabel}>Prompt Builder</label>
+        <label className={fieldLabel + " flex items-center gap-1.5"}><ListTree size={12} /> Prompt Builder</label>
         <div>
           {KEYWORDS_BY_MODE[s.mode].map((group, i) => (
             <details key={group.label} className="kw-group mt-[7px] overflow-hidden rounded-lg border border-border bg-surface first:mt-0" open={i === 0}>
@@ -277,14 +280,14 @@ export default function Sidebar() {
 
       {/* Attach reference / style / facial — โหมด audio ไม่รองรับภาพอ้างอิง */}
       {!isAudio && <div>
-        <label className={fieldLabel}>
-          Attach Reference
+        <label className={fieldLabel + " flex items-center gap-1.5"}>
+          <ImagePlus size={12} /> Attach Reference
           {ms.refs.length > 0 && (
             <button
-              className="ml-2 cursor-pointer font-semibold normal-case tracking-normal text-text-faint hover:text-danger"
+              className="ml-auto flex cursor-pointer items-center gap-1 font-semibold normal-case tracking-normal text-text-faint hover:text-danger"
               onClick={clearRefImages}
             >
-              ล้างทั้งหมด ({ms.refs.length})
+              <Trash2 size={11} /> ล้างทั้งหมด ({ms.refs.length})
             </button>
           )}
         </label>
@@ -298,14 +301,14 @@ export default function Sidebar() {
             {ms.refs[0] ? (
               <div className="group relative aspect-video overflow-hidden bg-surface-2">
                 <img src={ms.refs[0].dataUrl} alt={ms.refs[0].name} className="h-full w-full object-cover" />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/90 to-transparent px-3 pb-2.5 pt-8">
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2.5 pt-8">
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white" title={ms.refs[0].name}>{ms.refs[0].name}</span>
                   <button
                     type="button"
-                    className="shrink-0 cursor-pointer rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[10.5px] font-semibold text-white backdrop-blur transition-colors hover:border-danger hover:text-danger"
+                    className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[10.5px] font-semibold text-white backdrop-blur transition-colors hover:border-danger hover:text-danger"
                     onClick={() => removeRefImage(ms.refs[0])}
                   >
-                    ลบภาพ
+                    <Trash2 size={11} /> ลบภาพ
                   </button>
                 </div>
                 <span className="absolute left-2.5 top-2.5 rounded-full border border-white/20 bg-black/60 px-2 py-1 text-[9.5px] font-semibold uppercase tracking-[.12em] text-white backdrop-blur">First frame</span>
@@ -362,11 +365,11 @@ export default function Sidebar() {
                         <div key={kind + i} className="group relative h-14 w-14 overflow-hidden rounded-md border border-border-strong">
                           <img src={ref.dataUrl} alt={ref.name} title={ref.name} className="h-full w-full object-cover" />
                           <button
-                            className="absolute right-0 top-0 cursor-pointer bg-bg/80 px-1 text-[10px] leading-4 text-text-dim hover:text-danger"
+                            className="absolute right-0 top-0 grid h-4 w-4 cursor-pointer place-items-center bg-bg/80 text-text-dim hover:text-danger"
                             title={"ลบ " + ref.name}
                             onClick={() => removeRefImage(ref)}
                           >
-                            ✕
+                            <X size={10} />
                           </button>
                         </div>
                       ))}
@@ -403,7 +406,7 @@ export default function Sidebar() {
 
       {/* Model */}
       <div>
-        <label htmlFor="model" className={fieldLabel}>Model</label>
+        <label htmlFor="model" className={fieldLabel + " flex items-center gap-1.5"}><Cpu size={12} /> Model</label>
         <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
           <select
             id="model"
@@ -433,8 +436,8 @@ export default function Sidebar() {
       {/* Usage bar */}
       {usageRows.length > 0 && (
         <div>
-          <label className={fieldLabel}>
-            Usage <span className="normal-case tracking-normal">~${usageTotal.toFixed(4)}{hasUnknown ? " (บางโมเดลไม่ทราบราคา)" : ""}</span>
+          <label className={fieldLabel + " flex items-center gap-1.5"}>
+            <CircleDollarSign size={12} /> Usage <span className="normal-case tracking-normal">~${usageTotal.toFixed(4)}{hasUnknown ? " (บางโมเดลไม่ทราบราคา)" : ""}</span>
           </label>
           <div className="flex flex-col gap-2.5">
             {usageRows.map(([name, g]) => (
@@ -460,7 +463,7 @@ export default function Sidebar() {
 
       {/* Aspect ratio — ไม่มีผลกับเสียง */}
       {!isAudio && <div>
-        <label className={fieldLabel}>Aspect Ratio</label>
+        <label className={fieldLabel + " flex items-center gap-1.5"}><RectangleHorizontal size={12} /> Aspect Ratio</label>
         <div className="grid grid-cols-5 gap-1.5">
           {RATIOS.map(r => {
             const disabled = !!(vRatios && !vRatios.includes(r.v));
@@ -482,7 +485,7 @@ export default function Sidebar() {
       {/* Duration (video) */}
       {isVideo && (
         <div>
-          <label className={fieldLabel}>Duration</label>
+          <label className={fieldLabel + " flex items-center gap-1.5"}><Clock size={12} /> Duration</label>
           <div className="grid grid-cols-3 gap-1.5">
             {DURATIONS.map(d => {
               const disabled = !!(durs && !durs.includes(d));
@@ -504,7 +507,7 @@ export default function Sidebar() {
       {/* Audio (video) */}
       {isVideo && (
         <div>
-          <label className={fieldLabel}>Audio</label>
+          <label className={fieldLabel + " flex items-center gap-1.5"}><Volume2 size={12} /> Audio</label>
           <label className="flex cursor-pointer select-none items-center gap-[9px] text-[12.5px] text-text-dim">
             <input
               type="checkbox"
@@ -520,7 +523,7 @@ export default function Sidebar() {
 
       {/* Count */}
       <div>
-        <label className={fieldLabel}>{meta.countLabel}</label>
+        <label className={fieldLabel + " flex items-center gap-1.5"}><Hash size={12} /> {meta.countLabel}</label>
         <div className="grid grid-cols-4 gap-1.5">
           {COUNTS.map(c => (
             <button
@@ -537,7 +540,7 @@ export default function Sidebar() {
       {/* Queue */}
       {ms.queue.length > 0 && (
         <div>
-          <label className={fieldLabel}>Queue <span className="normal-case tracking-normal">{ms.queue.length}/{MAX_QUEUE}</span></label>
+          <label className={fieldLabel + " flex items-center gap-1.5"}><ListOrdered size={12} /> Queue <span className="normal-case tracking-normal">{ms.queue.length}/{MAX_QUEUE}</span></label>
           <div className="flex flex-col gap-1.5">
             {ms.queue.map((q, i) => (
               <div key={i} className="flex items-center gap-[9px] rounded-lg border border-border bg-surface px-2.5 py-2">
@@ -552,11 +555,11 @@ export default function Sidebar() {
                   </div>
                 </div>
                 <button
-                  className="shrink-0 cursor-pointer px-1 py-0.5 text-[13px] text-text-faint transition-colors hover:text-danger"
+                  className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-danger"
                   title="ลบออกจากคิว"
                   onClick={() => removeFromQueue(i)}
                 >
-                  ✕
+                  <X size={13} />
                 </button>
               </div>
             ))}
@@ -566,10 +569,11 @@ export default function Sidebar() {
 
       {/* Generate + queue buttons */}
       <button
-        className="mt-0.5 w-full cursor-pointer rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-35"
+        className="mt-0.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-35"
         disabled={!canGenerate}
         onClick={generate}
       >
+        <Sparkles size={15} />
         {ms.queue.length ? `Generate Queue (${ms.queue.length})` : "Generate"}
       </button>
       <button

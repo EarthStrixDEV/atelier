@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Clapperboard, Copy, Download, ImageIcon, ListVideo, Music, RefreshCw } from "lucide-react";
+import { Check, Clapperboard, Copy, Download, ImageIcon, ListVideo, Music, RefreshCw, RotateCcw, X } from "lucide-react";
 import { MODE_META, isVideoMode } from "../lib/constants";
 import {
   clearSelection, copyPromptFromItem, downloadSelected, openExtendTool, openLightbox,
@@ -56,7 +56,7 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
       onClick={done ? () => openLightbox(index) : undefined}
     >
       <div className="relative w-full bg-surface-2" style={{ aspectRatio: isAud ? "2 / 1" : ratioCSS(item.ratio) }}>
-        <span className="pointer-events-none absolute left-2 top-2 z-1 max-w-[calc(100%-16px)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-border-strong bg-[rgba(10,10,10,.72)] px-[9px] py-[3px] font-mono text-[9.5px] text-text backdrop-blur-sm" title={item.model}>
+        <span className="pointer-events-none absolute left-2 top-2 z-1 max-w-[calc(100%-16px)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-white/15 bg-[rgba(10,10,10,.72)] px-[9px] py-[3px] font-mono text-[9.5px] text-white backdrop-blur-sm" title={item.model}>
           {item.modelName}
         </span>
 
@@ -80,7 +80,7 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
               "absolute right-2 top-2 z-1 grid h-6 w-6 cursor-pointer place-items-center rounded-md border transition-all " +
               (selected
                 ? "border-accent bg-accent text-accent-ink opacity-100"
-                : "border-border-strong bg-[rgba(10,10,10,.72)] text-text opacity-0 backdrop-blur-sm group-hover:opacity-100")
+                : "border-white/15 bg-[rgba(10,10,10,.72)] text-white opacity-0 backdrop-blur-sm group-hover:opacity-100")
             }
             title="เลือกเพื่อดาวน์โหลดหลายรูป"
             onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}
@@ -94,7 +94,7 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
             <VideoProgress item={item} />
           ) : (
             <>
-              <div className="absolute inset-0 animate-shimmer bg-[linear-gradient(100deg,transparent_30%,rgba(255,255,255,.05)_50%,transparent_70%)] bg-[length:200%_100%]" />
+              <div className="absolute inset-0 animate-shimmer bg-[linear-gradient(100deg,transparent_30%,rgba(10,10,10,.06)_50%,transparent_70%)] bg-[length:200%_100%]" />
               <div className="absolute left-1/2 top-1/2 h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 animate-spin rounded-full border-2 border-border-strong border-t-text" />
             </>
           )
@@ -104,10 +104,10 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-[18px] text-center">
             <div className="max-h-[60%] overflow-hidden text-[11.5px] leading-normal text-danger">{item.errMsg}</div>
             <button
-              className="cursor-pointer rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
+              className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
               onClick={e => { e.stopPropagation(); retry(item); }}
             >
-              ลองใหม่
+              <RotateCcw size={11} /> ลองใหม่
             </button>
           </div>
         )}
@@ -180,10 +180,10 @@ export default function Gallery() {
                 <Download size={11} /> ดาวน์โหลด
               </button>
               <button
-                className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
+                className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
                 onClick={clearSelection}
               >
-                ยกเลิก
+                <X size={11} /> ยกเลิก
               </button>
             </span>
           )}
@@ -212,14 +212,14 @@ export default function Gallery() {
         </div>
       )}
       </div>
-      {centerPrompt && !s.chatOpen && (
+      {centerPrompt && !s.chatOpen && !s.grillOpen && (
         <div className="pointer-events-none absolute inset-x-6 bottom-[max(24px,env(safe-area-inset-bottom))] z-40 flex justify-center max-[860px]:inset-x-3 max-[860px]:bottom-[max(12px,env(safe-area-inset-bottom))]">
           <div className="pointer-events-auto w-full max-w-[720px]">
             <PromptComposer placement="center" />
           </div>
         </div>
       )}
-      {centerPrompt && s.chatOpen && (
+      {centerPrompt && (s.chatOpen || s.grillOpen) && (
         <div className="pointer-events-none absolute bottom-6 left-6 right-[404px] z-40 flex justify-center max-[860px]:hidden">
           <div className="pointer-events-auto w-full max-w-[720px]">
             <PromptComposer placement="center" />

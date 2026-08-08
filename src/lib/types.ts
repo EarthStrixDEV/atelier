@@ -65,6 +65,12 @@ export interface OptimizeResult {
   keywords: string[];
 }
 
+/** prompt หนึ่งมุมมองจากการตกผลึกของ Grill me */
+export interface GrillPrompt {
+  title: string;
+  prompt: string;
+}
+
 export interface ModeState {
   prompt: string;
   modelId: string | null;
@@ -95,6 +101,11 @@ export interface AppState {
   chatOpen: boolean;
   chatMessages: ChatMsg[];
   chatPending: boolean;
+  /** Grill me — LLM สัมภาษณ์ทีละข้อแล้วตกผลึกเป็นชุด prompt (memory-only เหมือน gallery) */
+  grillOpen: boolean;
+  grillMessages: ChatMsg[];
+  grillPending: boolean;
+  grillResult: GrillPrompt[] | null;
   optimize: {
     status: "idle" | "loading" | "done" | "error";
     result: OptimizeResult | null;
@@ -106,4 +117,12 @@ export interface AppState {
   sidebarCollapsed: boolean;
   promptPlacement: PromptPlacement;
   lbFormat: ImgFormat;
+  /** Auto Save — เซฟผลลัพธ์ที่ done ลง directory ที่ user เลือกไว้ผ่าน File System Access API */
+  autoSaveEnabled: boolean;
+  /** ชื่อ directory ที่เลือกไว้ (แสดงผลเท่านั้น — handle จริงเก็บนอก state เพราะไม่ serializable) */
+  autoSaveDirName: string | null;
+  /** true ระหว่างที่รอ user เลือก/ยืนยัน permission directory */
+  autoSaveConnecting: boolean;
+  /** ชื่อ directory ที่เคยเชื่อมต่อไว้ใน session ก่อน (จาก IndexedDB) — ใช้โชว์ปุ่ม "เชื่อมต่อใหม่" ก่อนขอ permission จริง */
+  autoSaveSavedDirName: string | null;
 }

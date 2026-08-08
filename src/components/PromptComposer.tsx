@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { PanelBottom, PanelLeft, Sparkles } from "lucide-react";
+import { Check, PanelBottom, PanelLeft, PenLine, Sparkles, Wand2, X } from "lucide-react";
 import { MODE_META } from "../lib/constants";
 import {
   applyOptimizedPrompt, clearOptimize, generate, modelsForMode,
@@ -52,13 +52,13 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   const optimizePanel = (s.optimize.status === "done" || s.optimize.status === "error") && (
     <div className={
       "flex flex-col gap-2.5 rounded-[10px] border border-border-strong bg-surface p-3 " +
-      (isCenter ? "max-h-[min(50vh,420px)] overflow-y-auto shadow-[0_16px_60px_rgba(0,0,0,.55)]" : "")
+      (isCenter ? "max-h-[min(50vh,420px)] overflow-y-auto shadow-[0_16px_60px_rgba(0,0,0,.16)]" : "")
     }>
       {s.optimize.status === "error" ? (
         <>
           <div className="text-xs leading-normal text-danger">{s.optimize.error}</div>
-          <button className="cursor-pointer rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
-            ปิด
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
+            <X size={12} /> ปิด
           </button>
         </>
       ) : s.optimize.result && (
@@ -89,11 +89,11 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             </>
           )}
           <div className="flex gap-2">
-            <button className="flex-1 cursor-pointer rounded-lg bg-accent py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={applyOptimizedPrompt}>
-              ใช้ Prompt นี้
+            <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={applyOptimizedPrompt}>
+              <Check size={13} /> ใช้ Prompt นี้
             </button>
-            <button className="flex-1 cursor-pointer rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
-              ยกเลิก
+            <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
+              <X size={13} /> ยกเลิก
             </button>
           </div>
         </>
@@ -105,7 +105,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
     return (
       <div id="prompt-sidebar">
         <div className="mb-[9px] flex items-center justify-between gap-2">
-          <label htmlFor="prompt-sidebar-input" className="text-[11px] font-semibold uppercase tracking-[1.2px] text-text-dim">Prompt</label>
+          <label htmlFor="prompt-sidebar-input" className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-text-dim"><PenLine size={12} /> Prompt</label>
           <button
             type="button"
             className="grid h-7 w-7 cursor-pointer place-items-center rounded-md border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
@@ -136,7 +136,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
           disabled={!hasPrompt || s.optimize.status === "loading"}
           onClick={runOptimize}
         >
-          <Sparkles size={13} />
+          <Wand2 size={13} />
           {s.optimize.status === "loading" ? "กำลังจูน Prompt…" : "Optimize"}
         </button>
         {(s.optimize.status === "done" || s.optimize.status === "error") && <div className="mt-2.5">{optimizePanel}</div>}
@@ -147,7 +147,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   return (
     <div className="flex flex-col gap-2.5">
       {optimizePanel}
-      <div className="rounded-2xl border border-border-strong bg-surface/95 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.65)] backdrop-blur-xl">
+      <div className="rounded-2xl border border-border-strong bg-surface/95 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.18)] backdrop-blur-xl">
         <div className="flex items-end gap-2">
           <button
             type="button"
@@ -185,14 +185,15 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             disabled={!hasPrompt || s.optimize.status === "loading"}
             onClick={runOptimize}
           >
-            <Sparkles size={15} className={s.optimize.status === "loading" ? "animate-pulse" : ""} />
+            <Wand2 size={15} className={s.optimize.status === "loading" ? "animate-pulse" : ""} />
           </button>
           <button
             type="button"
-            className="mb-1 h-9 shrink-0 cursor-pointer rounded-[9px] bg-accent px-4 text-xs font-bold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 max-[520px]:px-3"
+            className="mb-1 flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-accent px-4 text-xs font-bold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 max-[520px]:px-3"
             disabled={!canGenerate}
             onClick={generate}
           >
+            <Sparkles size={14} />
             {ms.queue.length ? `Generate Queue (${ms.queue.length})` : "Generate"}
           </button>
         </div>

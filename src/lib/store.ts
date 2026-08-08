@@ -103,12 +103,20 @@ export const state: AppState = {
   chatOpen: false,
   chatMessages: loadChatHistory(),
   chatPending: false,
+  grillOpen: false,
+  grillMessages: [], // memory-only โดยตั้งใจ — บทสัมภาษณ์ผูกกับไอเดียชั่วคราว ไม่ต้องรอด reload
+  grillPending: false,
+  grillResult: null,
   optimize: { status: "idle", result: null, error: "" },
   extendItemId: null,
   toast: { msg: "", n: 0 },
   sidebarCollapsed: false,
   promptPlacement: loadPromptPlacement(),
   lbFormat: "png",
+  autoSaveEnabled: false,
+  autoSaveDirName: null,
+  autoSaveConnecting: false,
+  autoSaveSavedDirName: null,
 };
 
 let version = 0;

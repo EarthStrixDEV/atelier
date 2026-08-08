@@ -6,8 +6,9 @@ import Lightbox from "../components/Lightbox";
 import ExtendTool from "../components/ExtendTool";
 import KeyModal from "../components/KeyModal";
 import ChatPanel from "../components/ChatPanel";
+import GrillPanel from "../components/GrillPanel";
 import Toast from "../components/Toast";
-import { loadModels, loadVideoModels } from "../lib/actions";
+import { checkSavedAutoSaveDir, loadModels, loadVideoModels } from "../lib/actions";
 import { mutate, state, useApp } from "../lib/store";
 
 export default function StudioApp() {
@@ -16,6 +17,7 @@ export default function StudioApp() {
   useEffect(() => {
     loadModels();
     loadVideoModels();
+    checkSavedAutoSaveDir(); // เช็คเฉยๆ ว่ามี directory เก่าไหม — ยังไม่ขอ permission (ต้องรอ user gesture)
     // เปิดมาให้ใส่ key ก่อนเลย ถ้ายังไม่มี
     const t = setTimeout(() => {
       if (!state.apiKey) mutate(st => { st.keyModalOpen = true; });
@@ -34,6 +36,7 @@ export default function StudioApp() {
       <ExtendTool />
       <KeyModal />
       <ChatPanel />
+      <GrillPanel />
       <Toast />
     </div>
   );

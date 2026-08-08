@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, Send, Trash2, X } from "lucide-react";
+import { Bot, MessageCircle, Send, Trash2, X } from "lucide-react";
 import { modeLabel } from "../lib/constants";
 import { clearChatHistory, sendChatMessage } from "../lib/actions";
 import { mutate, useApp } from "../lib/store";
@@ -33,10 +33,10 @@ export default function ChatPanel() {
   if (!s.chatOpen) {
     return (
       <button
-        className="fixed bottom-6 right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full bg-accent text-accent-ink shadow-[0_8px_30px_rgba(0,0,0,.4)] transition-transform hover:scale-106"
+        className="fixed bottom-6 right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full bg-accent text-accent-ink shadow-[0_8px_30px_rgba(0,0,0,.16)] transition-transform hover:scale-106"
         title="Chat with Atelier — ที่ปรึกษาเรื่องสร้างภาพ/วิดีโอด้วย AI"
         onClick={() => {
-          mutate(st => { st.chatOpen = true; });
+          mutate(st => { st.chatOpen = true; st.grillOpen = false; }); // แผงซ้อนตำแหน่งเดียวกัน — เปิดทีละอัน
           setTimeout(() => inputRef.current?.focus(), 50);
         }}
       >
@@ -46,9 +46,10 @@ export default function ChatPanel() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-160 flex h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-40px))] flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-[0_20px_80px_rgba(0,0,0,.6)] max-[480px]:bottom-3 max-[480px]:right-3 max-[480px]:w-[calc(100vw-24px)]">
+    <div className="fixed bottom-6 right-6 z-160 flex h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-40px))] flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-[0_20px_80px_rgba(0,0,0,.14)] max-[480px]:bottom-3 max-[480px]:right-3 max-[480px]:w-[calc(100vw-24px)]">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3.5">
         <div className="flex items-center gap-2 text-[13.5px]">
+          <Bot size={15} />
           <strong>Chat with Atelier</strong>
           <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-text-faint">{modeLabel(s.mode)}</span>
         </div>
