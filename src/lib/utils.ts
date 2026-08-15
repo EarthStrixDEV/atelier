@@ -18,6 +18,42 @@ export function togglePromptKeyword(prompt: string, kw: string): string {
   return prompt.trim() ? prompt.trim().replace(/,\s*$/, "") + ", " + kw : kw;
 }
 
+/**
+ * ตัด comma-separated phrase ที่ซ้ำกันทั้งวลี (เทียบแบบ case-insensitive หลัง trim) ออก เหลือครั้งแรกที่เจอ
+ * แนวทางระวังตัว — ตัดเฉพาะวลีที่คั่นด้วย comma ทั้งเส้น (แบบที่ Prompt Builder ต่อ keyword เข้าไป)
+ * ไม่แตะคำที่ซ้ำกันภายในประโยคเดียว (เช่น "the cat and the cat's shadow") เพราะ tokenize แค่ระดับ comma เท่านั้น
+ * วลีว่าง (จาก ", ,") จะถูกตัดทิ้งไปด้วยเป็นผลพลอยได้
+ */
+export function dedupCommaPhrases(prompt: string): string {
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const raw of prompt.split(",")) {
+    const phrase = raw.trim();
+    if (!phrase) continue;
+    const key = phrase.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(phrase);
+  }
+  return kept.join(", ");
+}
+
+/** ประเมินขนาดไฟล์ (byte) จาก data URL — ใช้เช็ค MAX_REF_BYTES กับภาพที่มาจาก in-memory data URL (ไม่ใช่ File ที่มี .size ตรงๆ) */
+export function dataUrlByteSize(dataUrl: string): number {
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.floor(base64.length * 0.75) - padding;
+}
+
+/**
+ * item.mode video/cinematic ปกติแล้ว item.url เป็นไฟล์วิดีโอ (blob URL) เสมอ — ยกเว้น "synthetic root" ที่ startFromItem
+ * สร้างขึ้น (ดู actions.ts) ซึ่งอาจใช้ data URL ของภาพนิ่งตรงๆ เป็น url (ยังไม่มีวิดีโอจริงจนกว่าจะกด generate ต่อ)
+ * ใช้เช็คใน Gallery/Lightbox ว่าควร render เป็น <img> (poster) แทน <video> ตอนไหน
+ */
+export function isImageDataUrl(url: string | null): boolean {
+  return !!url && url.startsWith("data:image/");
+}
+
 export function ratioCSS(r: string): string {
   const [w, h] = r.split(":").map(Number);
   return w && h ? `${w} / ${h}` : "1 / 1";
@@ -83,4 +119,97 @@ export function fmtElapsed(item: GenItem): string {
 
 export function videoStatusText(item: GenItem): string {
   return (item.jobStatus === "in_progress" ? "กำลังสร้าง… " : "รอคิว… ") + fmtElapsed(item);
+}
+
+/** เศษวินาทีที่ถอยจากจุดจบเดิมทุกครั้งที่ frame ออกมาดำ/ว่างเปล่า — ใช้ครั้งแรกโดย ExtendTool (default เฟรมท้ายสุด) ด้วย */
+export const LAST_FRAME_SEEK_OFFSET = 0.05;
+
+/**
+ * เช็คว่า canvas ที่ capture มาเป็นเฟรมดำ/ว่างเปล่าไหม — สุ่มตรวจ pixel จำนวนหนึ่งทั่ว canvas (ไม่ต้องอ่านทุก pixel
+ * เพื่อความเร็ว) ถือว่า "ว่าง" เมื่อทุกจุดที่สุ่มมาเป็นสีดำสนิท (หรือเกือบดำ) ทั้งหมด — เคสที่พบได้ตอน seek video
+ * ไปใกล้จุดจบมากๆ แล้ว browser ยังไม่ decode เฟรมจริงทัน (ได้เฟรมดำของ container แทน)
+ */
+function isBlankCanvas(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  const { width, height } = canvas;
+  if (!width || !height) return true;
+  const samples = 24;
+  let blankCount = 0;
+  for (let i = 0; i < samples; i++) {
+    const x = Math.floor((width / samples) * i + width / (samples * 2));
+    const y = Math.floor(height / 2);
+    const [r, g, b] = ctx.getImageData(x, y, 1, 1).data;
+    if (r < 8 && g < 8 && b < 8) blankCount++;
+  }
+  return blankCount === samples;
+}
+
+/**
+ * จับเฟรมจากวิดีโอ (blob URL) ผ่าน offscreen <video> + <canvas> — ใช้กลไกเดียวกับที่ ExtendTool ทำ (seek แล้ว drawImage
+ * ลง canvas) แต่ทำงานแบบ headless สร้าง <video> element ของตัวเองแทนที่จะอาศัย element ที่มองเห็นบนหน้าจอเหมือน ExtendTool
+ * ใช้โดย autoExtendFromLastFrame และ startFromItem ใน actions.ts (ExtendTool เองยังใช้กลไก inline ของตัวเองต่อไป
+ * เพราะต้อง bind กับ <video> ที่ผู้ใช้ scrub ตรงๆ ผ่าน ref)
+ *
+ * targetTime: null = ท้ายสุดของวิดีโอ (ลบ LAST_FRAME_SEEK_OFFSET กันวิดีโอจบก่อนเฟรมสุดท้าย render), หรือระบุวินาทีตรงๆ
+ * ถ้าเฟรมที่ได้ออกมาดำ/ว่างเปล่า (browser quirk ตอน seek ใกล้จุดจบมากๆ) จะถอยเวลากลับมาลองใหม่อัตโนมัติสูงสุด 3 ครั้ง
+ */
+export function captureVideoFrame(url: string, targetTime?: number | null): Promise<{ dataUrl: string; time: number }> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+
+    const RETRY_STEP_SEC = 0.3;
+    const MAX_ATTEMPTS = 4;
+    let attempt = 0;
+
+    const cleanup = () => {
+      video.removeAttribute("src");
+      video.load();
+    };
+
+    const seekTo = (t: number) => {
+      video.currentTime = Math.max(0, t);
+    };
+
+    video.onloadedmetadata = () => {
+      const duration = video.duration || 0;
+      const base = targetTime != null ? targetTime : Math.max(0, duration - LAST_FRAME_SEEK_OFFSET);
+      seekTo(base);
+    };
+
+    video.onseeked = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        if (!canvas.width || !canvas.height) throw new Error("วิดีโอยังโหลดไม่เสร็จ");
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(video, 0, 0);
+
+        if (isBlankCanvas(canvas) && attempt < MAX_ATTEMPTS - 1) {
+          attempt++;
+          // ถอยเวลากลับมาก่อนหน้าเรื่อยๆ จนกว่าจะได้เฟรมที่ไม่ดำ หรือครบจำนวนครั้งที่ลอง
+          seekTo(video.currentTime - RETRY_STEP_SEC);
+          return;
+        }
+
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        const time = video.currentTime;
+        cleanup();
+        resolve({ dataUrl, time });
+      } catch (e) {
+        cleanup();
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    };
+
+    video.onerror = () => {
+      cleanup();
+      reject(new Error("โหลดวิดีโอเพื่อจับเฟรมไม่สำเร็จ"));
+    };
+  });
 }
