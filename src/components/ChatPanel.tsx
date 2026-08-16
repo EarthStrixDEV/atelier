@@ -1,8 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, MessageCircle, Send, Trash2, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { modeLabel } from "../lib/constants";
 import { clearChatHistory, sendChatMessage } from "../lib/actions";
 import { mutate, useApp } from "../lib/store";
+
+// เรนเดอร์เฉพาะ element ที่จำเป็นสำหรับข้อความปรึกษา prompt — ปรับ margin ที่ react-markdown
+// ใส่มาให้เป็นค่า default ให้เข้ากับ bubble ขนาดเล็ก (ไม่ให้ช่องว่างบน/ล่างเกินความจำเป็น)
+const markdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => <p className="[&:not(:last-child)]:mb-2">{children}</p>,
+  ul: ({ children }: { children?: React.ReactNode }) => <ul className="mb-2 list-disc pl-4 last:mb-0">{children}</ul>,
+  ol: ({ children }: { children?: React.ReactNode }) => <ol className="mb-2 list-decimal pl-4 last:mb-0">{children}</ol>,
+  li: ({ children }: { children?: React.ReactNode }) => <li className="mb-0.5">{children}</li>,
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="underline hover:text-accent">{children}</a>
+  ),
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="rounded bg-bg/60 px-1 py-0.5 font-mono text-[11.5px]">{children}</code>
+  ),
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="mb-2 overflow-x-auto rounded-lg bg-bg/60 p-2.5 font-mono text-[11.5px] leading-relaxed last:mb-0">{children}</pre>
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-semibold">{children}</strong>,
+};
 
 export default function ChatPanel() {
   const s = useApp();
@@ -81,13 +101,15 @@ export default function ChatPanel() {
           <div
             key={i}
             className={
-              "max-w-[88%] whitespace-pre-wrap break-words rounded-xl px-[13px] py-[9px] text-[13px] leading-relaxed " +
+              "max-w-[88%] break-words rounded-xl px-[13px] py-[9px] text-[13px] leading-relaxed " +
               (m.role === "user"
-                ? "self-end rounded-br-[4px] bg-accent text-accent-ink"
+                ? "self-end whitespace-pre-wrap rounded-br-[4px] bg-accent text-accent-ink"
                 : "self-start rounded-bl-[4px] border border-border bg-surface-2")
             }
           >
-            {m.content}
+            {m.role === "assistant"
+              ? <ReactMarkdown components={markdownComponents}>{m.content}</ReactMarkdown>
+              : m.content}
           </div>
         ))}
         {s.chatPending && (
