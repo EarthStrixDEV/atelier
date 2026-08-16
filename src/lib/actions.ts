@@ -3,7 +3,8 @@ import {
   AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
   BUILTIN_TEMPLATES, CHAT_MODEL, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
   MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
-  MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage, OPTIMIZER_MODEL, PREFERRED,
+  MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage,
+  NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, PREFERRED,
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
   VIDEO_POLL_MS, VIDEO_POLL_MS_HIDDEN, VIDEO_POLL_MS_MAX, VIDEO_RESOLUTION, videoTimeoutMsForModel, isNegativePromptMode, isVideoMode, modeLabel,
 } from "./constants";
@@ -101,7 +102,10 @@ export async function loadModels() {
     const fetched = (data.data || []) as ORModel[];
     const list: ORModel[] = fetched.filter(m =>
       (m.architecture?.output_modalities || []).includes("image") &&
-      (!m.id.startsWith("openai/") || m.id === "openai/gpt-image-2")
+      (!m.id.startsWith("openai/") || m.id === "openai/gpt-image-2") &&
+      // ตระกูล Nano Banana (Google Gemini image-gen): จำกัดเหลือแค่ 2 ตัวใน NANO_BANANA_ALLOWED_IDS เท่านั้น
+      // (เติมกลับผ่าน EXTRA_MODELS ด้านล่างถ้า OpenRouter ยังไม่ list เอง) — กันรุ่น/preview อื่นโผล่มาเพิ่ม
+      (!NANO_BANANA_ID_PATTERN.test(m.id) || NANO_BANANA_ALLOWED_IDS.includes(m.id))
     );
     for (const em of EXTRA_MODELS) {
       if (!list.some(m => m.id === em.id)) list.push(em);

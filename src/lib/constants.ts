@@ -146,7 +146,15 @@ export const AUDIO_MODEL_PRICES: Record<string, number> = {
 };
 
 // โมเดลที่พี่เอิร์ธอยากได้ ให้ลอยขึ้นบนสุดของ dropdown ถ้ามีบน OpenRouter
-export const PREFERRED = [/grok.*imagine.*quality/i, /grok.*imagine/i, /gpt.*image/i];
+export const PREFERRED = [/nano.banana/i, /grok.*imagine.*quality/i, /grok.*imagine/i, /gpt.*image/i];
+
+/**
+ * ตระกูล Nano Banana (Google Gemini image-gen) ที่อนุญาตให้โผล่ในโหมด General —
+ * ตัด live fetch ของตระกูลนี้ทิ้งทั้งหมดใน loadModels แล้วเหลือแค่ 2 ตัวนี้เท่านั้น (ดู EXTRA_MODELS ด้านล่าง)
+ * กัน OpenRouter list รุ่น/preview อื่นของ gemini image โผล่มาเพิ่มโดยไม่ได้ตั้งใจ
+ */
+export const NANO_BANANA_ALLOWED_IDS = ["google/gemini-3-pro-image", "google/gemini-3.1-flash-image"];
+export const NANO_BANANA_ID_PATTERN = /^google\/gemini-.*-image/i;
 
 // โมเดลที่ต้องมีใน list เสมอ แม้ /api/v1/models จะไม่ส่งมา (merge ตาม id ไม่ให้ซ้ำ)
 export const EXTRA_MODELS: ORModel[] = [
@@ -157,6 +165,12 @@ export const EXTRA_MODELS: ORModel[] = [
     architecture: { output_modalities: ["image"] },
   },
   {
+    id: "x-ai/grok-imagine-image-2.0",
+    name: "xAI: Grok Imagine Image 2.0",
+    pricing: { image: "0.04" },
+    architecture: { output_modalities: ["image"] },
+  },
+  {
     id: "openai/gpt-image-2",
     name: "OpenAI: GPT Image 2",
     pricing: {},
@@ -164,9 +178,33 @@ export const EXTRA_MODELS: ORModel[] = [
   },
   {
     id: "google/gemini-3-pro-image",
-    name: "Google: Nano Banana Pro (Gemini 3 Pro Image)",
+    name: "Google: Nano Banana Pro (Gemini 3 Pro)",
     pricing: { image: "0.000002" },
     architecture: { output_modalities: ["image", "text"] },
+  },
+  {
+    id: "google/gemini-3.1-flash-image",
+    name: "Google: Nano Banana 2 (Gemini 3.1 Flash)",
+    pricing: {},
+    architecture: { output_modalities: ["image", "text"] },
+  },
+  {
+    id: "bytedance-seed/seedream-5-0-pro",
+    name: "ByteDance Seed: Seedream 5.0 Pro",
+    pricing: { image: "0.045" },
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "bytedance-seed/seedream-5-0-lite",
+    name: "ByteDance Seed: Seedream 5.0 Lite",
+    pricing: { image: "0.035" },
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "qwen/qwen-image-3-pro",
+    name: "Qwen: Qwen Image 3 Pro",
+    pricing: { image: "0.04" },
+    architecture: { output_modalities: ["image"] },
   },
   {
     id: "microsoft/mai-image-2.5-pro",
