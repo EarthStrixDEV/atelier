@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Clapperboard, Copy, Download, ImageIcon, ListVideo, Music, RefreshCw, RotateCcw, X } from "lucide-react";
 import { MODE_META, isVideoMode } from "../lib/constants";
 import {
@@ -53,6 +53,8 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
         (selected ? "border-accent" : "border-border") +
         (done ? " cursor-zoom-in hover:border-border-strong" : "")
       }
+      role={done ? "button" : undefined}
+      aria-label={done ? "เปิดดูภาพขยาย: " + item.prompt : undefined}
       onClick={done ? () => openLightbox(index) : undefined}
     >
       <div className="relative w-full bg-surface-2" style={{ aspectRatio: isAud ? "2 / 1" : ratioCSS(item.ratio) }}>
@@ -83,6 +85,8 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
                 : "border-white/15 bg-[rgba(10,10,10,.72)] text-white opacity-0 backdrop-blur-sm group-hover:opacity-100")
             }
             title="เลือกเพื่อดาวน์โหลดหลายรูป"
+            aria-pressed={selected}
+            aria-label={(selected ? "ยกเลิกเลือก" : "เลือก") + "การ์ด: " + item.prompt}
             onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}
           >
             <Check size={14} />
@@ -105,6 +109,7 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
             <div className="max-h-[60%] overflow-hidden text-[11.5px] leading-normal text-danger">{item.errMsg}</div>
             <button
               className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
+              aria-label={"ลองสร้างใหม่: " + item.prompt}
               onClick={e => { e.stopPropagation(); retry(item); }}
             >
               <RotateCcw size={11} /> ลองใหม่
@@ -122,12 +127,14 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
         <div className="flex gap-1.5 px-3 pb-2.5">
           <button
             className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-border py-1.5 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
+            aria-label={"คัดลอก prompt: " + item.prompt}
             onClick={e => { e.stopPropagation(); copyPromptFromItem(item); }}
           >
             <Copy size={10} /> Copy Prompt
           </button>
           <button
             className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-border py-1.5 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
+            aria-label={"สร้างซ้ำด้วย prompt เดิม: " + item.prompt}
             onClick={e => { e.stopPropagation(); regenerateFromItem(item); }}
           >
             <RefreshCw size={10} /> Regenerate
@@ -136,6 +143,7 @@ function Card({ item, index, selected }: { item: GenItem; index: number; selecte
             <button
               className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-accent/60 py-1.5 text-[10.5px] font-semibold text-text transition-colors hover:bg-accent hover:text-accent-ink"
               title="เลือกเฟรมจากคลิปนี้ไปเป็นเฟรมแรกของ scene ถัดไป"
+              aria-label="เปิด TimeFrame & Extend tool สำหรับคลิปนี้"
               onClick={e => { e.stopPropagation(); openExtendTool(item); }}
             >
               <ListVideo size={10} /> Extend
@@ -161,9 +169,18 @@ export default function Gallery() {
 
   const centerPrompt = s.promptPlacement === "center";
 
+  // item ใหม่ถูก unshift ไว้บนสุดเสมอ — ถ้าผู้ใช้เลื่อนดูรูปเก่าอยู่ตอนกด Generate จะมองไม่เห็น
+  // การ์ดใหม่เลย (ทั้งที่สร้างสำเร็จ) จนกว่าจะเลื่อนขึ้นเอง จึงต้องเลื่อนขึ้นบนสุดให้ทุกครั้งที่มี item ใหม่โผล่
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const newestId = ms.images[0]?.id;
+  useEffect(() => {
+    if (newestId != null) scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newestId]);
+
   return (
-    <main className="relative flex min-w-0 flex-1 overflow-hidden">
-      <div className={
+    <main aria-label={meta.title} className="relative flex min-w-0 flex-1 overflow-hidden">
+      <div ref={scrollRef} className={
         "min-w-0 flex-1 overflow-y-auto p-7 max-[860px]:p-5 " +
         (centerPrompt ? "pb-44 max-[860px]:pb-40" : "")
       }>
@@ -175,12 +192,14 @@ export default function Gallery() {
               <span className="text-xs text-text-dim">{selectedCount} รูปที่เลือก</span>
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-md border border-border-strong px-2.5 py-1 text-[11px] text-text transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+                aria-label={`ดาวน์โหลดที่เลือกไว้ (${selectedCount} รายการ)`}
                 onClick={downloadSelected}
               >
                 <Download size={11} /> ดาวน์โหลด
               </button>
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
+                aria-label="ยกเลิกการเลือกทั้งหมด"
                 onClick={clearSelection}
               >
                 <X size={11} /> ยกเลิก

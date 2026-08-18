@@ -21,6 +21,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   const isCenter = placement === "center";
   const hasPrompt = !!ms.prompt.trim();
   const canGenerate = !!s.apiKey && modelsForMode(s.mode).length > 0 && (hasPrompt || ms.queue.length > 0);
+  const generatingCount = ms.images.filter(x => x.status === "loading").length;
 
   useEffect(() => {
     const input = inputRef.current;
@@ -57,7 +58,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
       {s.optimize.status === "error" ? (
         <>
           <div className="text-xs leading-normal text-danger">{s.optimize.error}</div>
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" aria-label="ปิดผล Optimize" onClick={clearOptimize}>
             <X size={12} /> ปิด
           </button>
         </>
@@ -80,6 +81,8 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
                         ? "border-accent bg-accent font-semibold text-accent-ink"
                         : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
                     }
+                    aria-pressed={hasKeyword(ms.prompt, kw)}
+                    aria-label={(hasKeyword(ms.prompt, kw) ? "เอาคำ " + kw + " ออกจาก prompt" : "เพิ่มคำ " + kw + " เข้า prompt")}
                     onClick={() => toggleKeyword(kw)}
                   >
                     {kw}
@@ -89,10 +92,10 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             </>
           )}
           <div className="flex gap-2">
-            <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={applyOptimizedPrompt}>
+            <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90" aria-label="ใช้ prompt ที่จูนแล้ว" onClick={applyOptimizedPrompt}>
               <Check size={13} /> ใช้ Prompt นี้
             </button>
-            <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
+            <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" aria-label="ยกเลิกผล Optimize" onClick={clearOptimize}>
               <X size={13} /> ยกเลิก
             </button>
           </div>
@@ -121,6 +124,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
           id="prompt-sidebar-input"
           value={ms.prompt}
           placeholder={meta.placeholder}
+          aria-label="Prompt"
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={e => {
             if (e.key === "Escape" && s.optimize.status !== "idle") clearOptimize();
@@ -134,6 +138,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
         <button
           className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-[9px] text-xs font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
           disabled={!hasPrompt || s.optimize.status === "loading"}
+          aria-label="Optimize Prompt"
           onClick={runOptimize}
         >
           <Wand2 size={13} />
@@ -147,7 +152,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   return (
     <div className="flex flex-col gap-2.5">
       {optimizePanel}
-      <div className="rounded-2xl border border-border-strong bg-surface/95 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.18)] backdrop-blur-xl">
+      <div className="rounded-2xl border border-border-strong bg-surface/70 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.18)] backdrop-blur-xl">
         <div className="flex items-end gap-2">
           <button
             type="button"
@@ -164,6 +169,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             rows={2}
             value={ms.prompt}
             placeholder={meta.placeholder}
+            aria-label="Prompt"
             onChange={e => {
               setPrompt(e.target.value);
               resizeCenterInput(e.target);
@@ -191,6 +197,12 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             type="button"
             className="mb-1 flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-accent px-4 text-xs font-bold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 max-[520px]:px-3"
             disabled={!canGenerate}
+            aria-label={
+              !s.apiKey
+                ? "Generate ปิดใช้งานอยู่ — ต้องใส่ OpenRouter API Key ก่อน กดปุ่ม \"ใส่ API Key\" ที่ header ด้านบนขวา"
+                : (generatingCount > 0 ? `กำลัง generate ${generatingCount} งานอยู่ — กดปุ่มนี้ซ้ำได้เรื่อยๆ เพื่อสร้างงานใหม่เพิ่มเข้าคิวพร้อมกัน ไม่ต้องรอให้เสร็จก่อน · ` : "")
+                  + (ms.queue.length ? `Generate ทั้งคิว (${ms.queue.length} งาน)` : "Generate ภาพ/วิดีโอจาก prompt ปัจจุบัน")
+            }
             onClick={generate}
           >
             <Sparkles size={14} />

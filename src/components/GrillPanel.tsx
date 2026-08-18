@@ -40,8 +40,9 @@ export default function GrillPanel() {
   if (!s.grillOpen) {
     return (
       <button
-        className="fixed bottom-[88px] right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full border border-border-strong bg-surface text-text shadow-[0_8px_30px_rgba(0,0,0,.16)] transition-transform hover:scale-106"
+        className="fixed bottom-[88px] right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full border border-border-strong bg-surface/70 text-text shadow-[0_8px_30px_rgba(0,0,0,.16)] backdrop-blur-xl transition-transform hover:scale-106"
         title="Grill me — ให้ AI สัมภาษณ์แล้วตกผลึกเป็นชุด prompt"
+        aria-label="เปิด Grill me"
         onClick={() => {
           openGrill();
           setTimeout(() => inputRef.current?.focus(), 50);
@@ -53,7 +54,7 @@ export default function GrillPanel() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-160 flex h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-40px))] flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-[0_20px_80px_rgba(0,0,0,.14)] max-[480px]:bottom-3 max-[480px]:right-3 max-[480px]:w-[calc(100vw-24px)]">
+    <div role="dialog" aria-modal="false" aria-label="Grill me" className="fixed bottom-6 right-6 z-160 flex h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-40px))] flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-[0_20px_80px_rgba(0,0,0,.14)] max-[480px]:bottom-3 max-[480px]:right-3 max-[480px]:w-[calc(100vw-24px)]">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3.5">
         <div className="flex items-center gap-2 text-[13.5px]">
           <Flame size={15} />
@@ -65,6 +66,7 @@ export default function GrillPanel() {
             <button
               className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-accent/60 px-2 py-1 text-[11px] font-semibold text-text transition-colors hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:opacity-40"
               title="พอแล้ว สรุปเป็นชุด prompt เลย"
+              aria-label="ตกผลึกเป็นชุด prompt เลย"
               disabled={s.grillPending}
               onClick={finishGrill}
             >
@@ -75,6 +77,7 @@ export default function GrillPanel() {
             <button
               className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
               title="ล้างบทสนทนา เริ่มสัมภาษณ์ใหม่"
+              aria-label="ล้างบทสนทนา เริ่มสัมภาษณ์ใหม่"
               onClick={resetGrill}
             >
               <RotateCcw size={11} /> เริ่มใหม่
@@ -83,6 +86,7 @@ export default function GrillPanel() {
           <button
             className="cursor-pointer rounded-[7px] border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title="ปิด"
+            aria-label="ปิด Grill me"
             onClick={closeGrill}
           >
             <X size={11} />
@@ -129,12 +133,14 @@ export default function GrillPanel() {
                 <div className="mt-2.5 flex gap-1.5">
                   <button
                     className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-lg bg-accent py-1.5 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90"
+                    aria-label={"ใช้ prompt นี้: " + p.title}
                     onClick={() => applyGrillPrompt(p)}
                   >
                     <Check size={11} /> ใช้ prompt นี้
                   </button>
                   <button
                     className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-lg border border-border py-1.5 text-[11px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
+                    aria-label={"เพิ่ม prompt เข้าคิว: " + p.title}
                     onClick={() => queueGrillPrompt(p)}
                   >
                     <Plus size={11} /> เพิ่มเข้าคิว
@@ -152,6 +158,7 @@ export default function GrillPanel() {
             ref={inputRef}
             rows={1}
             placeholder="เล่าไอเดีย หรือพิมพ์คำตอบ…"
+            aria-label="คำตอบสำหรับ Grill me"
             value={input}
             onChange={e => {
               setInput(e.target.value);
@@ -167,6 +174,7 @@ export default function GrillPanel() {
           <button
             className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-accent px-3.5 py-[9px] text-[12.5px] font-bold text-accent-ink disabled:cursor-not-allowed disabled:opacity-35"
             disabled={s.grillPending || !input.trim()}
+            aria-label="ส่งคำตอบ"
             onClick={send}
           >
             <Send size={13} />

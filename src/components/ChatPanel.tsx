@@ -35,6 +35,7 @@ export default function ChatPanel() {
       <button
         className="fixed bottom-6 right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full bg-accent text-accent-ink shadow-[0_8px_30px_rgba(0,0,0,.16)] transition-transform hover:scale-106"
         title="Chat with Atelier — ที่ปรึกษาเรื่องสร้างภาพ/วิดีโอด้วย AI"
+        aria-label="เปิด Chat with Atelier"
         onClick={() => {
           mutate(st => { st.chatOpen = true; st.grillOpen = false; }); // แผงซ้อนตำแหน่งเดียวกัน — เปิดทีละอัน
           setTimeout(() => inputRef.current?.focus(), 50);
@@ -46,7 +47,7 @@ export default function ChatPanel() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-160 flex h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-40px))] flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-[0_20px_80px_rgba(0,0,0,.14)] max-[480px]:bottom-3 max-[480px]:right-3 max-[480px]:w-[calc(100vw-24px)]">
+    <div role="dialog" aria-modal="false" aria-label="Chat with Atelier" className="fixed bottom-6 right-6 z-160 flex h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-40px))] flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-[0_20px_80px_rgba(0,0,0,.14)] max-[480px]:bottom-3 max-[480px]:right-3 max-[480px]:w-[calc(100vw-24px)]">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3.5">
         <div className="flex items-center gap-2 text-[13.5px]">
           <Bot size={15} />
@@ -57,6 +58,7 @@ export default function ChatPanel() {
           <button
             className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title="ล้างประวัติแชท"
+            aria-label="ล้างประวัติแชท"
             onClick={clearChatHistory}
           >
             <Trash2 size={11} /> ล้าง
@@ -64,6 +66,7 @@ export default function ChatPanel() {
           <button
             className="cursor-pointer rounded-[7px] border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title="ปิด"
+            aria-label="ปิด Chat with Atelier"
             onClick={() => mutate(st => { st.chatOpen = false; })}
           >
             <X size={11} />
@@ -102,6 +105,7 @@ export default function ChatPanel() {
           ref={inputRef}
           rows={1}
           placeholder="พิมพ์คำถามหรือปรึกษาเรื่อง prompt…"
+          aria-label="ข้อความแชท"
           value={input}
           onChange={e => {
             setInput(e.target.value);
@@ -117,6 +121,7 @@ export default function ChatPanel() {
         <button
           className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-accent px-3.5 py-[9px] text-[12.5px] font-bold text-accent-ink disabled:cursor-not-allowed disabled:opacity-35"
           disabled={s.chatPending || !input.trim()}
+          aria-label="ส่งข้อความแชท"
           onClick={send}
         >
           <Send size={13} />

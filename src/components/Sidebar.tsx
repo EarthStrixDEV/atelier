@@ -112,6 +112,7 @@ export default function Sidebar() {
   const hasPrompt = !!ms.prompt.trim();
   const needsRefImage = isVideo && modelRequiresRefImage(model?.id) && !ms.refs[0];
   const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage;
+  const generatingCount = ms.images.filter(x => x.status === "loading").length;
 
   let modelMeta = "";
   if (model) {
@@ -131,12 +132,16 @@ export default function Sidebar() {
 
   return (
     <aside
+      aria-label="แผงตั้งค่าการ generate"
       className="relative flex shrink-0 flex-col gap-[22px] overflow-y-auto border-r border-border p-6 max-[860px]:!w-full max-[860px]:border-b max-[860px]:border-r-0"
       style={{ width }}
     >
       <div
         className="absolute right-[-3px] top-0 z-5 h-full w-1.5 cursor-col-resize hover:bg-accent/40 max-[860px]:hidden"
         onMouseDown={onDragStart}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="ปรับความกว้าง Sidebar"
       />
 
       {s.promptPlacement === "sidebar" && <PromptComposer placement="sidebar" />}
@@ -231,6 +236,7 @@ export default function Sidebar() {
                 <button
                   className="min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-left text-[11.5px] text-text-dim hover:text-text"
                   title={p}
+                  aria-label={"ใช้ prompt เดิม: " + p}
                   onClick={() => usePromptFromHistory(p)}
                 >
                   {p}
@@ -238,6 +244,7 @@ export default function Sidebar() {
                 <button
                   className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint hover:text-danger"
                   title="ลบออกจากประวัติ"
+                  aria-label={"ลบออกจากประวัติ: " + p}
                   onClick={() => removeFromHistory(s.mode, p)}
                 >
                   <X size={12} />
@@ -267,6 +274,8 @@ export default function Sidebar() {
                         ? "border-accent bg-accent font-semibold text-accent-ink"
                         : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
                     }
+                    aria-pressed={hasKeyword(ms.prompt, kw)}
+                    aria-label={(hasKeyword(ms.prompt, kw) ? "เอาคำ " + kw + " ออกจาก prompt" : "เพิ่มคำ " + kw + " เข้า prompt")}
                     onClick={() => toggleKeyword(kw)}
                   >
                     {kw}
@@ -285,6 +294,7 @@ export default function Sidebar() {
           {ms.refs.length > 0 && (
             <button
               className="ml-auto flex cursor-pointer items-center gap-1 font-semibold normal-case tracking-normal text-text-faint hover:text-danger"
+              aria-label={`ล้างภาพอ้างอิงทั้งหมด (${ms.refs.length} รูป)`}
               onClick={clearRefImages}
             >
               <Trash2 size={11} /> ล้างทั้งหมด ({ms.refs.length})
@@ -306,6 +316,7 @@ export default function Sidebar() {
                   <button
                     type="button"
                     className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[10.5px] font-semibold text-white backdrop-blur transition-colors hover:border-danger hover:text-danger"
+                    aria-label={"ลบภาพอ้างอิง " + ms.refs[0].name}
                     onClick={() => removeRefImage(ms.refs[0])}
                   >
                     <Trash2 size={11} /> ลบภาพ
@@ -322,6 +333,7 @@ export default function Sidebar() {
                   type="file"
                   accept="image/*"
                   className="hidden"
+                  aria-label="แนบภาพเริ่มต้นสำหรับ Image-to-Video"
                   onChange={e => {
                     if (e.target.files?.length) addRefImages("ref", e.target.files);
                     e.target.value = "";
@@ -336,6 +348,7 @@ export default function Sidebar() {
                   type="file"
                   accept="image/*"
                   className="hidden"
+                  aria-label="เปลี่ยนภาพเริ่มต้นสำหรับ Image-to-Video"
                   onChange={e => {
                     if (e.target.files?.length) addRefImages("ref", e.target.files);
                     e.target.value = "";
@@ -367,6 +380,7 @@ export default function Sidebar() {
                           <button
                             className="absolute right-0 top-0 grid h-4 w-4 cursor-pointer place-items-center bg-bg/80 text-text-dim hover:text-danger"
                             title={"ลบ " + ref.name}
+                            aria-label={"ลบ " + ref.name}
                             onClick={() => removeRefImage(ref)}
                           >
                             <X size={10} />
@@ -391,6 +405,7 @@ export default function Sidebar() {
                       multiple
                       disabled={full}
                       className="hidden"
+                      aria-label={"แนบภาพอ้างอิงประเภท " + label}
                       onChange={e => {
                         if (e.target.files?.length) addRefImages(kind, e.target.files);
                         e.target.value = ""; // เคลียร์เพื่อให้เลือกไฟล์เดิมซ้ำได้
@@ -411,6 +426,7 @@ export default function Sidebar() {
           <select
             id="model"
             className="w-full cursor-pointer appearance-none rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent disabled:cursor-default"
+            aria-label="เลือกโมเดลที่ใช้ generate"
             disabled={!sourceLoaded && !sourceFailed}
             value={ms.modelId ?? ""}
             onMouseDown={e => {
@@ -472,6 +488,8 @@ export default function Sidebar() {
                 key={r.v}
                 className={segBtn(ms.ratio === r.v, disabled)}
                 disabled={disabled}
+                aria-pressed={ms.ratio === r.v}
+                aria-label={"อัตราส่วน " + r.v}
                 onClick={() => mutate(() => { ms.ratio = r.v; })}
               >
                 <span className="block rounded-[2px] border-[1.5px] border-current" style={{ width: r.w, height: r.h }} />
@@ -494,6 +512,8 @@ export default function Sidebar() {
                   key={d}
                   className={segBtn(ms.duration === d, disabled) + " !text-[13px]"}
                   disabled={disabled}
+                  aria-pressed={ms.duration === d}
+                  aria-label={"ระยะเวลาวิดีโอ " + d + " วินาที"}
                   onClick={() => mutate(() => { ms.duration = d; })}
                 >
                   {d}s
@@ -512,6 +532,7 @@ export default function Sidebar() {
             <input
               type="checkbox"
               className="cursor-pointer accent-accent disabled:cursor-not-allowed"
+              aria-label="เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)"
               disabled={!audioOk}
               checked={ms.audio}
               onChange={e => mutate(() => { ms.audio = e.target.checked; })}
@@ -529,6 +550,8 @@ export default function Sidebar() {
             <button
               key={c}
               className={segBtn(ms.count === c) + " !text-[13px]"}
+              aria-pressed={ms.count === c}
+              aria-label={"จำนวน " + c + " " + meta.countLabel}
               onClick={() => mutate(() => { ms.count = c; })}
             >
               {c}
@@ -557,6 +580,7 @@ export default function Sidebar() {
                 <button
                   className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-danger"
                   title="ลบออกจากคิว"
+                  aria-label={"ลบออกจากคิว: " + q.prompt}
                   onClick={() => removeFromQueue(i)}
                 >
                   <X size={13} />
@@ -571,6 +595,12 @@ export default function Sidebar() {
       <button
         className="mt-0.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-35"
         disabled={!canGenerate}
+        aria-label={
+          !s.apiKey
+            ? "Generate ปิดใช้งานอยู่ — ต้องใส่ OpenRouter API Key ก่อน กดปุ่ม \"ใส่ API Key\" ที่ header ด้านบนขวา"
+            : (generatingCount > 0 ? `กำลัง generate ${generatingCount} งานอยู่ — กดปุ่มนี้ซ้ำได้เรื่อยๆ เพื่อสร้างงานใหม่เพิ่มเข้าคิวพร้อมกัน ไม่ต้องรอให้เสร็จก่อน · ` : "")
+              + (ms.queue.length ? `Generate ทั้งคิว (${ms.queue.length} งาน)` : "Generate ภาพ/วิดีโอจาก prompt ปัจจุบัน")
+        }
         onClick={generate}
       >
         <Sparkles size={15} />
@@ -579,6 +609,7 @@ export default function Sidebar() {
       <button
         className="-mt-3 flex w-full cursor-pointer items-center justify-center gap-1 rounded-card border border-dashed border-border-strong py-2.5 text-[12.5px] font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
         disabled={!(list.length > 0 && hasPrompt && ms.queue.length < MAX_QUEUE) || needsRefImage}
+        aria-label={`เพิ่ม prompt ปัจจุบันเข้าคิว (สูงสุด ${MAX_QUEUE} งาน)`}
         onClick={addToQueue}
       >
         <Plus size={13} /> เพิ่มเข้าคิว (สูงสุด {MAX_QUEUE})

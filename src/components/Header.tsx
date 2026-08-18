@@ -34,6 +34,8 @@ function AutoSaveControl() {
       <button
         className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-text-dim transition-colors hover:border-border-strong"
         title="Auto Save ผลลัพธ์ลง Directory ที่เลือก"
+        aria-label="ตั้งค่า Auto Save"
+        aria-expanded={open}
         onClick={() => setOpen(v => !v)}
       >
         <span className={"h-[7px] w-[7px] rounded-full " + (connected && s.autoSaveEnabled ? "bg-green-400" : "bg-text-faint")} />
@@ -52,6 +54,7 @@ function AutoSaveControl() {
                   <input
                     type="checkbox"
                     className="cursor-pointer accent-accent"
+                    aria-label="เซฟไฟล์อัตโนมัติเมื่อสร้างเสร็จ"
                     checked={s.autoSaveEnabled}
                     onChange={toggleAutoSaveEnabled}
                   />
@@ -59,6 +62,7 @@ function AutoSaveControl() {
                 </label>
                 <button
                   className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
+                  aria-label="ยกเลิกการเชื่อมต่อ Auto Save"
                   onClick={() => { disconnectAutoSaveDir(); setOpen(false); }}
                 >
                   <FolderX size={12} /> ยกเลิกการเชื่อมต่อ
@@ -72,6 +76,7 @@ function AutoSaveControl() {
                 <button
                   className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={s.autoSaveConnecting}
+                  aria-label={"เชื่อมต่อ directory เดิม: " + s.autoSaveSavedDirName}
                   onClick={reconnectSavedAutoSaveDir}
                 >
                   <FolderCheck size={12} /> เชื่อมต่อ Directory เดิม
@@ -79,6 +84,7 @@ function AutoSaveControl() {
                 <button
                   className="mt-1.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={s.autoSaveConnecting}
+                  aria-label="เลือก directory ใหม่สำหรับ Auto Save"
                   onClick={connectAutoSaveDir}
                 >
                   <FolderInput size={12} /> เลือก Directory ใหม่
@@ -92,6 +98,7 @@ function AutoSaveControl() {
                 <button
                   className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={s.autoSaveConnecting}
+                  aria-label="เลือก directory สำหรับ Auto Save"
                   onClick={connectAutoSaveDir}
                 >
                   <FolderInput size={12} /> เลือก Directory
@@ -110,11 +117,12 @@ export default function Header() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   return (
-    <header className="grid h-[60px] shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border px-7">
+    <header aria-label="Atelier header" className="grid h-[60px] shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border px-7">
       <div className="flex items-center gap-3">
         <button
           className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
           title="ซ่อน/แสดง sidebar"
+          aria-label={s.sidebarCollapsed ? "แสดง sidebar" : "ซ่อน sidebar"}
           onClick={() => mutate(st => { st.sidebarCollapsed = !st.sidebarCollapsed; })}
         >
           {s.sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
@@ -125,7 +133,7 @@ export default function Header() {
         </h1>
       </div>
 
-      <div className="flex justify-self-center gap-[3px] rounded-full border border-border bg-surface p-[3px]">
+      <div role="tablist" aria-label="สลับโหมด" className="flex justify-self-center gap-[3px] rounded-full border border-border bg-surface p-[3px]">
         {MODES.map(m => {
           const ModeIcon = MODE_ICONS[m];
           return (
@@ -135,6 +143,8 @@ export default function Header() {
                 "flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold transition-colors " +
                 (s.mode === m ? "bg-accent text-accent-ink" : "text-text-dim hover:text-text")
               }
+              aria-pressed={s.mode === m}
+              aria-label={"สลับไปโหมด " + modeLabel(m)}
               onClick={() => switchMode(m)}
             >
               <ModeIcon size={13} />
@@ -148,6 +158,7 @@ export default function Header() {
         <button
           className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
           title="Import session (.json)"
+          aria-label="Import session จากไฟล์ JSON"
           onClick={() => fileRef.current?.click()}
         >
           <Upload size={12} /> Import
@@ -155,6 +166,7 @@ export default function Header() {
         <button
           className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
           title="Export session (.json)"
+          aria-label="Export session เป็นไฟล์ JSON"
           onClick={exportSession}
         >
           <Download size={12} /> Export
@@ -164,6 +176,7 @@ export default function Header() {
           type="file"
           accept="application/json"
           className="hidden"
+          aria-label="เลือกไฟล์ session JSON เพื่อ import"
           onChange={e => {
             const file = e.target.files?.[0];
             if (file) importSession(file);
@@ -174,6 +187,7 @@ export default function Header() {
         <button
           className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-text-dim transition-colors hover:border-border-strong"
           title="ตั้งค่า OpenRouter API Key"
+          aria-label="ตั้งค่า OpenRouter API Key"
           onClick={() => mutate(st => { st.keyModalOpen = true; })}
         >
           <span className={"h-[7px] w-[7px] rounded-full " + (s.apiKey ? "bg-green-400" : "bg-text-faint")} />

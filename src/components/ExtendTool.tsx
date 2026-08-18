@@ -54,7 +54,7 @@ export default function ExtendTool() {
       className="fixed inset-0 z-200 grid place-items-center bg-black/50 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) closeExtendTool(); }}
     >
-      <div className="w-[min(720px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-6">
+      <div role="dialog" aria-modal="true" aria-label="TimeFrame & Extend tool" className="w-[min(720px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-6">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-1.5 text-base font-bold"><Clapperboard size={16} /> TimeFrame &amp; Extend</h3>
@@ -65,6 +65,7 @@ export default function ExtendTool() {
           <button
             className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title="ปิด"
+            aria-label="ปิด TimeFrame & Extend tool"
             onClick={closeExtendTool}
           >
             <X size={15} />
@@ -94,6 +95,7 @@ export default function ExtendTool() {
           <button
             className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title={playing ? "หยุดชั่วคราว" : "เล่น"}
+            aria-label={playing ? "หยุดชั่วคราว" : "เล่น"}
             onClick={() => {
               const v = videoRef.current;
               if (!v) return;
@@ -108,6 +110,7 @@ export default function ExtendTool() {
             max={dur || 0}
             step={0.05}
             value={time}
+            aria-label="เลือกตำแหน่งเฟรมบน timeline"
             onChange={e => seek(parseFloat(e.target.value))}
             className="min-w-0 flex-1 cursor-pointer accent-accent"
           />
@@ -115,6 +118,7 @@ export default function ExtendTool() {
           <button
             className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border border-border px-3 py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title="ข้ามไปเฟรมสุดท้าย"
+            aria-label="ข้ามไปเฟรมสุดท้าย"
             onClick={() => seek(Math.max(0, dur - 0.05))}
           >
             <SkipForward size={13} /> เฟรมสุดท้าย
@@ -123,6 +127,7 @@ export default function ExtendTool() {
 
         <button
           className="mt-4 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985]"
+          aria-label={"ใช้เฟรมที่ " + fmtTc(time) + " สร้าง scene ถัดไป"}
           onClick={useFrame}
         >
           <ListVideo size={15} /> ใช้เฟรม {fmtTc(time)} สร้าง Scene ถัดไป
