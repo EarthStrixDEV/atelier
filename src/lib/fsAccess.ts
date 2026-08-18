@@ -113,12 +113,27 @@ export function isAutoSaveDirConnected(): boolean {
   return !!dirHandle;
 }
 
+/**
+ * error เฉพาะตอน permission ถูกถอน/หมดอายุจริงๆ (queryPermission ไม่ผ่าน) — แยกจาก error อื่นๆ
+ * (เช่น disk เต็ม, ชื่อไฟล์ชนกันชั่วคราว, I/O พลาด) เพราะต้องแนะนำผู้ใช้ต่างกัน: permission ต้อง "เชื่อมต่อใหม่"
+ * ส่วน error อื่นแค่ "ลองใหม่" เฉยๆ ก็พอ (ดู autoSaveStatus/autoSaveErrMsg ใน GenItem + retryFailedAutoSaves ใน actions.ts)
+ */
+export class AutoSavePermissionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AutoSavePermissionError";
+  }
+}
+
 /** เขียนไฟล์ผลลัพธ์ลง directory ที่เชื่อมต่อไว้ — no-op เงียบๆ ถ้ายังไม่ได้เชื่อมต่อ (เรียกจาก generation flow ที่ไม่มี user gesture) */
 export async function autoSaveBlob(blob: Blob, filename: string): Promise<void> {
   if (!dirHandle) return;
   // permission อาจถูกถอนระหว่างทาง (เช่น user ปิด tab อื่นที่ trust ไว้) — เช็คเงียบๆ ไม่ prompt ซ้ำ
   const perm = await dirHandle.queryPermission({ mode: "readwrite" });
-  if (perm !== "granted") { dirHandle = null; throw new Error("สิทธิ์เข้าถึง auto-save directory หมดอายุแล้วค่ะ กรุณาเชื่อมต่อใหม่"); }
+  if (perm !== "granted") {
+    dirHandle = null;
+    throw new AutoSavePermissionError("สิทธิ์เข้าถึง auto-save directory หมดอายุแล้วค่ะ กรุณาเชื่อมต่อใหม่");
+  }
   const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(blob);

@@ -1,4 +1,4 @@
-import type { Mode, ORModel, RefKind } from "./types";
+import type { InfographicPreset, Mode, ORModel, PromptTemplate, RefKind } from "./types";
 
 export const MODES: Mode[] = ["home", "infographic", "video", "cinematic", "audio"];
 
@@ -7,6 +7,17 @@ export const isVideoMode = (m: Mode): boolean => m === "video" || m === "cinemat
 export const MAX_QUEUE = 5;
 export const MAX_HISTORY = 30;
 export const MAX_CHAT_HISTORY = 60;
+/** cap จำนวนเอนทรีใน export log (PHASE 15) — เกินนี้ตัดตัวเก่าสุดทิ้ง (FIFO), ไม่เกี่ยวกับ MAX_HISTORY ของ prompt history */
+export const MAX_EXPORT_LOG = 20;
+/** เขียน session snapshot ลง localStorage ทุกๆ กี่ ms (PHASE 15) — เขียนเฉพาะตอนมีอะไรเปลี่ยนจริงจากครั้งก่อน */
+export const SESSION_SNAPSHOT_INTERVAL_MS = 30000;
+/** โหมดที่มี negative prompt field (PHASE 14) — เฉพาะโหมดภาพนิ่งที่ยิงผ่าน chat/completions หรือ Image API เท่านั้น */
+export const NEGATIVE_PROMPT_MODES: Mode[] = ["home", "infographic"];
+export const isNegativePromptMode = (m: Mode): boolean => NEGATIVE_PROMPT_MODES.includes(m);
+/** จำนวนโมเดลสูงสุดที่เลือกพร้อมกันได้ใน Bake-off (PHASE 14) — ยิงอิสระ N ก้อนพร้อมกัน ไม่ผ่านคิว ไม่โดน MAX_QUEUE จำกัด */
+export const MAX_BAKE_OFF_MODELS = 4;
+/** เกินนี้ขึ้นเตือน soft ใต้ช่อง prompt — เป็นค่าประมาณเท่านั้น เพราะข้อความจริงที่ส่งให้โมเดล (ref instruction, aspect ratio hint) ยาวกว่านี้และไม่โชว์ในกล่อง */
+export const PROMPT_LENGTH_WARN = 800;
 
 // ---------- reference images ----------
 export const MAX_REF_BYTES = 4 * 1024 * 1024; // ต่อไฟล์ — data URL ใหญ่กว่านี้ทำให้ request บวมจนโมเดลมักปฏิเสธ
@@ -48,12 +59,31 @@ export const COUNTS = [1, 2, 4, 6];
 export const DURATIONS = [8, 9, 10];
 export const VIDEO_RESOLUTION = "720p"; // fix ค่าเดียว — ทั้ง 4 โมเดลรองรับร่วมกัน และคุมราคา
 export const VIDEO_POLL_MS = 10000;
+/** เพดาน poll interval — ยิ่ง job รันนานยิ่งถี่น้อยลง (ดู videoPollIntervalMs ใน actions.ts) */
+export const VIDEO_POLL_MS_MAX = 20000;
+/** interval ตอนแท็บถูกซ่อน (document.hidden) — ลดโหลด poll เมื่อผู้ใช้ไม่ได้ดูอยู่ */
+export const VIDEO_POLL_MS_HIDDEN = 30000;
 export const VIDEO_TIMEOUT_MS = 10 * 60 * 1000;
+/**
+ * timeout ต่อโมเดล — โมเดลบางตัว (เช่น เรนเดอร์ resolution/duration สูง) ใช้เวลานานกว่าเดิมปกติ
+ * โมเดลที่ไม่ได้ระบุไว้ที่นี่ fallback ไปใช้ VIDEO_TIMEOUT_MS (10 นาที) ตามเดิม
+ */
+export const VIDEO_TIMEOUT_MS_BY_MODEL: Record<string, number> = {
+  "bytedance/seedance-2.0": 15 * 60 * 1000,
+  "alibaba/wan-2.7": 15 * 60 * 1000,
+};
+export function videoTimeoutMsForModel(modelId: string | null | undefined): number {
+  return (modelId && VIDEO_TIMEOUT_MS_BY_MODEL[modelId]) || VIDEO_TIMEOUT_MS;
+}
 
-// โมเดล LLM ฟรีสำหรับ Prompt Optimizer, Chat with Atelier และ Grill me
+// โมเดล LLM ฟรีสำหรับ Prompt Optimizer, Chat with Atelier และ Grill me — ใช้เป็น fallback เสมอ
+// แม้ผู้ใช้จะตั้ง assistModelId (ดู store.ts) ไว้ก็ตาม เผื่อโมเดลที่เลือกไว้ถูกถอด/เปลี่ยนชื่อกะทันหัน
 export const OPTIMIZER_MODEL = "openai/gpt-oss-20b:free";
 export const CHAT_MODEL = "openai/gpt-oss-20b:free";
 export const GRILL_MODEL = "openai/gpt-oss-20b:free";
+/** จำนวนครั้งที่ retry โมเดลเดิมเมื่อโดน 429 (rate limit) ก่อนยอมแพ้ — คนละ path กับ fallback ตอนโมเดลถูกถอด (404/410) */
+export const ASSIST_RATE_LIMIT_RETRIES = 2;
+export const ASSIST_RATE_LIMIT_BACKOFF_MS = 1500;
 /** ช่วงจำนวนคำถามของ Grill me — LLM ตัดสินใจเองว่าจะจบกี่ข้อในช่วงนี้ตามความซับซ้อนของบรีฟ */
 export const MIN_GRILL_QUESTIONS = 6;
 /** hard-cap กันสัมภาษณ์ยืดเยื้อไม่จบ (บังคับที่โค้ดจริงจะยังไม่ทำ — อาศัย system prompt เป็นหลัก) */
@@ -116,7 +146,15 @@ export const AUDIO_MODEL_PRICES: Record<string, number> = {
 };
 
 // โมเดลที่พี่เอิร์ธอยากได้ ให้ลอยขึ้นบนสุดของ dropdown ถ้ามีบน OpenRouter
-export const PREFERRED = [/grok.*imagine.*quality/i, /grok.*imagine/i, /gpt.*image/i];
+export const PREFERRED = [/nano.banana/i, /grok.*imagine.*quality/i, /grok.*imagine/i, /gpt.*image/i];
+
+/**
+ * ตระกูล Nano Banana (Google Gemini image-gen) ที่อนุญาตให้โผล่ในโหมด General —
+ * ตัด live fetch ของตระกูลนี้ทิ้งทั้งหมดใน loadModels แล้วเหลือแค่ 2 ตัวนี้เท่านั้น (ดู EXTRA_MODELS ด้านล่าง)
+ * กัน OpenRouter list รุ่น/preview อื่นของ gemini image โผล่มาเพิ่มโดยไม่ได้ตั้งใจ
+ */
+export const NANO_BANANA_ALLOWED_IDS = ["google/gemini-3-pro-image", "google/gemini-3.1-flash-image"];
+export const NANO_BANANA_ID_PATTERN = /^google\/gemini-.*-image/i;
 
 // โมเดลที่ต้องมีใน list เสมอ แม้ /api/v1/models จะไม่ส่งมา (merge ตาม id ไม่ให้ซ้ำ)
 export const EXTRA_MODELS: ORModel[] = [
@@ -127,6 +165,12 @@ export const EXTRA_MODELS: ORModel[] = [
     architecture: { output_modalities: ["image"] },
   },
   {
+    id: "x-ai/grok-imagine-image-2.0",
+    name: "xAI: Grok Imagine Image 2.0",
+    pricing: { image: "0.04" },
+    architecture: { output_modalities: ["image"] },
+  },
+  {
     id: "openai/gpt-image-2",
     name: "OpenAI: GPT Image 2",
     pricing: {},
@@ -134,9 +178,33 @@ export const EXTRA_MODELS: ORModel[] = [
   },
   {
     id: "google/gemini-3-pro-image",
-    name: "Google: Nano Banana Pro (Gemini 3 Pro Image)",
+    name: "Google: Nano Banana Pro (Gemini 3 Pro)",
     pricing: { image: "0.000002" },
     architecture: { output_modalities: ["image", "text"] },
+  },
+  {
+    id: "google/gemini-3.1-flash-image",
+    name: "Google: Nano Banana 2 (Gemini 3.1 Flash)",
+    pricing: {},
+    architecture: { output_modalities: ["image", "text"] },
+  },
+  {
+    id: "bytedance-seed/seedream-5-0-pro",
+    name: "ByteDance Seed: Seedream 5.0 Pro",
+    pricing: { image: "0.045" },
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "bytedance-seed/seedream-5-0-lite",
+    name: "ByteDance Seed: Seedream 5.0 Lite",
+    pricing: { image: "0.035" },
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "qwen/qwen-image-3-pro",
+    name: "Qwen: Qwen Image 3 Pro",
+    pricing: { image: "0.04" },
+    architecture: { output_modalities: ["image"] },
   },
   {
     id: "microsoft/mai-image-2.5-pro",
@@ -215,6 +283,60 @@ export const KEYWORDS_BY_MODE: Record<Mode, KeywordGroup[]> = {
   ],
   audio: AUDIO_KEYWORDS,
 };
+
+// ---------- prompt templates / snippets library ----------
+/** cap จำนวน template ที่ผู้ใช้เซฟเองต่อโหมด — เกินนี้ตัดตัวเก่าสุดทิ้ง (FIFO) */
+export const MAX_USER_TEMPLATES = 20;
+
+/** โครง prompt สำเร็จรูปต่อโหมด — ใช้ {placeholder} แบบปีกกาให้ผู้ใช้แก้ต่อเอง ไม่ auto-fill ให้ */
+export const BUILTIN_TEMPLATES: Record<Mode, PromptTemplate[]> = {
+  home: [
+    { id: "home-portrait", label: "Portrait", text: "a portrait of {subject}, {style}, {lighting}, sharp focus, highly detailed" },
+    { id: "home-product", label: "Product shot", text: "a product photo of {subject} on {background}, studio lighting, commercial photography, highly detailed" },
+    { id: "home-scene", label: "Scene / environment", text: "{subject} in {location}, {mood} mood, {lighting}, cinematic composition" },
+    { id: "home-character", label: "Character concept", text: "concept art of {subject}, {style}, full body, detailed costume, dynamic pose" },
+  ],
+  infographic: [
+    { id: "info-tips", label: "Tips list", text: "{n} tips for {topic}, {style}, bilingual Thai-English, with icons" },
+    { id: "info-howto", label: "How-to steps", text: "how to {task} in {n} steps, {style}, numbered sections, with icons" },
+    { id: "info-stats", label: "Stat summary", text: "key statistics about {topic}, {style}, with charts, data-heavy detail" },
+  ],
+  video: [
+    { id: "video-establishing", label: "Establishing shot", text: "{subject} in {location}, {camera_move}, cinematic, {mood} mood" },
+    { id: "video-action", label: "Action clip", text: "{subject} {action}, dynamic camera movement, {lighting}, high energy" },
+  ],
+  cinematic: [
+    { id: "cinematic-scene", label: "Scene opener", text: "{subject} in {location}, cinematic wide shot, {lighting}, {mood} mood" },
+  ],
+  audio: [
+    { id: "audio-song", label: "Song brief", text: "a {genre} song about {topic}, {vocals}, {mood} mood, {tempo} tempo" },
+  ],
+};
+
+/** structural preset เฉพาะโหมด infographic — ตั้ง ratio + แทรก instruction + toggle keyword ที่มีอยู่แล้วใน INFOGRAPHIC_KEYWORDS */
+export const INFOGRAPHIC_STRUCTURAL_PRESETS: InfographicPreset[] = [
+  {
+    id: "preset-timeline",
+    label: "Timeline",
+    instruction: "Structure the infographic as a horizontal timeline of key events in chronological order.",
+    ratio: "16:9",
+    keywords: ["timeline layout", "timeline segments"],
+  },
+  {
+    id: "preset-comparison",
+    label: "Comparison Table",
+    instruction: "Structure the infographic as a side-by-side comparison table contrasting the items.",
+    ratio: "4:3",
+    keywords: ["comparison layout", "before/after comparison"],
+  },
+  {
+    id: "preset-stat-grid",
+    label: "Stat Grid",
+    instruction: "Structure the infographic as a grid of statistic cards, each with a large number and short label.",
+    ratio: "1:1",
+    keywords: ["grid layout", "with statistics", "data-heavy detail"],
+  },
+];
 
 export const MODE_META: Record<Mode, { placeholder: string; empty: string; title: string; countLabel: string; hint: string }> = {
   home: {

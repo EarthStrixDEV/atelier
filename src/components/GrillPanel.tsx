@@ -6,6 +6,7 @@ import {
   resetGrill, sendGrillAnswer,
 } from "../lib/actions";
 import { useApp } from "../lib/store";
+import { ExplainedNote } from "./ExplainedChip";
 
 /**
  * Grill me — LLM สัมภาษณ์ผู้ใช้ทีละคำถามจนข้อมูลพอ แล้วตกผลึกเป็นชุด prompt หลายมุมมอง
@@ -130,6 +131,7 @@ export default function GrillPanel() {
                 <div className="mt-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap text-[12px] leading-relaxed text-text">
                   {p.prompt}
                 </div>
+                <ExplainedNote why={p.why} />
                 <div className="mt-2.5 flex gap-1.5">
                   <button
                     className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-lg bg-accent py-1.5 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90"
