@@ -1,0 +1,62 @@
+{
+  "project": "Atelier — UX/UI improvement backlog",
+  "branch": "feat/ux-a11y-improvements",
+  "designedBy": "พลอย (Ploy) — Lead Planner, via มินจู Loop Controller",
+  "designedAt": "2026-08-20",
+  "source": "UX audit 2 passes (มิ้ม) + FE architecture review (พลอยใส) + QA findings (แพร)",
+
+  "criticalContext": {
+    "staleDocs": "CLAUDE.md ตกยุคหลายจุด — ระบุ dark theme only (จริงเป็น light mode mint accent), no router (จริงมี react-router + landing page /atelier/studio), gallery memory-only (จริงมี session snapshot + autosave-to-disk + job ledger). ทุก agent ต้องเชื่อโค้ดจริงเป็นหลัก",
+    "agentToolConstraint": "agent type ploymoon/ninne ไม่มี Edit tool (มีแค่ Read/Write/Glob/Grep/Bash) — ห้ามสั่งงานที่ต้องแก้ไฟล์ใหญ่ทีละจุดกับ agent เหล่านี้ ถ้าจำเป็นให้ Loop Controller แก้เอง หรืออนุญาตให้ใช้ Bash+python/sed ทำ targeted replacement",
+    "writeIncident": "รอบก่อนมี agent ใช้ Write ทับ store.ts ด้วยเนื้อหาที่อ่านมาไม่ครบ ทำให้ไฟล์เหลือ 8/501 บรรทัด กู้ได้แต่เสียเวลา — ทุกงานต้องกำชับให้ verify ด้วย git diff --stat หลังแก้",
+    "verifyLesson": "อย่าสรุปว่าไฟล์เสียหาย/ปกติจากการ Read ครั้งเดียวขณะมี agent เขียนอยู่ — cross-check ด้วย git diff --stat เสมอ",
+    "testLesson": "การเทสด้วย .focus() ผ่าน JS ไม่ trigger :focus-visible — ต้องกด Tab จริง; dispatchEvent(KeyboardEvent) ไม่ trigger React synthetic handler — ต้องกดคีย์จริงผ่าน computer tool"
+  },
+
+  "chainRules": {
+    "ui-only-simple": ["ออม (UI) → แพร (QA)"],
+    "ui-with-state": ["ออม (UI) → เบล (Integration) → แพร (QA)"],
+    "security-sensitive": ["ออม/เบล → แพร (QA) → โบว์ (Security, blocking)"],
+    "docs": ["Loop Controller เอง → ไม่ต้อง QA"],
+    "note": "โปรเจกต์นี้เป็น client-only SPA ไม่มี backend/DB — ฟ้า (DB), นุ่น (API contract), มายด์ลิน (BE logic), เจน (BE endpoint) ไม่ถูกใช้ในรอบนี้ทั้งหมด"
+  },
+
+  "phases": [
+    {
+      "id": "P1",
+      "name": "Foundation & Trust",
+      "goal": "แก้ friction ที่ผู้ใช้เจอทุกวัน + ทำให้ doc ตรงความจริงก่อนงานอื่น",
+      "rationale": "CLAUDE.md ต้องแก้ก่อนเพราะทุก agent ในเฟสถัดไปอ่านมันเป็น context ถ้าไม่แก้จะเข้าใจผิดทั้งกระบวน"
+    },
+    {
+      "id": "P2",
+      "name": "Cost & Error Transparency",
+      "goal": "ให้ข้อมูลถูกจังหวะ — ราคาก่อนกด ไม่ใช่หลังกด, error บอกว่าแก้ยังไงได้"
+    },
+    {
+      "id": "P3",
+      "name": "Navigation & Density",
+      "goal": "ลดภาระ scroll/ค้นหา ทำให้หาของเจอเร็วขึ้น"
+    },
+    {
+      "id": "P4",
+      "name": "Polish",
+      "goal": "ขัดรายละเอียดที่กวนใจแต่ไม่บล็อกงาน"
+    }
+  ],
+
+  "deferred": [
+    {
+      "item": "บั๊ก 2 จากแพร — ปุ่มใน Gallery Card ยัง Tab ได้ทุกใบ ทำให้ roving tabindex ยังไม่ลด Tab stop จริง",
+      "reason": "scope ใหญ่ กระทบ UX ผู้ใช้เมาส์ ต้องออกแบบ interaction ใหม่ (เช่น Enter เข้าโหมดในการ์ดก่อนค่อย Tab ระหว่างปุ่ม) — รอพี่เอิร์ธตัดสิน ไม่รวมในรอบนี้"
+    },
+    {
+      "item": "IndexedDB gallery persistence",
+      "reason": "effort L ต้องตัดสิน scope ก่อน (เก็บตลอดไป vs crash-recovery) และ Auto Save ลงดิสก์มีอยู่แล้ว"
+    },
+    {
+      "item": "Batch concurrency cap + AbortController",
+      "reason": "เป็นงาน technical ไม่ใช่ UX — พี่เอิร์ธสั่งให้โฟกัส UX/UI ก่อน"
+    }
+  ]
+}

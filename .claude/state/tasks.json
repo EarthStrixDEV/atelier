@@ -1,0 +1,205 @@
+{
+  "meta": {
+    "branch": "feat/ux-a11y-improvements",
+    "commitsSoFar": ["0dc8fd2 focus ring + toast variants + FAB labels + import modal", "48e9480 Gallery roving tabindex"],
+    "buildCmd": "npm run build",
+    "rule": "ทุก task ต้อง build ผ่าน (tsc --noEmit strict + vite build) ก่อนถือว่าเสร็จ"
+  },
+
+  "tasks": [
+    {
+      "id": "T1",
+      "phase": "P1",
+      "title": "อัปเดต CLAUDE.md ให้ตรงกับโค้ดจริง",
+      "layer": "docs",
+      "chain": "docs",
+      "priority": "blocking-first",
+      "why": "ทุก agent เฟสถัดไปอ่าน CLAUDE.md เป็น context — ถ้าไม่แก้จะเข้าใจผิดทั้งกระบวน",
+      "scope": [
+        "dark theme only → light mode (mint accent #10b981 บนพื้นขาว)",
+        "no router → react-router + landing page, studio อยู่ที่ /atelier/studio",
+        "gallery memory-only → มี session snapshot 30s + Auto Save (File System Access) + job ledger + pending-job resume",
+        "เพิ่มของที่มีแล้วแต่ doc ไม่พูดถึง: Bake-off, Grill me, Cinematic/Audio mode, virtualized gallery (react-window), keyboard shortcuts, Google Drive, SettingsModal, PromptComposer placement, Toast variants, focus ring convention (:focus-visible unlayered + js-focus-ring-owned)"
+      ],
+      "acceptance": "อ่าน CLAUDE.md แล้วไม่มีข้อความที่ขัดกับโค้ดจริง และมีหัวข้อครอบคลุมฟีเจอร์หลักที่มีอยู่",
+      "status": "not_started",
+      "dependsOn": []
+    },
+    {
+      "id": "T2",
+      "phase": "P1",
+      "title": "API key — opt-in จำไว้ในเครื่อง + ลด beforeunload friction",
+      "layer": "ui+state",
+      "chain": "security-sensitive",
+      "securitySensitive": true,
+      "why": "High priority ข้อสุดท้าย — friction ทุก session ที่พี่เอิร์ธเจอจริง",
+      "scope": [
+        "เพิ่ม checkbox 'จำ key นี้ไว้ในเครื่อง' ใน KeyModal → persist ลง localStorage แทน sessionStorage",
+        "ต้องมีคำเตือนความเสี่ยงชัดเจน (เครื่องสาธารณะ/แชร์เครื่อง)",
+        "ถ้าเลือกจำไว้ ต้องไม่เด้ง beforeunload warning อีก (เพราะไม่มีอะไรจะหาย)",
+        "ต้องมีปุ่มลบ key ออกจากเครื่องได้ชัดเจน",
+        "default ต้องเป็น sessionStorage เหมือนเดิม — opt-in เท่านั้น ห้ามเปลี่ยน default"
+      ],
+      "acceptance": "ไม่ติ๊ก = พฤติกรรมเดิมทุกอย่าง / ติ๊ก = reload แล้ว key ยังอยู่ ไม่เด้ง beforeunload / ลบ key ได้ / โบว์ audit ผ่าน",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T3",
+      "phase": "P2",
+      "title": "Error card แยกประเภท error เป็นภาษาไทยที่ actionable",
+      "layer": "ui+logic",
+      "chain": "ui-with-state",
+      "why": "ผู้ใช้ไม่รู้ว่า retry ช่วยไหม (เครดิตหมด vs rate limit vs content policy)",
+      "scope": [
+        "classify error ใน actions.ts: 402 เครดิตหมด / 429 rate limit / 400 content policy / network / อื่นๆ",
+        "การ์ด error แสดง label ไทย + ไอคอน + บอกว่า retry ช่วยได้ไหม",
+        "คง raw errMsg ไว้ดูได้ (เช่น expandable) ไม่ทิ้งข้อมูล debug"
+      ],
+      "acceptance": "error แต่ละประเภทแสดงข้อความต่างกันและบอก next action ได้ / raw message ยังเข้าถึงได้",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T4",
+      "phase": "P2",
+      "title": "Bake-off โชว์ราคารวมตอนติ๊กเลือกโมเดล",
+      "layer": "ui",
+      "chain": "ui-with-state",
+      "why": "ตอนนี้ราคาโผล่ครั้งแรกตอน confirm modal = เซอร์ไพรส์ปลายทาง",
+      "scope": [
+        "แสดง running total ข้าง checklist ใน Sidebar: 'N โมเดล · ~$X รวม'",
+        "อัปเดตสดตอนติ๊ก/เอาติ๊กออก",
+        "ใช้ logic คำนวณราคาเดิมจาก BakeOffConfirmModal ไม่เขียนซ้ำ",
+        "confirm modal ยังอยู่ (เป็น final check) ไม่ตัดทิ้ง"
+      ],
+      "acceptance": "ติ๊กโมเดลแล้วเห็นราคารวมทันทีก่อนกด Generate / ตัวเลขตรงกับ confirm modal",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T5",
+      "phase": "P3",
+      "title": "Search/filter ใน model dropdown + Bake-off list",
+      "layer": "ui",
+      "chain": "ui-with-state",
+      "why": "โมเดลหลายสิบตัว scroll หาไม่เจอ ทั้งที่ keyword builder มี search อยู่แล้ว",
+      "scope": [
+        "เพิ่ม search filter แบบเดียวกับ kwSearch ที่มีอยู่",
+        "ครอบคลุมทั้ง model select และ Bake-off checklist",
+        "ค้นได้ทั้งชื่อโมเดลและ provider"
+      ],
+      "acceptance": "พิมพ์ค้นแล้วกรองได้ทันที / ไม่กระทบการเลือกโมเดลเดิมที่เลือกไว้",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T6",
+      "phase": "P3",
+      "title": "รวม History สองอันเป็นอันเดียวมี filter chip",
+      "layer": "ui",
+      "chain": "ui-with-state",
+      "why": "per-mode history กับ 'ประวัติทั้งหมด' UI เหมือนกันเป๊ะ วางซ้อนกัน คนใหม่งง + กินพื้นที่ scroll",
+      "scope": [
+        "รวมเป็น section เดียว มี chip 'โหมดนี้ | ทุกโหมด'",
+        "คงฟังก์ชันเดิมครบ: pin, remove, ใช้ prompt นั้น",
+        "ต้องไม่ทำให้ pin ของโหมดใดโหมดหนึ่งหาย"
+      ],
+      "acceptance": "สลับ chip แล้วเห็นรายการถูกต้อง / pin/remove/use ยังทำงานครบ / ประหยัดพื้นที่แนวตั้งกว่าเดิม",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T7",
+      "phase": "P3",
+      "title": "Sidebar — collapsible groups + sticky Generate bar",
+      "layer": "ui",
+      "chain": "ui-with-state",
+      "why": "Sidebar ~15 section เรียงยาว บนมือถือต้อง scroll ทะลุทุกอย่างกว่าจะถึง Generate",
+      "scope": [
+        "จัดกลุ่ม section ที่ไม่ได้ใช้บ่อยเป็น collapsible (ใช้ pattern <details> ที่มีอยู่แล้ว)",
+        "ปุ่ม Generate/เพิ่มเข้าคิว ต้องเข้าถึงได้เสมอ — sticky ที่ก้น sidebar",
+        "จำสถานะเปิด/ปิดของแต่ละกลุ่มไว้ (localStorage) ไม่ให้ผู้ใช้ต้องกางใหม่ทุกครั้ง",
+        "ระวังอย่าซ่อนของที่ใช้บ่อย (prompt, model, ratio, count)"
+      ],
+      "acceptance": "Generate เข้าถึงได้โดยไม่ต้อง scroll / สถานะ collapse จำได้ข้าม reload / มือถือใช้งานง่ายขึ้นจริง",
+      "status": "not_started",
+      "dependsOn": ["T6"],
+      "note": "ทำหลัง T6 เพราะ T6 ลด section ไปแล้วหนึ่งอัน จะได้ไม่ต้องแก้ layout ซ้ำ"
+    },
+    {
+      "id": "T8",
+      "phase": "P4",
+      "title": "Auto-scroll → pill 'ผลลัพธ์ใหม่ ↑' แทนการกระโดดขึ้นบน",
+      "layer": "ui",
+      "chain": "ui-with-state",
+      "why": "ตอนนี้ Gallery snap ขึ้นบนทุกครั้งที่งานเสร็จ แม้ผู้ใช้กำลังดูงานเก่าอยู่",
+      "scope": [
+        "auto-scroll เฉพาะตอนผู้ใช้อยู่ใกล้บนสุดอยู่แล้ว",
+        "ถ้าไม่ใช่ ให้โชว์ pill ลอย 'ผลลัพธ์ใหม่ ↑' กดแล้วค่อยเลื่อนขึ้น",
+        "pill หายเองเมื่อผู้ใช้เลื่อนขึ้นไปเห็นแล้ว"
+      ],
+      "acceptance": "scroll ลงไปดูงานเก่า → งานใหม่เสร็จ → ไม่ถูกดึงขึ้น แต่เห็น pill / กด pill แล้วขึ้นไปถูกที่",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T9",
+      "phase": "P4",
+      "title": "Discoverability เล็กๆ 3 จุด (PromptComposer toggle, shortcuts hint, ExtendTool caption)",
+      "layer": "ui",
+      "chain": "ui-only-simple",
+      "why": "ฟีเจอร์ดีแต่มองไม่เห็น — เป็น theme หลักที่เจอจาก audit",
+      "scope": [
+        "PromptComposer: ปุ่มย้าย sidebar/กลางจอ ให้มี label ไม่ใช่ icon-only (ทำต่อจาก FAB ที่ทำไปแล้ว)",
+        "Keyboard shortcuts: hint 'Ctrl+Enter' ข้างปุ่ม Generate + ทางเข้า ShortcutsModal ที่มองเห็น",
+        "ExtendTool: caption บอกว่าเริ่มที่เฟรมสุดท้ายให้อัตโนมัติ เลื่อนเลือกเองได้"
+      ],
+      "acceptance": "ทั้ง 3 จุดมีข้อความอธิบายที่มองเห็นได้โดยไม่ต้อง hover",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T10",
+      "phase": "P4",
+      "title": "Polish modal 3 จุด (CompareModal label, JSON example, Grill progress)",
+      "layer": "ui",
+      "chain": "ui-only-simple",
+      "why": "จุดเล็กที่ทำให้สับสนหรือเด้งออก",
+      "scope": [
+        "CompareModal: label บอกโหมด (2 รูป = เลื่อนเทียบ / 3-4 รูป = ดูเคียงกัน) ไม่ให้ดูเหมือน bug",
+        "SettingsModal JSON: ปุ่ม 'แทรกตัวอย่าง' ใส่ entry จริงให้แก้ต่อ แทน textarea เปล่า",
+        "GrillPanel: progress indicator (ตอบแล้ว N ข้อ) + note ว่าตอบเพิ่มช่วยให้ prompt ตรงใจขึ้น"
+      ],
+      "acceptance": "ทั้ง 3 จุดมีข้อมูลที่ผู้ใช้ต้องรู้ก่อนตัดสินใจ",
+      "status": "not_started",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T11",
+      "phase": "P4",
+      "title": "รวมปุ่ม Refine/Start-from/First-frame เป็น split-button",
+      "layer": "ui",
+      "chain": "ui-with-state",
+      "why": "3 ปุ่มหน้าตาคล้ายกันแย่งความสนใจ ไม่บอกว่ากดแล้วเกิดอะไร",
+      "scope": [
+        "รวมเป็น 'ทำต่อจากภาพนี้ ▾' กางแล้วเห็น 3 ตัวเลือกพร้อมคำอธิบายบรรทัดเดียว",
+        "คงเงื่อนไขการโชว์/ซ่อนเดิมของแต่ละปุ่มไว้ (canRefineItem/canStartFrom/ฯลฯ)",
+        "ลดความกว้างแถวปุ่มในการ์ด"
+      ],
+      "acceptance": "ตัวเลือกครบเหมือนเดิม / เงื่อนไขซ่อนแสดงถูกต้อง / การ์ดดูสะอาดขึ้น",
+      "status": "not_started",
+      "dependsOn": ["T8"],
+      "note": "ทำหลัง T8 เพราะแตะ Gallery Card เหมือนกัน เลี่ยงแก้ไฟล์ชนกัน"
+    }
+  ],
+
+  "openFindings": [
+    {
+      "from": "แพร QA",
+      "severity": "major",
+      "item": "ปุ่มใน Gallery Card ยัง Tab ได้ทุกใบ — roving tabindex ยังไม่ลด Tab stop ตามเจตนา",
+      "status": "deferred — รอพี่เอิร์ธตัดสิน (ดู workflow.json deferred)"
+    }
+  ]
+}
