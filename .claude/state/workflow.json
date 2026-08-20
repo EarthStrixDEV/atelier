@@ -1,0 +1,155 @@
+{
+  "sprint": "feat/agent-team-sprint-01",
+  "designedAt": "2026-08-20",
+  "designedBy": "พลอย (Ploy) — Lead Planner",
+  "gapAnalysis": {
+    "summary": "Atelier โตเร็วมาก (actions.ts 2460 บรรทัด, 15+ PHASE) จน feature layer อิ่มตัวแล้ว — Bake-off, Compare, Grill, Auto Save, session snapshot, storyboard chaining, virtualization มีครบ. ช่องว่างจริงที่เหลือไม่ได้อยู่ที่ feature ใหม่ที่ยังไม่มี แต่อยู่ที่ 4 เรื่อง: (1) request layer ไม่มีการควบคุมเลย ไม่มี concurrency cap ไม่มี AbortController ไม่มีทางยกเลิกงานที่ยิงไปแล้ว, (2) ผลลัพธ์ที่ผู้ใช้จ่ายเงินสร้างมาแล้วหายทั้งหมดตอน reload เพราะ gallery เป็น memory-only ทั้งที่ IndexedDB infra มีอยู่แล้วใน fsAccess.ts, (3) เมื่อ gallery ยาว 100+ ชิ้น ไม่มีทางหาของเจอเลย ไม่มี filter/search/favorite ใดๆ, (4) usage cost เป็น session-only per-mode ไม่มียอดสะสมและไม่มี guard ก่อนจ่ายเงินก้อนใหญ่. ทั้งหมดนี้เป็นคุณค่าที่ architecture ปัจจุบันเอื้ออยู่แล้ว (blobUrls registry, IndexedDB helper, computeItemCost, mutate/useApp) แต่ยังไม่ได้ถูกใช้",
+    "evidence": [
+      "src/lib/actions.ts:881 — generate(): batch.forEach(item => runRequest(item)) ยิงทุก item พร้อมกันหมดไม่มี cap เลย worst case = MAX_QUEUE 5 job x COUNTS สูงสุด 6 = 30 fetch พร้อมกัน (constants.ts:7 MAX_QUEUE=5, constants.ts:58 COUNTS=[1,2,4,6]) เสี่ยง 429 rate limit และเบราว์เซอร์ throttle",
+      "src/lib/actions.ts:986 — runBakeOff(): batch.forEach(item => runRequest(item)) เช่นเดียวกัน และ comment ที่บรรทัด 937 ระบุชัดว่า ไม่ผ่านคิว ไม่โดน MAX_QUEUE จำกัด โดยตั้งใจ",
+      "grep -rn AbortController src/ ไม่พบเลยแม้แต่ที่เดียว ทุก fetch ใน actions.ts (requestVideo:1204, requestViaChat:1369, requestViaImageAPI:1324, requestAudio:1261) ไม่มี signal ผู้ใช้กด generate ผิดแล้วยกเลิกไม่ได้ ต้องรอ timeout 10-15 นาที (constants.ts:66 VIDEO_TIMEOUT_MS)",
+      "src/lib/actions.ts:215 reconcilePendingJobs() กู้คืนได้แค่ job ที่ยังค้างจาก ledger เท่านั้น ผลลัพธ์ที่ done แล้ว (item.url) ไม่ถูก persist ที่ไหนเลย หายหมดทุก reload. src/lib/store.ts:6-23 คีย์ localStorage ทั้งหมดเป็น metadata (history/chat/templates/snapshot/export log) ไม่มี image data",
+      "src/lib/fsAccess.ts:37-72 มี IndexedDB helper (openDb/idbGet/idbSet/idbDelete) ครบพร้อมใช้อยู่แล้ว แต่ใช้เก็บแค่ directory handle ตัวเดียว infra สำหรับเก็บ blob ผลลัพธ์มีอยู่แล้วแต่ไม่ได้ใช้",
+      "src/components/Gallery.tsx:834 ส่ง ms.images ดิบทั้งก้อนเข้า VirtualGrid ไม่มี filter/search/sort layer คั่นเลย grep filter ใน Gallery.tsx เจอแต่ .filter() นับ done/loading (753,754,758) ไม่มี UI ค้นหา",
+      "grep -rni favorite starred rating tag ใน src/lib/types.ts src/lib/actions.ts ไม่พบ GenItem (types.ts:38-98) ไม่มีฟิลด์ favorite/tag/note ใดๆ ของดีที่สร้างได้แยกจากของทิ้งไม่ได้",
+      "src/lib/actions.ts:804 resetModeGallery() export ไว้แต่ grep -rn resetModeGallery src/ เจอแค่จุดประกาศจุดเดียว ไม่มี UI เรียกเลย (ยืนยันแล้วว่าเป็น dead code ทั้งบน main และบน feat/ux-a11y-improvements) ทั้งที่มัน revoke blob URL ถูกต้องครบ",
+      "src/components/Sidebar.tsx:105-123 usage bar คิดจาก ms.images ของโหมดปัจจุบันอย่างเดียว ไม่มียอดรวมข้ามโหมด ไม่มียอดสะสมข้าม session และไม่มี budget guard ก่อนยิงงานแพง มีแต่ BakeOffConfirmModal ที่ยืนยันเฉพาะ Bake-off path เท่านั้น"
+    ]
+  },
+  "avoidedOverlap": {
+    "branch": "feat/ux-a11y-improvements",
+    "status": "ยังไม่ merge — 25 ไฟล์, +1629/-420, 6 commits",
+    "alreadyCovers": [
+      "T1 อัปเดต CLAUDE.md ให้ตรงโค้ดจริง (CLAUDE.md +148 บรรทัด)",
+      "T2 API key opt-in จำไว้ในเครื่อง เพิ่ม loadRememberApiKey/saveApiKey(key, remember) ใน store.ts และลด beforeunload friction",
+      "T3 Error card แยกประเภท error เพิ่ม classifyGenError()/GenErrorKind/GenErrorInfo ใน utils.ts (+77) และ render ใน Gallery Card",
+      "T4 Bake-off โชว์ราคารวมตอนติ๊กเลือกโมเดล (แตะ BakeOffConfirmModal + Sidebar)",
+      "T5 Search/filter ใน model dropdown และ Bake-off list (แตะ Sidebar model select)",
+      "T6 รวม History สองอันเป็นอันเดียวมี filter chip (แตะ Sidebar history section)",
+      "T7 Sidebar collapsible groups และ sticky Generate bar (Sidebar +238 บรรทัด)",
+      "T8 เปลี่ยน auto-scroll เป็น pill ผลลัพธ์ใหม่ ใน Gallery (แตะ Gallery.tsx:766-773 useEffect scrollToRow)",
+      "T9/T10/T11 discoverability, polish modal, split-button Refine/Start-from ใน Gallery Card",
+      "SettingsModal.tsx ใหม่ (244 บรรทัด) ย้าย Advanced ของ KeyModal ออกมา และเพิ่ม state.settingsModalOpen",
+      "googleDrive.ts ใหม่ (162 บรรทัด) Save to Drive ต่อชิ้น เพิ่ม GenItem.driveSaveStatus/driveSaveErrMsg และ state.driveConnecting/driveConnected",
+      "a11y: roving tabindex ใน Gallery (useGalleryFocus), focus ring ใน index.css, aria label ทั่ว, FAB labels",
+      "Toast variants: ToastVariant type และ toast(msg, variant) signature ใหม่ (แตะ store.ts:543 toast())"
+    ],
+    "howWeAvoid": [
+      "ไม่แตะ Sidebar.tsx เลยในรอบนี้ branch นั้นแก้ไป +238 บรรทัดและปรับโครงเป็น collapsible groups งานเราไปทับแน่นอน Budget guard (F4) จึงไปอยู่ใน modal ใหม่และ Header แทน ไม่ยัดลง Sidebar",
+      "ไม่แตะ KeyModal.tsx และ SettingsModal.tsx branch นั้นรื้อ KeyModal ทิ้ง 255 บรรทัดแล้วย้ายไป SettingsModal ใหม่",
+      "ไม่แตะ error card, classifyGenError, toast signature เป็นของ T3 และ Toast variants ตรงๆ",
+      "ไม่ทำ search ใน model dropdown หรือ history ชนกับ T5/T6 เต็มๆ Gallery filter ของเรา (F3) กรองผลลัพธ์ที่สร้างแล้ว คนละ dataset กับ prompt history และคนละไฟล์",
+      "Gallery.tsx เป็นไฟล์เดียวที่เลี่ยงไม่ได้ (F3 ต้องแทรก filter bar) จำกัด footprint ไว้ที่ Gallery() body บรรทัด 749-838 เท่านั้น แทรก toolbar เหนือ VirtualGrid และส่ง items ที่กรองแล้ว ห้ามแตะ useEffect scrollToRow บรรทัด 766-773 ซึ่งเป็นของ T8 และห้ามแตะ Card หรือ useGalleryFocus ที่เป็นของ T3 และ roving tabindex",
+      "ไม่แตะ toast() signature เรียก toast(msg) แบบ 1 argument เสมอ ซึ่ง compatible กับทั้งสอง branch เพราะ branch นั้นทำ variant เป็น optional param ที่มี default",
+      "ตรวจแล้วว่า resetModeGallery ยังเป็น dead code บน branch นั้นด้วย F3 wire มันเข้า UI ได้โดยไม่ชน"
+    ]
+  },
+  "features": [
+    {
+      "id": "F1",
+      "name": "Request Governor — concurrency cap + cancel ได้จริง",
+      "why": "actions.ts:881 และ actions.ts:986 ยิง runRequest พร้อมกันทั้ง batch ไม่มี cap worst case 30 fetch พร้อมกันจาก MAX_QUEUE 5 คูณ count 6 และ grep AbortController ทั้ง src/ ไม่เจอเลย ผู้ใช้กด generate ผิดแล้วยกเลิกไม่ได้ ต้องรอ timeout 10-15 นาที ตาม constants.ts:66 แถมเสียเงินเต็ม เป็นงานที่ feat/ux-a11y-improvements ระบุเองใน workflow.json ว่า deferred",
+      "layers": [
+        "logic",
+        "ui"
+      ],
+      "chainDepth": "full",
+      "chain": [
+        "นุ่น (Noon): contract",
+        "มายด์ลิน (Maidlin): logic",
+        "เบล (Bell): integration",
+        "แพร (Prae): QA",
+        "โบว์ (Bow): security blocking"
+      ],
+      "chainRationale": "full เพราะแตะ request layer ที่เป็น critical path ของทุกโหมดพร้อมกัน ทั้ง image video audio bake-off retry auto-extend และมี invariant ด้านเงินที่พังง่ายมาก requestVideo:1177 ใช้ item.jobId เป็นกลไกกันจ่ายซ้ำ ถ้า abort แล้วเคลียร์ jobId ผิดจังหวะ ผู้ใช้จะถูกชาร์จซ้ำจริง จึงต้องมี contract step ของนุ่นนิยามก่อนว่า abort ระหว่าง poll ต้องคง jobId ไว้เสมอ แล้วให้โบว์ตรวจปิดท้ายแบบ blocking ข้าม UI step ไม่ได้เพราะปุ่มยกเลิกต้องมีจริงถึงจะปลดล็อกคุณค่า",
+      "securitySensitive": true,
+      "perfSensitive": true,
+      "estimatedLines": 320
+    },
+    {
+      "id": "F2",
+      "name": "Gallery Persistence — ผลลัพธ์รอด reload ด้วย IndexedDB",
+      "why": "ผู้ใช้จ่ายเงินจริงต่อชิ้น แต่ gallery เป็น memory-only reconcilePendingJobs ที่ actions.ts:215 กู้ได้แค่ job ที่ยังค้าง ส่วน item ที่ done แล้วหายหมดทุก reload IndexedDB helper มีพร้อมอยู่แล้วใน fsAccess.ts:37-72 แต่ใช้เก็บแค่ directory handle ตัวเดียว branch a11y ระบุเองว่า deferred เพราะต้องตัดสิน scope ก่อน รอบนี้ตัดสินให้แล้ว crash-recovery scope, cap ตามจำนวนชิ้น, เก็บ Blob ตรงๆ ไม่ใช่ data URL",
+      "layers": [
+        "persist",
+        "logic",
+        "ui"
+      ],
+      "chainDepth": "full",
+      "chain": [
+        "ฟ้า (Fah): schema",
+        "นุ่น (Noon): contract",
+        "มายด์ลิน (Maidlin): logic",
+        "เบล (Bell): integration",
+        "แพร (Prae): QA",
+        "โบว์ (Bow): security blocking"
+      ],
+      "chainRationale": "full และต้องมีฟ้านำหน้าเป็นพิเศษ เพราะนี่คือ feature เดียวในรอบนี้ที่สร้าง storage schema ใหม่ที่ต้องอยู่ข้าม version ของแอป ออกแบบ key cap eviction ผิดตั้งแต่แรกแล้วแก้ทีหลังต้องเขียน migration ซึ่งแพงกว่ามาก ต้องมีนุ่นด้วยเพราะ GenItem มีฟิลด์ที่ห้าม persist คือ refs ซึ่งเป็น data URL ของภาพผู้ใช้ และ jobId ที่ผูกกับ session ต้องนิยาม subset ให้ชัดก่อนเขียน โบว์เป็น blocking เพราะเขียน blob ลงดิสก์ถาวรเปลี่ยน data-retention posture ของแอปที่เดิมตั้งใจให้ memory-only",
+      "securitySensitive": true,
+      "perfSensitive": true,
+      "estimatedLines": 400
+    },
+    {
+      "id": "F3",
+      "name": "Gallery Filter & Favorites — หาของเจอใน gallery ที่ยาว 100 ชิ้นขึ้นไป",
+      "why": "Gallery.tsx:834 ส่ง ms.images ดิบทั้งก้อนเข้า VirtualGrid ไม่มี filter/search layer เลย และ GenItem ที่ types.ts:38-98 ไม่มี favorite หรือ tag พอสะสม 100 ชิ้นขึ้นไป ซึ่งเป็นเหตุผลที่ PHASE 13 ต้องทำ virtualization ตั้งแต่แรก ผู้ใช้แยกของดีจากของทิ้งไม่ได้ พ่วงแก้ dead code resetModeGallery ที่ actions.ts:804 ซึ่ง export ไว้แต่ไม่มี UI เรียก",
+      "layers": [
+        "ui",
+        "logic"
+      ],
+      "chainDepth": "lite",
+      "chain": [
+        "ออม (Aom): ui",
+        "เบล (Bell): integration",
+        "แพร (Prae): QA"
+      ],
+      "chainRationale": "lite เพราะข้าม contract step ของนุ่นและ backend logic step ของมายด์ลินโดยตั้งใจ feature นี้ไม่แตะ network layer เลย ไม่มี payload shape ให้ตกลง ไม่มี invariant ด้านเงิน ที่เพิ่มใน types.ts มีแค่ favorite boolean ฟิลด์เดียวกับ transient filter state เล็กเกินกว่าจะคุ้มกับ contract step แยก แต่ยังต้องมีเบลจริงๆ ไม่ใช่ ui-only ล้วน เพราะ filter list ต้องเป็น useMemo ที่ป้อนเข้า react-window ซึ่ง index mapping กระทบ openLightbox(index) ที่อ้าง index ของ array เดิม พลาดตรงนี้แล้ว lightbox เปิดผิดรูป",
+      "securitySensitive": false,
+      "perfSensitive": true,
+      "estimatedLines": 260
+    },
+    {
+      "id": "F4",
+      "name": "Spend Guard — ยอดสะสมข้ามโหมด + เพดานงบต่อ session",
+      "why": "Sidebar.tsx:105-123 คิด usage จาก ms.images ของโหมดปัจจุบันอย่างเดียว ไม่มียอดรวมข้ามโหมด ไม่มียอดสะสม และมี guard ก่อนจ่ายเงินแค่ path เดียวคือ BakeOffConfirmModal ที่ actions.ts:987 ส่วน generate() ปกติที่ยิงได้ทีละ 30 ชิ้นไม่มีอะไรถามเลย computeItemCost และ computeCost ที่ actions.ts:1723-1741 มีครบอยู่แล้ว แค่ยังไม่มีใครรวมยอดข้ามโหมดหรือเอามาเป็น gate",
+      "layers": [
+        "logic",
+        "persist",
+        "ui"
+      ],
+      "chainDepth": "full",
+      "chain": [
+        "นุ่น (Noon): contract",
+        "มายด์ลิน (Maidlin): logic",
+        "ออม (Aom): ui",
+        "แพร (Prae): QA"
+      ],
+      "chainRationale": "full แต่ไม่มีโบว์ ต้องมี contract step เพราะ gate ต้องแทรกใน generate() ซึ่งเป็นฟังก์ชันเดียวกับที่ F1 กำลังแก้ ถ้าไม่นิยาม insertion point ให้ชัดก่อน สอง feature จะแก้ generate() ทับกันเอง นี่เป็น dependency จริงไม่ใช่พิธีกรรม ไม่ต้องมีโบว์เพราะไม่แตะ credential ไม่เขียนความลับ เก็บแค่ตัวเลข USD สะสม ไม่ต้องมีเบลแยกเพราะออมต่อ store ตรงได้ผ่าน useApp() ซึ่งเป็น state global ตัวเดียว ไม่มี derived list ซับซ้อนแบบ F3",
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "estimatedLines": 240
+    }
+  ],
+  "totalEstimatedLines": 1220,
+  "sequencingNotes": [
+    "F1 ต้องเสร็จก่อน F4 ทั้งคู่แก้ generate() ที่ actions.ts:815-882 ถ้าทำขนานกันจะ conflict F1 แก้บรรทัดยิง request ที่ 881 ส่วน F4 แทรก gate ก่อนบรรทัด 848",
+    "F2 ต้องเสร็จก่อน F3 เพราะ F3 เพิ่ม GenItem.favorite ซึ่ง F2 ต้องรู้ว่าจะ persist ฟิลด์นี้ด้วยไหม คำตอบคือต้อง persist มิฉะนั้น favorite หายทุก reload ซึ่งย้อนแย้งกับ F2 เอง",
+    "F1 กับ F2 ขนานกันได้ คนละไฟล์เป็นหลัก F1 อยู่ที่ actions.ts request path ส่วน F2 อยู่ที่ lib ใหม่และ boot path จุดชนเดียวคือ runRequest ตอน item done ซึ่งนัดไว้แล้วว่า F2 hook หลัง autoSaveItem ที่ actions.ts:1036",
+    "Gallery.tsx เป็น hot file ที่ชนกับ branch a11y ให้ F3 เป็น feature เดียวที่แตะ Gallery.tsx ส่วนปุ่มยกเลิกของ F1 ไปอยู่บน Header และ PromptComposer แทน Card เพื่อลด surface การชน"
+  ],
+  "risks": [
+    "Gallery.tsx ชนกับ feat/ux-a11y-improvements แน่นอน branch นั้นแก้ +219 บรรทัดในไฟล์เดียวกัน จำกัด F3 ไว้ที่ Gallery() body เท่านั้น",
+    "F2 เขียน blob ลงดิสก์ถาวรเปลี่ยน privacy posture ของแอปที่ CLAUDE.md ระบุว่า memory-only by design ต้อง opt-in ชัดเจนและมีปุ่มล้าง ไม่ใช่เปิดเงียบๆ",
+    "ไม่มี test framework เลย build gate เดียวคือ tsc --noEmit และ vite build ซึ่งจับได้แค่ type error พฤติกรรม async เช่น abort eviction race ต้องให้แพรทดสอบมือจริงในเบราว์เซอร์"
+  ],
+  "revisions": [
+    {
+      "at": "2026-08-20",
+      "by": "มินจู (Min-Ju) — Loop Controller",
+      "scope": "T7 role change (F2 chain)",
+      "reason": "ฟ้า (T6) ประกาศ interface PersistedGenItem พร้อม allowlist rationale ครบใน galleryStore.ts แล้ว การให้นุ่นวาง contract ซ้ำจะเป็นงานซ้ำซ้อนและเสี่ยงชนกันเองในไฟล์เดียวกัน",
+      "change": "T7 เปลี่ยนจาก \"เขียน contract ใหม่\" เป็น \"review contract ที่ฟ้าวางแล้ว + ปิด integration gap (favorite) + วาง signature ที่ T8 จะ implement\" — chain depth ของ F2 ยังเป็น full เหมือนเดิม ไม่ได้ตัดขั้นตอนออก",
+      "evidence": "galleryStore.ts:95,266 — PersistedGenItem.favorite มีอยู่แต่ saveItem hardcode false ไม่อ่าน item.favorite ที่ T12 เพิ่มเข้า GenItem แล้ว"
+    }
+  ]
+}

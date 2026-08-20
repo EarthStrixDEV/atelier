@@ -1,0 +1,513 @@
+{
+  "sprint": "feat/agent-team-sprint-01",
+  "designedAt": "2026-08-20",
+  "designedBy": "พลอย (Ploy) — Lead Planner",
+  "buildGate": "npm run build (tsc --noEmit strict + vite build) — เป็น gate อัตโนมัติเดียวที่มี ไม่มี test/lint",
+  "tasks": [
+    {
+      "id": "T1",
+      "featureId": "F1",
+      "title": "นิยาม contract ของ Request Governor — signal, slot, cancel semantics",
+      "layer": "api",
+      "assignee": "นุ่น (Noon) — API Contract Engineer",
+      "chainDepth": "full",
+      "dependsOn": [],
+      "securitySensitive": true,
+      "perfSensitive": false,
+      "status": "done",
+      "acceptanceCriteria": [
+        "src/lib/types.ts มี type CancelReason ที่แยก user-cancel ออกจาก shutdown อย่างน้อย 2 ค่า",
+        "GenItem มีฟิลด์ใหม่สำหรับสถานะยกเลิก และ GenStatus ครอบคลุมเคส cancelled โดยไม่ทำให้ที่เดิมที่ switch บน status พังตอน tsc",
+        "มี comment ระบุ invariant เป็นลายลักษณ์อักษรว่า abort ระหว่าง poll วิดีโอต้องคง item.jobId ไว้เสมอ ห้ามเซ็ต null อ้างอิง actions.ts:1177 requestVideo",
+        "ระบุ signature ที่ตกลงแล้วของ runRequest ว่ารับ signal เข้ามาอย่างไร และ requestVideo/requestAudio/requestViaChat/requestViaImageAPI ทั้ง 4 ตัวรับ signal ตัวเดียวกัน",
+        "npm run build ผ่าน (ขั้นนี้เป็น type-only ยังไม่มี logic)"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/types.ts"
+      ],
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "GenStatus += cancelled; CancelReason(user|user-all|shutdown); cancelReason/cancelledAt on GenItem; MAX_CONCURRENT_REQUESTS=4; jobId invariant + 5 signatures documented. build pass. types.ts only."
+    },
+    {
+      "id": "T2",
+      "featureId": "F1",
+      "title": "semaphore จำกัด concurrency + AbortController registry ใน actions.ts",
+      "layer": "logic",
+      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T1"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": true,
+      "status": "done",
+      "acceptanceCriteria": [
+        "constants.ts มี MAX_CONCURRENT_REQUESTS เป็นค่าคงที่ export ไม่ hardcode ตัวเลขลอยใน actions.ts",
+        "generate() ที่ actions.ts:881 และ runBakeOff() ที่ actions.ts:986 ไม่เรียก batch.forEach(runRequest) ตรงๆ อีกต่อไป ทั้งคู่ผ่าน scheduler ตัวเดียวกัน",
+        "ยิง batch 30 ชิ้น (queue 5 job x count 6) แล้วนับ fetch ที่ inflight พร้อมกันจริงใน devtools ไม่เกิน MAX_CONCURRENT_REQUESTS ณ เวลาใดก็ตาม",
+        "งานที่เหลือใน batch ยังถูกยิงต่อจนครบเมื่อ slot ว่าง ไม่มีงานค้างไม่ถูกยิงเลย ตรวจโดยนับ item ที่ status เปลี่ยนจาก loading ครบทุกชิ้น",
+        "ทุก fetch ใน requestVideo/requestAudio/requestViaChat/requestViaImageAPI ส่ง signal จริง ตรวจด้วย grep ว่าไม่มี fetch( ตัวไหนใน actions.ts ที่ไม่มี signal",
+        "cancelItem(item) ทำให้ item หยุดจริงภายใน 1 วินาที และ item.jobId ของงานวิดีโอที่ถูก cancel ยังไม่เป็น null",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/actions.ts",
+        "src/lib/constants.ts"
+      ],
+      "completedAt": "2026-08-20",
+      "result": "scheduleRequest() module-level semaphore (cap app-wide, not per-batch); sole caller of runRequest. inflightControllers Map + abortableSleep. signal in 6/6 fetches across 4 request fns. finalizeCancelled never touches jobId. cancelItem/cancelAll/isCancellable exported. Verified by LC: build green, AC2/AC5/invariant confirmed by grep.",
+      "qaNote": "AC3/AC6 proven via Node harness replicating scheduler+registry logic (peak in-flight 4/4, cancel latency 1ms, jobId preserved), not real browser fetch. End-to-end needs T3 button."
+    },
+    {
+      "id": "T3",
+      "featureId": "F1",
+      "title": "ปุ่มยกเลิกงานที่กำลังรัน บน Header + PromptComposer",
+      "layer": "ui",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T2"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "เมื่อมี item ที่ status เป็น loading อย่างน้อย 1 ชิ้น จะมีตัวบ่งชี้จำนวนงานที่รันอยู่และจำนวนที่รอคิวใน Header",
+        "กดปุ่มยกเลิกทั้งหมดแล้ว item ที่ยังไม่เริ่มยิงถูกเอาออกจาก scheduler ไม่ถูกยิงเลย ตรวจว่าไม่มี request ใหม่โผล่ใน network tab หลังกด",
+        "ห้ามแตะ src/components/Gallery.tsx และ src/components/Sidebar.tsx ในงานนี้ ตรวจด้วย git diff --stat ว่าสองไฟล์นี้ไม่อยู่ในรายการ",
+        "เรียก toast(msg) แบบ 1 argument เท่านั้น ห้ามส่ง argument ที่สอง",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/components/Header.tsx",
+        "src/components/PromptComposer.tsx",
+        "src/lib/store.ts"
+      ]
+    },
+    {
+      "id": "T4",
+      "featureId": "F1",
+      "title": "QA — concurrency cap, cancel และ invariant กันจ่ายซ้ำ",
+      "layer": "infra",
+      "assignee": "แพร (Prae) — QA Lead",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T3"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": true,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "ยืนยันด้วย network tab จริงว่า inflight ไม่เกิน cap ตอนยิง queue 5 job x count 6",
+        "ยกเลิกงานวิดีโอกลางคัน แล้วกดลองใหม่ ต้อง resume ด้วย jobId เดิม ไม่มี POST /api/v1/videos ใหม่เกิดขึ้น ตรวจใน network tab",
+        "ยกเลิกแล้ว retry ได้ปกติ ไม่มี item ค้างสถานะ loading ถาวร",
+        "รายงานผลเป็นรายข้อ ผ่าน/ไม่ผ่าน พร้อม screenshot หรือ network log ประกอบข้อที่เกี่ยวกับเงิน"
+      ],
+      "filesLikelyTouched": []
+    },
+    {
+      "id": "T5",
+      "featureId": "F1",
+      "title": "Security review — abort ไม่ทำให้จ่ายซ้ำหรือ key รั่ว (blocking)",
+      "layer": "infra",
+      "assignee": "โบว์ (Bow) — Security & Dependency Auditor",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T4"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "ตรวจทุก path ที่เซ็ต item.jobId = null ใน actions.ts แล้วยืนยันว่าไม่มี path ไหนถูก trigger จาก abort",
+        "ยืนยันว่า pending job ledger (store.ts PENDING_JOBS_KEY) ยังมี entry ของงานที่ถูก cancel ค้างอยู่ ไม่ถูก removePendingJob ตอน abort",
+        "ยืนยันว่าไม่มี state ของ AbortController ถูกเขียนลง localStorage หรือ sessionStorage",
+        "ให้ verdict ชัดเจน blocking หรือ pass ถ้า blocking ต้องระบุไฟล์:บรรทัดที่ต้องแก้"
+      ],
+      "filesLikelyTouched": []
+    },
+    {
+      "id": "T6",
+      "featureId": "F2",
+      "title": "ออกแบบ schema IndexedDB สำหรับเก็บผลลัพธ์ + นโยบาย cap/eviction",
+      "layer": "db",
+      "assignee": "ฟ้า (Fah) — Database Engineer",
+      "chainDepth": "full",
+      "dependsOn": [],
+      "securitySensitive": true,
+      "perfSensitive": true,
+      "status": "done",
+      "acceptanceCriteria": [
+        "สร้าง object store ใหม่แยกจาก store handles เดิมใน fsAccess.ts ห้ามใส่ปนกัน และต้อง bump DB version พร้อม onupgradeneeded ที่สร้าง store ใหม่โดยไม่ทำลาย autoSaveDir handle เดิม",
+        "ระบุ cap เป็นตัวเลขคงที่ export ได้ ทั้งจำนวนชิ้นสูงสุดต่อโหมดและขนาดรวมสูงสุด",
+        "ระบุนโยบาย eviction เป็นลายลักษณ์อักษรว่าตัดชิ้นไหนก่อน และ item ที่ favorite ต้องไม่ถูก evict ก่อน item ที่ไม่ favorite",
+        "เปิดแอปเวอร์ชันเก่าที่มี autoSaveDir handle อยู่แล้ว แล้ว upgrade ต้องไม่ทำให้ปุ่มเชื่อมต่อ directory เดิมหาย ตรวจผ่าน checkSavedAutoSaveDir",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/galleryStore.ts",
+        "src/lib/constants.ts"
+      ],
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "New separate DB atelier_gallery v1 (fsAccess.ts untouched, 0 lines). Store items keyPath key=mode:savedAt:rand (GenItem.id unusable, store.ts:445 seq resets to 0). Allowlist record shape excludes refs/apiKey/jobId/errMsg/autoSave*. Caps 60/mode, 500MB total, 80MB/item. Eviction: non-favorite first then FIFO. 10 exported fns. Own files typecheck EXIT=0.",
+      "qaNote": "AC5 (full build) not green at handoff — 2 unused-import errors from T2 in-flight, not from T6. Verified independently."
+    },
+    {
+      "id": "T7",
+      "featureId": "F2",
+      "title": "review contract PersistedGenItem ที่ T6 วางแล้ว + ปิด integration gap favorite + วาง signature ให้ T8",
+      "layer": "api",
+      "assignee": "นุ่น (Noon) — API Contract Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T6"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": false,
+      "status": "in_progress",
+      "acceptanceCriteria": [
+        "types.ts มี interface PersistedGenItem ที่ระบุฟิลด์ชัดเจน ไม่ใช่ Partial<GenItem> ลอยๆ",
+        "PersistedGenItem ต้องไม่มีฟิลด์ refs และไม่มี jobId พร้อม comment อธิบายเหตุผลว่า refs เป็น data URL ภาพผู้ใช้และ jobId ผูกกับ session",
+        "ระบุว่า blob ถูกเก็บเป็น Blob object ตรงๆ ไม่ใช่ data URL string พร้อมเหตุผลเรื่องขนาด",
+        "มี field version ในตัว record เพื่อรองรับ migration ในอนาคต",
+        "npm run build ผ่าน",
+        "saveItem ต้องอ่าน item.favorite จาก GenItem จริง ไม่ hardcode false (galleryStore.ts:266) — กดดาวแล้วเซฟลง IDB ต้องได้ favorite=true ไม่งั้น eviction จะตัดของที่ผู้ใช้ปักหมุดทิ้ง",
+        "signature ที่ T8 ต้อง implement ระบุไว้ชัด: rehydrate flow (loadItems -> registerBlobUrl -> bump s.seq), จุดที่เรียก saveItem ใน runRequest, และจุดที่ sync setFavorite ตอน toggleFavorite"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/types.ts"
+      ],
+      "revisedBy": "Loop Controller (ดู workflow.json revisions)",
+      "startedAt": "2026-08-20"
+    },
+    {
+      "id": "T8",
+      "featureId": "F2",
+      "title": "logic save/load/evict + rehydrate blob URL เข้า registry เดิม",
+      "layer": "logic",
+      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T7"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": true,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "item ที่ status done ถูกเขียนลง IndexedDB โดย hook หลัง autoSaveItem ใน runRequest ที่ actions.ts:1036 ไม่ใช่ก่อนหน้า",
+        "การเขียนเป็น fire-and-forget ไม่ block UI และ error ตอนเขียนไม่ทำให้ item กลายเป็น error ตรวจโดยจงใจทำให้ quota เต็มแล้ว item ยังแสดงผลปกติ",
+        "ตอน boot โหลดกลับมาแล้วสร้าง blob URL ใหม่ทุกชิ้น และเรียก registerBlobUrl จาก blobUrls.ts ทุก URL ที่สร้าง ตรวจว่า releaseAllBlobUrls ตอนปิดแท็บ revoke ได้ครบ",
+        "เกิน cap แล้ว eviction ทำงานจริง จำนวน record ใน store ไม่โตเกิน cap ตรวจผ่าน devtools Application tab",
+        "item ที่ favorite ไม่ถูก evict ตราบใดที่ยังมี item ที่ไม่ favorite ให้ตัด",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/galleryStore.ts",
+        "src/lib/actions.ts"
+      ],
+      "handoffFromT6": [
+        "API: isGalleryPersistEnabled/setGalleryPersistEnabled(off=wipes immediately)/saveItem/loadItems/setFavorite/deleteItem/clearMode/clearAllPersistedItems/evictIfNeeded/getGalleryUsage",
+        "loadItems() already creates object URLs — YOU must call registerBlobUrl(item.id, item.url) or they never get revoked",
+        "rehydrate must bump s.seq past restored ids (pattern at actions.ts:249) because store.ts:445 resets seq to 0 each reload",
+        "INTEGRATION GAP found by Loop Controller: galleryStore.ts:266 hardcodes favorite:false on save and does NOT read item.favorite, which DOES exist on GenItem now (added by T12/Aom). Left as-is it means: user stars an item -> persisted as false -> eviction discards the pinned item. T8 must wire GenItem.favorite -> PersistedGenItem.favorite on save, and call setFavorite() when the user toggles a persisted item.",
+        "saveItem is a no-op when opt-in is off or item is not done; it never throws"
+      ]
+    },
+    {
+      "id": "T9",
+      "featureId": "F2",
+      "title": "boot restore + opt-in toggle + ปุ่มล้างข้อมูลที่เก็บไว้",
+      "layer": "ui",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T8"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "feature เป็น opt-in ค่าเริ่มต้นปิด ผู้ใช้ที่ไม่เคยเปิดต้องไม่มีอะไรถูกเขียนลง IndexedDB เลย ตรวจใน Application tab ว่า store ว่าง",
+        "เปิด toggle แล้วสร้างรูป ปิดแท็บ เปิดใหม่ รูปยังอยู่ใน gallery และเปิด lightbox ดูได้จริง",
+        "มีปุ่มล้างข้อมูลที่เก็บไว้ทั้งหมด กดแล้ว store ว่างจริงและ gallery ปัจจุบันไม่พัง",
+        "restore ตอน boot ต้องไม่ชนกับ reconcilePendingJobs ที่ actions.ts:215 ทดสอบเคสที่มีทั้ง job ค้างและ item ที่ persist ไว้พร้อมกัน ต้องไม่มี item id ซ้ำใน gallery",
+        "ห้ามแตะ Sidebar.tsx และ KeyModal.tsx ตรวจด้วย git diff --stat",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/pages/StudioApp.tsx",
+        "src/lib/store.ts",
+        "src/components/Header.tsx"
+      ]
+    },
+    {
+      "id": "T10",
+      "featureId": "F2",
+      "title": "QA — persistence รอด reload จริงและ eviction ไม่กินของที่ favorite",
+      "layer": "infra",
+      "assignee": "แพร (Prae) — QA Lead",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T9",
+        "T14"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": true,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "สร้างรูป 5 ชิ้น reload แล้วยังครบ 5 ชิ้นและกดดาวน์โหลดได้จริง",
+        "สร้างวิดีโอ 1 ชิ้น reload แล้ว video element เล่นได้จริง ไม่ใช่ blob URL ที่ตายแล้ว",
+        "ยิงจนเกิน cap แล้วตรวจว่า record ไม่โตเกิน cap และ item ที่ favorite ยังอยู่ครบ",
+        "ปิด toggle แล้วล้างข้อมูล ตรวจว่า IndexedDB store ว่างจริงใน Application tab",
+        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน"
+      ],
+      "filesLikelyTouched": []
+    },
+    {
+      "id": "T11",
+      "featureId": "F2",
+      "title": "Security review — ไม่มี secret หรือภาพ ref หลุดลงดิสก์ถาวร (blocking)",
+      "layer": "infra",
+      "assignee": "โบว์ (Bow) — Security & Dependency Auditor",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T10"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "dump record จริงจาก IndexedDB แล้วยืนยันว่าไม่มีฟิลด์ refs ไม่มี apiKey ไม่มี jobId",
+        "ยืนยันว่า opt-in default เป็นปิดจริงในโค้ด ไม่ใช่แค่ใน UI",
+        "ยืนยันว่าปุ่มล้างข้อมูลลบครบทั้ง record และ blob ไม่เหลือ orphan",
+        "ให้ verdict blocking หรือ pass พร้อมไฟล์:บรรทัดถ้า blocking"
+      ],
+      "filesLikelyTouched": []
+    },
+    {
+      "id": "T12",
+      "featureId": "F3",
+      "title": "filter toolbar + ปุ่ม favorite บนการ์ด (UI)",
+      "layer": "ui",
+      "assignee": "ออม (Aom) — Frontend UI Engineer",
+      "chainDepth": "lite",
+      "dependsOn": [],
+      "securitySensitive": false,
+      "perfSensitive": true,
+      "status": "done",
+      "acceptanceCriteria": [
+        "มีแถบ filter เหนือ VirtualGrid ใน Gallery() ประกอบด้วยช่องค้นหา prompt, chip กรองตามสถานะ done/error/loading, chip favorite only และตัวเลือกเรียงใหม่สุด/เก่าสุด",
+        "ปุ่ม favorite อยู่บนการ์ดและสถานะ on/off ต่างกันชัดเจนด้วยสีหรือไอคอนที่ต่างกัน ไม่ใช่แค่ opacity",
+        "ใช้ utility จาก theme เดิมเท่านั้น เช่น bg-surface text-text-dim border-border-strong ห้าม hardcode hex สี",
+        "แถบ filter ไม่ scroll หายไปพร้อม grid ตรวจโดย scroll ลงแล้วแถบยังอยู่",
+        "git diff --stat ต้องไม่มี Sidebar.tsx และไม่มี KeyModal.tsx",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/components/Gallery.tsx",
+        "src/lib/types.ts"
+      ],
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "Filter toolbar (search/status chips/fav chip/sort) + favorite button on Card + favorite?:boolean in GenItem. openFiltered() closes lightbox index seam. build pass, 2 files, protected zones untouched."
+    },
+    {
+      "id": "T13",
+      "featureId": "F3",
+      "title": "derived filtered list + แก้ index mapping ของ lightbox + wire resetModeGallery",
+      "layer": "logic",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "lite",
+      "dependsOn": [
+        "T12"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": true,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "รายการที่ส่งเข้า VirtualGrid เป็น useMemo ที่ dep ครบ ไม่คำนวณใหม่ทุก render ตอน filter ไม่เปลี่ยน",
+        "เปิด lightbox จากการ์ดขณะ filter เปิดอยู่ ต้องเปิดรูปที่คลิกจริง ไม่ใช่รูปอื่น และปุ่มถัดไป/ก่อนหน้าเดินอยู่ในชุดที่กรองแล้วเท่านั้น",
+        "toggleFavorite ผ่าน mutate() เสมอ ไม่มีการแก้ state ตรงๆ โดยไม่เรียก mutate",
+        "resetModeGallery ถูกเรียกจากปุ่มใน UI จริง ตรวจด้วย grep resetModeGallery ต้องเจอมากกว่า 1 จุด และปุ่มนี้ข้าม item ที่ favorite",
+        "ล้าง gallery แล้ว blob URL ถูก revoke ตรวจว่า item ที่ favorite ยังเล่นวิดีโอได้อยู่",
+        "filter ไม่ทำให้ virtualization พัง ตรวจ dev readout ว่า mounted ยังน้อยกว่า total ตอนมี item เยอะ",
+        "ห้ามแตะ useEffect scrollToRow บรรทัดราว 766-773 และห้ามแตะ Card หรือ useGalleryFocus",
+        "npm run build ผ่าน",
+        "กด Enter บนการ์ดขณะ filter เปิดอยู่ (roving tabindex path ที่ useGalleryFocus.onEnterKey — Gallery.tsx:154) ต้องเปิดรูปที่โฟกัสจริง ไม่ใช่รูปอื่น และต้องแก้โดยไม่แก้ internals ของ useGalleryFocus",
+        "favorite ต้อง persist ข้าม reload — กดดาวแล้ว reload ต้องยังติดดาวอยู่ และ session snapshot ต้องพา favorite ไปด้วย โดยอ่านแบบ !!item.favorite ทุกจุด (snapshot เก่าไม่มีฟิลด์นี้ต้องไม่พัง)"
+      ],
+      "filesLikelyTouched": [
+        "src/components/Gallery.tsx",
+        "src/lib/actions.ts"
+      ],
+      "handoffFromT12": [
+        "filter state = local useState in Gallery(): query, statusFilter, favOnly, sortOrder + resetFilters(); reset on mode switch via effect [s.mode]",
+        "SEAM STILL OPEN: useGalleryFocus.onEnterKey at Gallery.tsx:154 calls openLightbox(index) directly — with filters active this opens the WRONG image. Must route through the same visibleIndex->id->realIndex mapper as openFiltered. useGalleryFocus is a11y-branch territory: prefer passing a mapper as prop over editing the hook internals.",
+        "favorite is NOT persisted yet and NOT in session snapshot — user stars an item, reloads, it is gone. Looks like a bug to the user. T13 must persist it.",
+        "favorite is optional by design: always read as !!item.favorite; old snapshots lack the field",
+        "ms.selected keys on id (not index) so it is already filter-safe"
+      ],
+      "scopeNote": "AC 2 ข้อท้ายเพิ่มโดย Loop Controller หลัง T12 — ออม (T12) flag ไว้ว่าเป็น seam ที่ยังเปิดค้างและ verify แล้วว่าเป็นของจริง"
+    },
+    {
+      "id": "T14",
+      "featureId": "F3",
+      "title": "QA — filter, favorite, lightbox index และ virtualization",
+      "layer": "infra",
+      "assignee": "แพร (Prae) — QA Lead",
+      "chainDepth": "lite",
+      "dependsOn": [
+        "T13"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": true,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "สร้าง item อย่างน้อย 12 ชิ้น กรองด้วยคำค้น แล้วคลิกการ์ดที่ 3 ของผลลัพธ์ ต้องเปิดรูปที่ 3 ของผลลัพธ์นั้นจริง",
+        "กด favorite แล้วเปิด chip favorite only เห็นเฉพาะที่กดไว้",
+        "กดล้าง gallery แล้ว item ที่ favorite ยังอยู่ครบ",
+        "ตรวจ dev readout ว่า mounted น้อยกว่า total ตอนกรองแล้วยังมีผลลัพธ์เยอะ",
+        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน"
+      ],
+      "filesLikelyTouched": []
+    },
+    {
+      "id": "T15",
+      "featureId": "F4",
+      "title": "contract ของ SpendLedger + นิยามจุด gate ใน generate()",
+      "layer": "api",
+      "assignee": "นุ่น (Noon) — API Contract Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T2"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "types.ts มี interface SpendLedger ที่มีอย่างน้อย ยอดสะสม, เวลาที่เริ่มนับ, และเพดานที่ผู้ใช้ตั้ง",
+        "ระบุเป็นลายลักษณ์อักษรว่า gate แทรกที่บรรทัดไหนของ generate() และต้องอยู่หลัง refImageMissing check แต่ก่อน mutate ที่สร้าง item เพื่อไม่ให้มี item ค้างใน gallery ตอนผู้ใช้กดยกเลิกที่ modal",
+        "ระบุว่า gate ต้องไม่ซ้อนกับ BakeOffConfirmModal เดิม path Bake-off ผ่าน modal เดียวไม่ใช่สองชั้น",
+        "ยืนยันว่าจุดที่เลือกไม่ทับกับบรรทัดที่ T2 แก้ อ้างเลขบรรทัดจริงหลัง T2 merge แล้ว",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/types.ts"
+      ]
+    },
+    {
+      "id": "T16",
+      "featureId": "F4",
+      "title": "logic สะสมยอดข้ามโหมด + ตรวจเพดานก่อนยิง",
+      "layer": "logic",
+      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T15"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "มีฟังก์ชันคำนวณยอดสะสมข้ามทั้ง 5 โหมดโดยใช้ computeItemCost เดิม ไม่เขียนสูตรราคาใหม่ซ้ำ",
+        "item ที่ราคาคำนวณไม่ได้ต้องถูกนับเป็นไม่ทราบราคา ไม่ใช่นับเป็น 0 เงียบๆ และตัวเลขที่แสดงต้องมีเครื่องหมายบอกว่าไม่ครบ",
+        "ยอดสะสมและเพดาน persist ผ่าน writeLocalStorage จาก store.ts เท่านั้น ไม่เรียก localStorage.setItem ตรงๆ เพื่อให้ได้ quota handling เดิม",
+        "คีย์ที่ใช้ขึ้นต้นด้วย atelier_ เพื่อให้ estimateAtelierStorageBytes และปุ่มล้างใน storage breakdown มองเห็น",
+        "ประเมินราคา batch ที่กำลังจะยิงแล้วเทียบเพดาน คืนผลว่าต้องถามหรือไม่ต้องถาม",
+        "เพดานเป็น 0 หรือไม่ได้ตั้ง แปลว่าปิด feature ไม่ถามเลย",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/actions.ts",
+        "src/lib/store.ts",
+        "src/lib/constants.ts"
+      ]
+    },
+    {
+      "id": "T17",
+      "featureId": "F4",
+      "title": "modal ยืนยันงบ + badge ยอดสะสมบน Header",
+      "layer": "ui",
+      "assignee": "ออม (Aom) — Frontend UI Engineer",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T16"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "modal ใหม่แยกไฟล์ ไม่แก้ BakeOffConfirmModal.tsx เดิม ตรวจด้วย git diff --stat",
+        "modal แสดงยอดที่กำลังจะจ่าย ยอดสะสมปัจจุบัน และเพดานที่ตั้งไว้ ครบทั้ง 3 ตัวเลข",
+        "กดยกเลิกที่ modal แล้วต้องไม่มี item ใหม่โผล่ใน gallery เลย และไม่มี request ยิงออก",
+        "Header แสดงยอดสะสมข้ามโหมดและกดเข้าไปตั้งเพดานได้",
+        "ห้ามแตะ Sidebar.tsx และ SettingsModal.tsx ตรวจด้วย git diff --stat",
+        "เรียก toast(msg) แบบ 1 argument เท่านั้น",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/components/SpendGuardModal.tsx",
+        "src/components/Header.tsx",
+        "src/pages/StudioApp.tsx"
+      ]
+    },
+    {
+      "id": "T18",
+      "featureId": "F4",
+      "title": "QA — gate ทำงานถูกจังหวะและไม่ถามซ้ำซ้อนกับ Bake-off",
+      "layer": "infra",
+      "assignee": "แพร (Prae) — QA Lead",
+      "chainDepth": "full",
+      "dependsOn": [
+        "T17"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "not_started",
+      "acceptanceCriteria": [
+        "ตั้งเพดานต่ำมากแล้วกด generate ต้องเด้ง modal และกดยกเลิกแล้ว gallery ไม่มี item ใหม่",
+        "กดยืนยันแล้วงานยิงจริงและยอดสะสมเพิ่มขึ้นตามจำนวนที่สร้างเสร็จ",
+        "เปิด Bake-off แล้วกด generate ต้องเห็น modal ยืนยันชั้นเดียวเท่านั้น ไม่ใช่สองชั้นซ้อน",
+        "ตั้งเพดานเป็น 0 แล้วกด generate ต้องไม่ถามเลย",
+        "reload แล้วยอดสะสมยังอยู่",
+        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน"
+      ],
+      "filesLikelyTouched": []
+    },
+    {
+      "id": "T19",
+      "featureId": "F1",
+      "title": "ปิดบั๊ก notify batch ค้างถาวรเมื่อมี item ถูก cancel",
+      "layer": "logic",
+      "assignee": "เจน (Jane) — Backend Endpoint Engineer",
+      "chainDepth": "lite",
+      "dependsOn": [
+        "T2"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "not_started",
+      "origin": "พบโดยมายด์ลิน (T2) ระหว่างทำ semaphore — verified by Loop Controller ที่ notify.ts:140",
+      "problem": "beginNotifyBatch(batch.length) ล็อก total ตั้งแต่ต้น แต่ cancelled path ไม่เรียก notifyJobSettled (ถูกตามกฎ contract ข้อ 4) ทำให้ settled ไม่มีวันถึง total -> entry ค้างใน batches ถาวร และ batch นั้นไม่ยิงสรุปตอนจบ (ยกเลิก 1 คลิปจาก 5 = อีก 4 คลิปเสร็จแล้วเงียบ)",
+      "acceptanceCriteria": [
+        "notify.ts มี API ลด total ของ batch (เช่น dropFromNotifyBatch(batchId)) และ cancelled path เรียกใช้",
+        "ยกเลิก 1 ชิ้นจาก batch 5 ชิ้น แล้วอีก 4 ชิ้นเสร็จ ต้องยังยิงสรุปตอนจบจริง",
+        "item ที่ถูก cancel ต้องไม่ถูกนับเป็น failed และต้องไม่เด้ง notification งานล้มเหลว",
+        "batches map ต้องไม่มี entry ค้างหลัง batch จบ",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/notify.ts",
+        "src/lib/actions.ts"
+      ]
+    }
+  ],
+  "meta": {
+    "totalTasks": 19,
+    "notStarted": 14,
+    "inProgress": 1,
+    "done": 4
+  }
+}

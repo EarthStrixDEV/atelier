@@ -1,5 +1,32 @@
 export type Mode = "home" | "infographic" | "video" | "cinematic" | "audio";
-export type GenStatus = "loading" | "done" | "error";
+/**
+ * สถานะของ GenItem หนึ่งชิ้น — F1 Request Governor เพิ่ม "cancelled" เข้ามาเป็นค่าที่ 4
+ *
+ * ทำไมถึงเพิ่มค่าเข้า union ตรงๆ แทนที่จะใช้ฟิลด์แยกล้วนๆ (เช่น เก็บ status = "error" แล้วดูที่ cancelledAt):
+ * - ทั้งโค้ดเบสไม่มี `switch (item.status)` และไม่มี exhaustive-check helper เลยสักที่ — ที่ใช้ status
+ *   ทุกจุดเป็น `===` / `!==` เทียบค่าเดียว (Gallery.tsx, Sidebar.tsx, PromptComposer.tsx, actions.ts, notify.ts)
+ *   การเพิ่มค่าเข้า union จึงไม่ทำให้ tsc พังแม้แต่จุดเดียว (ดู Impact ใน commit ของ T1)
+ * - ถ้าใช้ status = "error" แทน งานที่ผู้ใช้ตั้งใจยกเลิกเองจะถูกนับเป็น fail ใน recordModelStat()
+ *   (actions.ts:1028) และเด้ง desktop notification "งานล้มเหลว" (notify.ts:130) ทั้งที่ไม่ใช่ความผิดพลาด
+ *   — เป็นการโกหกผู้ใช้และทำให้สถิติโมเดลเพี้ยน
+ * - แลกมาด้วยข้อบังคับว่า **โค้ดเดิมทุกจุดที่ทำ `status !== "done"` ยังถูกต้องอยู่** (cancelled ไม่ใช่ done)
+ *   ส่วนจุดที่ทำ `status === "error"` จะ "ไม่ match" item ที่ cancelled — ซึ่งเป็นพฤติกรรมที่ต้องการ
+ *   (ไม่โชว์ error card สีแดง + ปุ่ม "ลองใหม่" แบบ error จริง) ผู้ implement (T2) ต้องเพิ่ม branch
+ *   `status === "cancelled"` ใน Gallery Card เองเพื่อโชว์ UI ยกเลิก + ปุ่มสร้างใหม่
+ */
+export type GenStatus = "loading" | "done" | "error" | "cancelled";
+
+/**
+ * เหตุผลที่งานถูกยกเลิก — แยก "ผู้ใช้กดเอง" ออกจาก "ระบบสั่งปิด" เพราะสอง path นี้ปฏิบัติต่างกัน:
+ * user-cancel ต้องโชว์ผลชัดเจนใน UI ว่าถูกยกเลิก ส่วน shutdown เกิดตอนหน้ากำลังจะหายไปอยู่แล้ว
+ * จึงไม่ต้อง toast/notify ซ้ำ และไม่ควรนับเป็นสถิติอะไรทั้งนั้น
+ *
+ * - "user"     — ผู้ใช้กดปุ่มยกเลิกของ item ชิ้นนั้นโดยตรง
+ * - "user-all" — ผู้ใช้กด "ยกเลิกทั้งหมด" (ยกเลิกทุกงานที่ยัง loading ในโหมดปัจจุบัน + ล้างคิวที่ยังไม่ได้ยิง)
+ * - "shutdown" — หน้าเว็บกำลังปิด/reload (beforeunload/pagehide) หรือ governor ถูก dispose
+ *                ห้าม toast, ห้าม fireNotification, ห้าม recordModelStat ในเคสนี้
+ */
+export type CancelReason = "user" | "user-all" | "shutdown";
 export type ImgFormat = "png" | "jpg";
 export type PromptPlacement = "sidebar" | "center";
 
@@ -65,7 +92,83 @@ export interface GenItem {
    * (Date.now() ตอนกดยืนยัน) ใช้จัดกลุ่ม/แสดง badge ใน Gallery — undefined = generate ปกติ ไม่เกี่ยวกับ Bake-off
    */
   bakeOffGroupId?: number;
+  /**
+   * เหตุผลที่งานชิ้นนี้ถูกยกเลิก (F1 Request Governor) — undefined = ไม่เคยถูกยกเลิก
+   * เซ็ตคู่กับ status = "cancelled" เสมอ: มี cancelReason แต่ status ไม่ใช่ "cancelled" ถือว่าเป็นบั๊ก
+   * item ที่ถูกยกเลิกแล้วนำไปกด "สร้างใหม่" ต้องเคลียร์ทั้ง cancelReason และ cancelledAt ทิ้งพร้อมกัน
+   */
+  cancelReason?: CancelReason;
+  /** Date.now() ตอนที่ยกเลิกสำเร็จ — undefined = ไม่เคยถูกยกเลิก ใช้โชว์เวลาใน UI และเรียงลำดับ */
+  cancelledAt?: number;
+  /**
+   * ผู้ใช้กดดาวไว้ (F3 Gallery Filter & Favorites) — undefined/false = ยังไม่ได้กด
+   * เป็น optional เพราะ item ที่สร้างก่อนฟีเจอร์นี้ (และ session snapshot เก่า) ไม่มีฟิลด์นี้
+   * ทุกจุดที่อ่านต้องเช็คแบบ truthy (`!!item.favorite`) ห้ามสมมติว่ามีค่าเสมอ
+   */
+  favorite?: boolean;
 }
+
+/* ============================================================================
+ * F1 — Request Governor: cap + cancel  (contract ที่ตกลงไว้กับ T2/implementation)
+ * ระดับ type ล้วน ไม่มี logic ในไฟล์นี้ — actions.ts เป็นคนทำจริง
+ * ========================================================================== */
+
+/**
+ * เพดานจำนวน request ที่ยิงพร้อมกันได้จริง (in-flight) ต่อทั้งแอป ไม่ใช่ต่อโหมด
+ *
+ * ปัญหาเดิม: actions.ts:881 (generate) และ :986 (runBakeOff) ทำ `batch.forEach(item => runRequest(item))`
+ * ยิงทั้ง batch พร้อมกันหมดไม่มี cap — worst case MAX_QUEUE(5) × COUNTS สูงสุด(6) = 30 fetch พร้อมกัน
+ * เกิน connection limit ของ browser (~6 ต่อ origin) → request ที่เหลือค้างคิวใน browser โดยที่ผู้ใช้
+ * ไม่เห็นความคืบหน้าอะไรเลย และยกเลิกไม่ได้
+ *
+ * ค่านี้เป็น "จำนวน slot" ของ governor: งานที่เกิน slot ต้องรอในคิวของ governor เอง (สถานะยัง "loading"
+ * ในสายตาผู้ใช้) แล้วค่อยถูกปล่อยยิงเมื่อมี slot ว่าง — งานที่ยังไม่ได้ยิงจริงตอนถูกยกเลิก ต้องหลุดจากคิว
+ * โดย **ไม่ต้องมี fetch เกิดขึ้นเลย** และไม่เสียเงิน
+ *
+ * >> ตัวค่าคงที่ย้ายไปอยู่ที่ `MAX_CONCURRENT_REQUESTS` ใน constants.ts แล้ว (T2) — ประกาศไว้ที่นั่นที่เดียว
+ *    เพราะ constants.ts import จาก types.ts อยู่แล้ว การ re-export กลับจะกลายเป็น import cycle
+ *    ไฟล์นี้เหลือไว้เฉพาะเหตุผลเชิง contract ส่วนค่าจริงอ่านจาก constants.ts
+ */
+
+/**
+ * signature ที่ตกลงกันแล้วของ request layer ใน actions.ts — ทั้ง 4 ตัวรับ `signal: AbortSignal`
+ * **ตัวเดียวกัน** ที่ runRequest ได้รับมา (ไม่มีใครสร้าง AbortController ของตัวเองข้างใน):
+ *
+ *   async function runRequest(item: GenItem, batchId?: number | null, signal?: AbortSignal): Promise<void>
+ *   async function requestVideo(item: GenItem, signal: AbortSignal): Promise<string>
+ *   async function requestAudio(item: GenItem, signal: AbortSignal): Promise<string>
+ *   async function requestViaImageAPI(item: GenItem, signal: AbortSignal): Promise<string>
+ *   async function requestViaChat(item: GenItem, signal: AbortSignal): Promise<string>
+ *
+ * กฎการใช้ signal:
+ * 1. ทุก `fetch(...)` ในสี่ฟังก์ชันนั้นต้องส่ง `{ signal }` เข้าไปด้วย — รวมถึง fetch ที่โหลดไฟล์วิดีโอ
+ *    จาก unsigned_urls[0] และ streaming fetch ของ requestAudio (ต้องหยุดอ่าน reader เมื่อ abort ด้วย)
+ * 2. `sleep()` ระหว่าง poll วิดีโอต้องยกเลิกได้เช่นกัน ไม่งั้นการยกเลิกจะช้าได้ถึง VIDEO_POLL_MS_MAX (~20s)
+ *    ให้ใช้ helper ที่ reject/resolve ทันทีเมื่อ signal abort แทน setTimeout เปล่าๆ
+ * 3. runRequest เป็นคนเดียวที่แปลง abort → state: จับ error ที่ `signal.aborted === true` แล้วเซ็ต
+ *    status = "cancelled" + cancelReason + cancelledAt — **ไม่ใช่** status = "error"
+ * 4. path ที่ถูก cancel ต้อง **ไม่** เรียก recordModelStat() (actions.ts:1028), **ไม่** เรียก autoSaveItem(),
+ *    และ **ไม่** เรียก notifyJobSettled() — งานที่ผู้ใช้ยกเลิกเองไม่ใช่ทั้งความสำเร็จและความล้มเหลวของโมเดล
+ * 5. `signal` เป็น optional บน runRequest เพราะ caller เดิมที่ยิงงานเดี่ยว (retry, regenerate, auto-extend,
+ *    resume จาก pending-job ledger) ยังเรียกแบบไม่ส่ง signal ได้ระหว่าง migrate — แต่ path หลัก
+ *    (generate / runBakeOff) ต้องส่งเสมอ
+ *
+ * ---------------------------------------------------------------------------
+ * INVARIANT (บังคับ ห้ามละเมิด) — abort ระหว่าง poll วิดีโอต้องคง item.jobId ไว้เสมอ
+ * ---------------------------------------------------------------------------
+ * ใน `requestVideo` (actions.ts:1177) มีสามจุดที่เซ็ต `item.jobId = null` ตั้งใจไว้แล้ว คือ
+ * poll ตอบ 4xx, response ที่ completed แต่ไม่มีไฟล์, และ job status = "failed" — ทั้งสามจุดคือ
+ * "งานนี้ตายแล้ว ไม่มีอะไรให้ resume"
+ *
+ * การยกเลิกโดยผู้ใช้ **ไม่ใช่** กรณีเหล่านั้น: job ยัง live อยู่ฝั่ง OpenRouter และ**จ่ายเงินไปแล้ว**
+ * ดังนั้นเมื่อ abort เกิดขึ้นระหว่าง poll loop:
+ *   - ห้ามเซ็ต item.jobId = null เด็ดขาด — ต้องคงค่าเดิมไว้
+ *   - ห้ามลบ entry ออกจาก pending-job ledger (removePendingJob ใน runRequest:1032 ทำเฉพาะ done
+ *     กับ error-ที่ไม่มี jobId เท่านั้น เงื่อนไขนั้นต้องไม่ถูกขยายให้ครอบ cancelled)
+ * เพราะ jobId ที่คงไว้คือสิ่งเดียวที่ทำให้ผู้ใช้กด "ลองใหม่" แล้ว resume งานเดิมต่อได้โดยไม่จ่ายซ้ำ
+ * (ตรรกะ resume คือ `let resumed = !!item.jobId` ที่ต้นฟังก์ชัน requestVideo) — ถ้าเผลอเซ็ต null
+ * ผู้ใช้จะถูกเรียกเก็บเงินรอบสองสำหรับวิดีโอชิ้นเดิม
+ * ========================================================================== */
 
 export interface QueueJob {
   prompt: string;
@@ -324,3 +427,37 @@ export interface AppState {
    */
   userExtraModels: ORModel[];
 }
+
+
+/* ============================================================================
+ * F2 — Gallery Persistence: contract ของ record ที่เขียนลงดิสก์
+ * ========================================================================== */
+
+/**
+ * === ที่ตั้งของ contract: ประกาศจริงอยู่ที่ `lib/galleryStore.ts` ไฟล์นี้ re-export ให้เท่านั้น ===
+ *
+ * ทำไมไม่ย้ายตัว interface มาไว้ที่นี่ทั้งก้อน:
+ *  1. `PersistedGenItem` เป็น **allowlist ที่ต้องอ่านคู่กับโค้ดที่บังคับใช้มัน** — เหตุผลรายฟิลด์ว่าทำไม
+ *     `refs`/`jobId`/`errMsg` ห้ามลงดิสก์อยู่ในหัวไฟล์ galleryStore.ts ส่วน `favorite` มีความหมายก็ต่อเมื่อ
+ *     อ่าน EVICTION POLICY ที่อยู่ไฟล์เดียวกัน ถ้าย้าย type มาที่นี่ เหตุผลจะอยู่คนละไฟล์กับนิยาม
+ *     แล้วมันจะ drift — ซึ่งเกิดขึ้นมาแล้วจริงรอบนี้ (comment บอกว่า GenItem ไม่มี favorite ทั้งที่มี)
+ *  2. `types.ts` เป็น leaf module ที่ไม่ import อะไรเลย ส่วน `PersistedGenItem` ต้องอ้าง `Blob`
+ *     และผูกกับ `PERSISTED_ITEM_VERSION` + `migrateRecord()` ที่เป็น runtime ทั้งคู่ ย้าย type มาแต่ทิ้ง
+ *     version/migration ไว้อีกไฟล์ = แตกเป็นสองแหล่งความจริงพอดี
+ *  3. re-export แบบ `export type` ถูก erase ทิ้งตอน compile (isolatedModules) — ไม่เกิด import cycle
+ *     ระหว่าง types.ts ↔ galleryStore.ts ตอน runtime แม้แต่นิดเดียว
+ *
+ * สรุปสิ่งที่ contract รับประกัน (รายละเอียดเต็มอยู่ที่ galleryStore.ts):
+ *  - เป็น allowlist ระบุฟิลด์ครบทีละตัว **ไม่ใช่** `Partial<GenItem>` / `Omit<GenItem, …>` — ฟิลด์ใหม่
+ *    ที่เพิ่มใน GenItem จะไม่ไหลลงดิสก์เองโดยบังเอิญ ต้องมาเพิ่มที่นี่ด้วยมือ
+ *  - **ไม่มี `refs`** — เป็น data URL ของรูปที่ผู้ใช้อัปโหลดเอง (ข้อมูลส่วนตัว ไม่ใช่ผลลัพธ์ที่จ่ายเงินซื้อ)
+ *    และก้อนใหญ่พอจะกิน quota จนเบียดผลลัพธ์จริงออก
+ *  - **ไม่มี `jobId`** — เป็น handle ที่ผูกกับ session/งานฝั่ง OpenRouter งานที่ค้างมี PENDING_JOBS_KEY
+ *    ดูแลแยกอยู่แล้ว ส่วน item ที่ done แล้วไม่ต้อง resume อีก เก็บไว้ก็เป็นแค่ข้อมูลตายที่รั่วได้
+ *  - `blob` เก็บเป็น **`Blob` object ตรงๆ ไม่ใช่ data URL string** — IndexedDB เก็บ Blob เป็น binary ได้
+ *    ส่วน data URL คือ base64 ที่พองขึ้น ~33% และต้อง encode/decode ทั้งก้อนทุกครั้งที่อ่าน/เขียน
+ *    วิดีโอชิ้นเดียวหลายสิบ MB จะกลายเป็น string ยักษ์ที่ค้างใน JS heap ระหว่างแปลง
+ *  - `version` อยู่ในตัว record (ไม่ใช่แค่ DB_VERSION ของ IndexedDB) เพื่อให้ migrate แบบ lazy per-record
+ *    ตอนอ่านได้ โดยไม่ต้องอ่าน Blob ทั้ง store ขึ้นมาแปลงตอนเปิด DB
+ */
+export type { PersistedGenItem, RestoredGenItem } from "./galleryStore";

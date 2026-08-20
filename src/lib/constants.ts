@@ -382,3 +382,40 @@ export function modeLabel(mode: Mode): string {
     : mode === "video" ? "Video"
     : mode === "infographic" ? "Infographic" : "General";
 }
+
+/* ============================================================================
+ * F1 — Request Governor
+ * ========================================================================== */
+
+/**
+ * เพดานจำนวน request ที่ยิงพร้อมกันได้จริง (in-flight) ต่อ "ทั้งแอป" ไม่ใช่ต่อ batch หรือต่อโหมด
+ *
+ * ปัญหาเดิม: generate() และ runBakeOff() ทำ `batch.forEach(item => runRequest(item))` ยิงทั้ง batch
+ * พร้อมกันหมดไม่มี cap — worst case MAX_QUEUE(5) × COUNTS สูงสุด(6) = 30 fetch พร้อมกัน เกิน connection
+ * limit ของ browser (~6 ต่อ origin) → request ที่เหลือค้างคิวใน browser โดยผู้ใช้ไม่เห็นความคืบหน้า
+ * และยกเลิกไม่ได้
+ *
+ * ค่านี้คือ "จำนวน slot" ของ governor (ดู scheduleRequest ใน actions.ts): งานที่เกิน slot รอในคิวของ
+ * governor เอง (สถานะยัง "loading" ในสายตาผู้ใช้) แล้วค่อยถูกปล่อยยิงเมื่อมี slot ว่าง — งานที่ยังไม่ได้
+ * ยิงจริงตอนถูกยกเลิก ต้องหลุดจากคิวโดย **ไม่มี fetch เกิดขึ้นเลย** และไม่เสียเงิน
+ *
+ * contract ระดับ type อยู่ใน types.ts (บล็อก "F1 — Request Governor") — ตัวค่าคงที่อยู่ที่นี่ที่เดียว
+ */
+export const MAX_CONCURRENT_REQUESTS = 4;
+
+// ---------- Gallery Persistence caps (F2/T6) ----------
+// โควตาของ IndexedDB store "atelier_gallery" (ดู lib/galleryStore.ts) — เป็น opt-in ปิดเป็นค่าเริ่มต้น
+// ตัวเลขตั้งจากโควตา origin ของ Chrome/Edge ที่ปกติให้ราวๆ 60% ของ free disk: เลือกเพดานที่กินพื้นที่
+// พอประมาณโดยไม่ต้องไปแตะขอบโควตาจริง แล้วปล่อยให้ eviction เป็นตัวคุมแทนการ prompt ผู้ใช้ทุกครั้ง
+
+/** จำนวนผลลัพธ์สูงสุดที่เก็บไว้ต่อหนึ่งโหมด — เกินแล้ว evict ตามนโยบายใน galleryStore.ts */
+export const GALLERY_MAX_ITEMS_PER_MODE = 60;
+
+/** ขนาดรวมสูงสุดของผลลัพธ์ที่เก็บไว้ทุกโหมดรวมกัน — 500 MB */
+export const GALLERY_MAX_TOTAL_BYTES = 500 * 1024 * 1024;
+
+/**
+ * ขนาดสูงสุดต่อชิ้น — 80 MB ครอบคลุมคลิป 720p ~10 วิ และภาพความละเอียดสูงได้สบาย
+ * ชิ้นที่ใหญ่กว่านี้ข้ามไปเลย (ไม่เก็บ) เพราะจะไปเบียด item อื่นออกทั้งชุดตอน evict
+ */
+export const GALLERY_MAX_ITEM_BYTES = 80 * 1024 * 1024;

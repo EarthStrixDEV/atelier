@@ -19,6 +19,12 @@ const QUEUE_NONEMPTY_KEY = "atelier_queue_nonempty_modes";
 export const SESSION_SNAPSHOT_KEY = "atelier_session_snapshot";
 /** ประวัติ export (label/filename/timestamp/summary เท่านั้น — ไม่มี payload จริง) โชว์ใต้ปุ่ม Export ใน Header */
 export const EXPORT_LOG_KEY = "atelier_export_log";
+/**
+ * รายการโปรด (F3) — เก็บเป็น "ลายนิ้วมือของคำสั่งสร้าง" ต่อโหมด ไม่ใช่ GenItem.id
+ * เพราะ id มาจาก `++s.seq` ที่รีเซ็ตเป็น 0 ทุก reload (ดู `seq: 0` ในไฟล์นี้ และ actions.ts ที่ต้อง bump seq
+ * กัน id ชนตอน resume job) — เก็บ id ไว้แล้วโหลดกลับมาจะไปติดดาวให้ item ใหม่ที่ไม่เกี่ยวกันเลย
+ */
+const FAVORITES_KEY_PREFIX = "atelier_favorites_";
 /** prefix ของทุก key ที่แอปนี้เขียนลง localStorage — ใช้คำนวณขนาดรวมในหน้า Advanced ของ KeyModal */
 export const STORAGE_KEY_PREFIX = "atelier_";
 
@@ -70,6 +76,7 @@ function labelForStorageKey(key: string): string {
   if (key === QUEUE_NONEMPTY_KEY) return "flag คิวค้างตอนปิดแท็บ";
   if (key === SESSION_SNAPSHOT_KEY) return "บันทึกเซสชันอัตโนมัติ";
   if (key === EXPORT_LOG_KEY) return "ประวัติ Export";
+  if (key.startsWith(FAVORITES_KEY_PREFIX)) return `รายการโปรดในแกลเลอรี — ${modeLabel(key.slice(FAVORITES_KEY_PREFIX.length) as Mode)}`;
   if (key === ASSIST_MODEL_KEY) return "โมเดลผู้ช่วย AI ที่เลือกไว้";
   if (key === USER_EXTRA_MODELS_KEY) return "โมเดลที่เพิ่มเอง";
   if (key === NOTIFY_PERMISSION_ASKED_KEY) return "flag เคยขอสิทธิ์ Notification";
@@ -400,6 +407,39 @@ export function clearExportLog() {
   try {
     localStorage.removeItem(EXPORT_LOG_KEY);
   } catch { /* best-effort เท่านั้น */ }
+}
+
+// ---------- favorites (F3) ----------
+// ทำไมไม่เก็บ id: `state.seq` เริ่มที่ 0 ใหม่ทุก reload (ดู initial state ท้ายไฟล์นี้) ดังนั้น GenItem.id
+// ของ session ก่อนหน้าจะไปทับ id ของ item ที่เพิ่งสร้างใหม่ในเซสชันนี้ — กลายเป็นดาวไปโผล่ผิดรูป
+// ซึ่งเป็นบั๊กที่หนักกว่า "ดาวหาย" เดิมเสียอีก (galleryStore.ts ก็สรุปเรื่องเดียวกันไว้ตอนออกแบบ primary key)
+// จึงเก็บ "ลายนิ้วมือ" ที่ derive จากเนื้อของคำสั่งสร้างแทน: item ที่ผู้ใช้เห็นว่า "รูปเดียวกัน" คือ item ที่มาจาก
+// prompt/model/ratio/duration/audio ชุดเดียวกัน — ค่าเหล่านี้อยู่ใน session snapshot/F2 record และไม่ผูกกับ seq เลย
+// ทางเลือกอื่นที่ตัดทิ้ง: รอ F2 (IndexedDB) เก็บให้พร้อมตัว item — แต่ F2 เป็น opt-in ที่ default ปิด
+// ผู้ใช้ที่ไม่เปิดจะยังเสียดาวอยู่ดี ซึ่งขัดกับ requirement ว่าดาวต้องไม่หายแม้ไม่ได้เปิด F2
+const MAX_FAVORITES_PER_MODE = 300; // กัน localStorage บวมจาก session ที่สะสมมานาน — ตัดของเก่าสุดออกจากท้าย
+
+/** ลายนิ้วมือของ item — ต้องคำนวณจากฟิลด์ที่ "รอด" ข้าม reload เท่านั้น ห้ามใส่ id/url/startedAt ลงไป */
+export function favoriteKeyOf(item: { mode: Mode; prompt: string; model: string; ratio: string; duration: number; audio: boolean }): string {
+  return [item.mode, item.prompt, item.model, item.ratio, String(item.duration), item.audio ? "1" : "0"].join(" ");
+}
+
+export function loadFavorites(mode: Mode): string[] {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY_PREFIX + mode);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string").slice(0, MAX_FAVORITES_PER_MODE) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveFavorites(mode: Mode, keys: string[]) {
+  const trimmed = keys.slice(0, MAX_FAVORITES_PER_MODE);
+  if (trimmed.length) writeLocalStorage(FAVORITES_KEY_PREFIX + mode, JSON.stringify(trimmed));
+  else {
+    try { localStorage.removeItem(FAVORITES_KEY_PREFIX + mode); } catch { /* best-effort เท่านั้น */ }
+  }
 }
 
 function freshModeState(mode: Mode): ModeState {

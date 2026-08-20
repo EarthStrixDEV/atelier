@@ -2,7 +2,7 @@ import {
   ASSIST_RATE_LIMIT_BACKOFF_MS, ASSIST_RATE_LIMIT_RETRIES,
   AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
   BUILTIN_TEMPLATES, CHAT_MODEL, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
-  MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
+  MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_CONCURRENT_REQUESTS, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage,
   NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, PREFERRED,
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
@@ -15,12 +15,12 @@ import {
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
 import { beginNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
-  addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, loadPendingJobs,
-  loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
-  PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveHistory, saveSessionSnapshotRaw,
+  addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites,
+  loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
+  PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveSessionSnapshotRaw,
   saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
 } from "./store";
-import type { ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, StoryboardChain } from "./types";
+import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, StoryboardChain } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -265,12 +265,12 @@ export function reconcilePendingJobs() {
           refs: [],
           parentId: null,
         };
-        s.modes[entry.mode].images.unshift(item);
+        addToGallery(s, entry.mode, item);
       }
     });
     for (const { entry } of resumable) {
       const item = state.modes[entry.mode].images.find(x => x.id === entry.id);
-      if (item) runRequest(item);
+      if (item) void scheduleRequest(item);
     }
   }
 
@@ -746,7 +746,7 @@ export async function startFromItem(item: GenItem, targetMode: "video" | "cinema
       refs: [],
       parentId: null, // รากใหม่ของ chain เสมอ — ไม่ผูกกับ chain เดิมของ item ต้นทาง แม้ต้นทางจะมี parentId ของตัวเองอยู่แล้ว
     };
-    ts.images.unshift(rootItem);
+    addToGallery(s, targetMode, rootItem);
     if (frameDataUrl) ts.refs = [{ kind: "ref", dataUrl: frameDataUrl, name: "จาก " + modeLabel(item.mode) }];
     if (!ts.prompt.trim()) ts.prompt = item.prompt;
     if (targetModel) ts.modelId = targetModel.id;
@@ -798,17 +798,30 @@ export function reorderQueue(fromIndex: number, toIndex: number) {
 }
 
 /**
- * ล้าง gallery ของโหมดที่ระบุกลับสู่สถานะว่าง — revoke blob URL ของวิดีโอ/เพลงทุกชิ้นก่อนทิ้ง item
- * เพื่อไม่ให้ browser ถือ memory ของไฟล์เหล่านั้นค้างไว้ทั้งที่ไม่มีใครอ้างอิงแล้ว
+ * ล้าง gallery ของโหมดที่ระบุ — revoke blob URL ของวิดีโอ/เพลงเฉพาะชิ้นที่ถูกทิ้งจริง เพื่อไม่ให้ browser
+ * ถือ memory ของไฟล์เหล่านั้นค้างไว้ทั้งที่ไม่มีใครอ้างอิงแล้ว
+ *
+ * item ที่ผู้ใช้กดดาวไว้ถือว่า "ตั้งใจเก็บ" — คงไว้เสมอ และห้าม releaseBlobUrls ของชิ้นเหล่านั้นเด็ดขาด
+ * ไม่งั้น <video>/<audio> ของการ์ดที่ยังอยู่บนจอจะชี้ไปยัง blob URL ที่ถูก revoke ไปแล้ว (เล่นไม่ได้/จอดำ)
+ * คืนจำนวน item ที่ลบไปจริง เพื่อให้ caller รายงานผลให้ผู้ใช้ได้แม่นตรง
  */
-export function resetModeGallery(mode: Mode) {
+export function resetModeGallery(mode: Mode): number {
+  let removed = 0;
   mutate(s => {
     const ms = s.modes[mode];
-    for (const item of ms.images) releaseBlobUrls(item.id);
-    ms.images = [];
-    ms.selected = new Set();
+    const kept: GenItem[] = [];
+    for (const item of ms.images) {
+      if (item.favorite) { kept.push(item); continue; }
+      releaseBlobUrls(item.id);
+      removed++;
+    }
+    ms.images = kept;
+    // selected key ด้วย id — เหลือไว้เฉพาะ id ที่ยังมีตัวจริงอยู่ ไม่ใช่เคลียร์ทิ้งทั้งชุด
+    const keptIds = new Set(kept.map(x => x.id));
+    ms.selected = new Set([...ms.selected].filter(id => keptIds.has(id)));
     ms.lbIndex = -1;
   });
+  return removed;
 }
 
 // ---------- generation ----------
@@ -869,7 +882,7 @@ export function generate() {
           parentId,
           ...(job.negPrompt ? { negPrompt: job.negPrompt } : {}),
         };
-        s.modes[mode].images.unshift(item);
+        addToGallery(s, mode, item);
         batch.push(item);
       }
     }
@@ -878,7 +891,8 @@ export function generate() {
   // เฉพาะโหมด video/cinematic/audio เท่านั้นที่ runRequest เรียก notifyJobSettled — โหมดอื่นไม่ต้องเปิด batch เลย (กัน batch ค้างไม่มีใคร resolve)
   const notifiable = isVideoMode(mode) || mode === "audio";
   const batchId = notifiable && batch.length > 1 ? beginNotifyBatch(batch.length) : null;
-  batch.forEach(item => runRequest(item, batchId));
+  // ผ่าน governor เสมอ — cap in-flight ระดับแอปที่ MAX_CONCURRENT_REQUESTS (ไม่ยิง 30 fetch พร้อมกันอีกแล้ว)
+  batch.forEach(item => void scheduleRequest(item, batchId));
 }
 
 // ---------- Bake-off: multi-model side-by-side (PHASE 14) ----------
@@ -975,11 +989,12 @@ export function runBakeOff() {
         bakeOffGroupId: groupId,
         ...(negPromptSupportedFor(mode, model) && negPrompt ? { negPrompt } : {}),
       };
-      s.modes[mode].images.unshift(item);
+      addToGallery(s, mode, item);
       batch.push(item);
     }
   });
-  batch.forEach(item => runRequest(item));
+  // governor ตัวเดียวกับ generate() — เปิด Bake-off พร้อม batch ปกติก็ยังรวมกันไม่เกิน cap
+  batch.forEach(item => void scheduleRequest(item));
   toast(`กำลังสร้าง Bake-off ${models.length} โมเดลพร้อมกันค่ะ~`);
 }
 
@@ -999,31 +1014,221 @@ export function confirmBakeOff() {
   runBakeOff();
 }
 
+/* ============================================================================
+ * F1 — Request Governor: semaphore + AbortController registry
+ * ========================================================================== */
+
+/**
+ * error ที่โยนจากภายในเมื่อ request ถูกยกเลิก — ใช้แยก "ผู้ใช้ยกเลิก" ออกจาก error จริงตอน catch
+ * (fetch เองโยน DOMException name "AbortError" ซึ่งดักได้เหมือนกัน แต่ helper ที่เราเขียนเอง เช่น
+ * abortableSleep และ reader loop ของ audio ต้องมีตัวโยนของตัวเอง)
+ */
+class RequestAbortedError extends Error {
+  constructor() { super("request aborted"); this.name = "AbortError"; }
+}
+
+/** true ถ้า error ที่จับได้เกิดจากการ abort (ของเราเองหรือของ fetch/DOM) */
+function isAbortError(e: unknown): boolean {
+  return e instanceof RequestAbortedError
+    || (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError")
+    || (e instanceof Error && e.name === "AbortError");
+}
+
+/**
+ * sleep ที่ยกเลิกได้ทันทีเมื่อ signal abort — ใช้แทน sleep() เปล่าๆ ใน poll loop ของวิดีโอ
+ * ถ้าใช้ setTimeout เฉยๆ การยกเลิกจะช้าได้ถึง VIDEO_POLL_MS_MAX (~20s) กว่าจะวนถึงจุดเช็ค signal ถัดไป
+ * clear ทั้ง timer และ listener เสมอ กัน leak เมื่อ item เดียวถูก poll หลายสิบรอบ
+ */
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new RequestAbortedError());
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => { clearTimeout(timer); reject(new RequestAbortedError()); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** โยนทันทีถ้า signal ถูก abort ไปแล้ว — ใช้คั่นระหว่างขั้นตอนยาวๆ ที่ไม่ได้อยู่ใน fetch (เช่น loop อ่าน stream) */
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) throw new RequestAbortedError();
+}
+
+/**
+ * registry ของ AbortController ที่ยัง live อยู่ — key เป็น item.id (unique ทั้งแอปเพราะมาจาก ++state.seq)
+ * entry ถูกลบใน finally ของ runRequest เสมอ ไม่ว่าจะจบด้วย done/error/cancelled
+ */
+const inflightControllers = new Map<number, AbortController>();
+
+/** เหตุผลการยกเลิกที่ "ประกาศไว้ล่วงหน้า" ก่อน abort จริง — runRequest อ่านค่านี้ตอนแปลง abort → state */
+const cancelReasons = new Map<number, CancelReason>();
+
+/** งานที่รออยู่ในคิวของ governor (ยังไม่ได้ยิง fetch เลย) — key เป็น item.id เพื่อยกเลิกก่อนเสียเงินได้ */
+interface PendingSlot {
+  item: GenItem;
+  /** ปล่อยงานให้วิ่งจริง */
+  start: () => void;
+  /** ทิ้งงานทั้งที่ยังไม่เคยยิง — ไม่มี fetch เกิดขึ้นเลย */
+  drop: () => void;
+}
+const waitingQueue: PendingSlot[] = [];
+let activeCount = 0;
+
+/**
+ * scheduler ตัวเดียวของทั้งแอป — generate() และ runBakeOff() (และ retry/regenerate/resume) ผ่านทางนี้หมด
+ * cap เป็นระดับแอป ไม่ใช่ต่อ batch: เปิดสอง batch พร้อมกันก็ยัง in-flight รวมกันไม่เกิน MAX_CONCURRENT_REQUESTS
+ *
+ * งานที่ยังไม่ได้ slot จะนอนอยู่ใน waitingQueue โดยที่ item.status ยังเป็น "loading" ตามที่ผู้ใช้เห็น
+ * (ยังไม่มี fetch เกิดขึ้น = ยังไม่เสียเงิน) — ถ้าถูก cancel ตอนนี้ จะถูก drop ออกโดยไม่ยิงอะไรเลย
+ */
+function scheduleRequest(item: GenItem, batchId: number | null = null): Promise<void> {
+  return new Promise<void>(resolve => {
+    const run = () => {
+      activeCount++;
+      // controller ถูกสร้าง "ตอนได้ slot" ไม่ใช่ตอนเข้าคิว — งานที่ยังรออยู่ถูกยกเลิกผ่าน waitingQueue แทน
+      // (drop ทิ้งโดยไม่มี fetch เลย) ส่วนงานที่วิ่งแล้วถูกยกเลิกผ่าน controller ตัวนี้
+      const ctrl = new AbortController();
+      inflightControllers.set(item.id, ctrl);
+      void runRequest(item, batchId, ctrl.signal).finally(() => {
+        activeCount--;
+        resolve();
+        pumpQueue();
+      });
+    };
+    if (activeCount < MAX_CONCURRENT_REQUESTS) { run(); return; }
+    waitingQueue.push({
+      item,
+      start: run,
+      drop: () => { finalizeCancelled(item, cancelReasons.get(item.id) ?? "user"); resolve(); },
+    });
+  });
+}
+
+/** ปล่อยงานที่รออยู่เข้ามาจนเต็ม slot — เรียกทุกครั้งที่มี slot ว่าง (งานจบ) หรือมีงานหลุดคิว */
+function pumpQueue() {
+  while (activeCount < MAX_CONCURRENT_REQUESTS && waitingQueue.length) {
+    const slot = waitingQueue.shift();
+    slot?.start();
+  }
+}
+
+/**
+ * เซ็ต state ของ item ที่ถูกยกเลิก — จุดเดียวที่เขียน status = "cancelled"
+ * ตั้งใจไม่เรียก recordModelStat / autoSaveItem / notifyJobSettled: งานที่ผู้ใช้ยกเลิกเองไม่ใช่ทั้ง
+ * ความสำเร็จและความล้มเหลวของโมเดล และห้ามเด้ง notification "งานล้มเหลว"
+ *
+ * INVARIANT: ไม่แตะ item.jobId และไม่เรียก removePendingJob() เด็ดขาด — job ฝั่ง OpenRouter ยัง live
+ * และจ่ายเงินไปแล้ว jobId ที่คงไว้คือสิ่งเดียวที่ทำให้กด "ลองใหม่" แล้ว resume ได้โดยไม่จ่ายซ้ำ
+ * (`let resumed = !!item.jobId` ที่ต้น requestVideo)
+ */
+function finalizeCancelled(item: GenItem, reason: CancelReason) {
+  item.status = "cancelled";
+  item.cancelReason = reason;
+  item.cancelledAt = Date.now();
+  item.jobStatus = "";
+  item.errMsg = "";
+  cancelReasons.delete(item.id);
+  mutate();
+}
+
+/** true ถ้า item ชิ้นนี้ยกเลิกได้ตอนนี้ — กำลังยิงอยู่จริง หรือยังนอนรอ slot อยู่ในคิวของ governor */
+export function isCancellable(item: GenItem): boolean {
+  return item.status === "loading"
+    && (inflightControllers.has(item.id) || waitingQueue.some(s => s.item.id === item.id));
+}
+
+/**
+ * ยกเลิกงานหนึ่งชิ้น — คืน true ถ้ามีอะไรให้ยกเลิกจริง
+ *
+ * สองเคส:
+ * 1. ยังรออยู่ในคิว governor → drop ออกจากคิวตรงๆ ไม่มี fetch เกิดขึ้นเลย ไม่เสียเงิน
+ * 2. กำลังยิงอยู่ → abort() controller ของมัน fetch/reader/abortableSleep ที่ค้างอยู่จะโยนทันที
+ *    แล้ว runRequest เป็นคนแปลงเป็น status = "cancelled" (ภายใน ~1s เพราะ sleep ก็ abort ได้)
+ */
+export function cancelItem(item: GenItem, reason: CancelReason = "user"): boolean {
+  if (item.status !== "loading") return false;
+  cancelReasons.set(item.id, reason);
+
+  const qi = waitingQueue.findIndex(s => s.item.id === item.id);
+  if (qi >= 0) {
+    const [slot] = waitingQueue.splice(qi, 1);
+    slot.drop();
+    pumpQueue();
+    return true;
+  }
+
+  const ctrl = inflightControllers.get(item.id);
+  if (ctrl) { ctrl.abort(); return true; }
+
+  // loading แต่ไม่มีทั้ง controller และคิว = งานที่ resume มาแล้วยังไม่เข้า governor (ไม่ควรเกิด) — ไม่แตะ state
+  cancelReasons.delete(item.id);
+  return false;
+}
+
+/**
+ * ยกเลิกทุกงานที่ยัง loading อยู่ — คืนจำนวนที่ยกเลิกได้จริง
+ * mode = undefined → ทุกโหมด (ใช้ตอน shutdown), ระบุโหมด → เฉพาะโหมดนั้น (ปุ่ม "ยกเลิกทั้งหมด" ของผู้ใช้)
+ * snapshot รายการก่อนวน เพราะ cancelItem แก้ waitingQueue ระหว่างทาง
+ */
+export function cancelAll(reason: CancelReason = "user-all", mode?: Mode): number {
+  const modes: Mode[] = mode ? [mode] : (Object.keys(state.modes) as Mode[]);
+  const targets: GenItem[] = [];
+  for (const m of modes) {
+    for (const item of state.modes[m].images) {
+      if (item.status === "loading") targets.push(item);
+    }
+  }
+  let n = 0;
+  for (const item of targets) if (cancelItem(item, reason)) n++;
+  return n;
+}
+
 /**
  * batchId: มาจาก beginNotifyBatch() เมื่อยิงหลายงานพร้อมกัน (generate() คิว/count > 1) — ใช้รวมแจ้งเตือนเป็นก้อนเดียว
  * ตอน queue เต็ม caller ที่ไม่ผ่าน batch (retry, regenerate, auto-extend, ฯลฯ) ปล่อย null ไว้ = แจ้งทันทีทีละงาน
  */
-async function runRequest(item: GenItem, batchId: number | null = null) {
+async function runRequest(item: GenItem, batchId: number | null = null, signal?: AbortSignal) {
+  // caller ที่ยิงงานเดี่ยว (retry, regenerate, auto-extend, resume จาก ledger) ไม่ส่ง signal มา —
+  // สร้าง controller ให้เองเพื่อให้ทุกงานที่ in-flight ยกเลิกได้เหมือนกันหมด ไม่มีงานที่ยกเลิกไม่ได้
+  // ถ้า caller ส่ง signal มา (มาจาก scheduleRequest) caller เป็นคนลงทะเบียน controller ใน registry เอง
+  // — ตรงนี้ห้ามลงทะเบียน controller ใหม่ทับ ไม่งั้น cancelItem จะไป abort ตัวที่ไม่มีใครฟัง
+  const ownController = signal ? null : new AbortController();
+  const sig = signal ?? ownController!.signal;
+  if (ownController) inflightControllers.set(item.id, ownController);
+
   try {
+    throwIfAborted(sig);
     if (isVideoMode(item.mode)) {
-      item.url = await requestVideo(item);
+      item.url = await requestVideo(item, sig);
     } else if (item.mode === "audio") {
-      item.url = await requestAudio(item);
+      item.url = await requestAudio(item, sig);
     } else {
       const m = state.models.find(x => x.id === item.model);
       const outs = m?.architecture?.output_modalities || [];
       // โมเดล image-only (เช่น Grok Imagine) เรียกผ่าน chat/completions ไม่ได้
       // ("No endpoints found that support the requested output modalities") ต้องใช้ Image API แทน
       if (outs.length && !outs.includes("text")) {
-        item.url = await requestViaImageAPI(item);
+        item.url = await requestViaImageAPI(item, sig);
       } else {
-        item.url = await requestViaChat(item);
+        item.url = await requestViaChat(item, sig);
       }
     }
     item.status = "done";
   } catch (e) {
+    // ผู้ใช้ยกเลิกเอง — ไม่ใช่ error: ห้ามนับสถิติโมเดล ห้าม autoSave ห้ามแจ้งเตือน "งานล้มเหลว"
+    // และ finalizeCancelled ไม่แตะ item.jobId เลย (INVARIANT: video job ที่จ่ายเงินแล้วต้อง resume ได้)
+    if (sig.aborted || isAbortError(e)) {
+      finalizeCancelled(item, cancelReasons.get(item.id) ?? "user");
+      // ตั้งใจไม่เรียก notifyJobSettled() ตามกฎข้อ 4 ของ contract (งานที่ยกเลิกเองไม่ใช่ทั้งสำเร็จและล้มเหลว)
+      // ผลข้างเคียงที่รู้ตัว: batch ของ notify.ts นับจาก total ที่ประกาศไว้ตอน beginNotifyBatch งานที่ถูกยกเลิก
+      // จึงทำให้ batch นั้นไม่ครบ total และไม่ยิงสรุปตอนจบ — แก้ให้ถูกต้องต้องมี API ลดขนาด batch ใน notify.ts
+      // ซึ่งอยู่นอกขอบเขตไฟล์ที่ T2 แตะได้ (ส่งต่อเป็น follow-up) ทางเลือกอื่นคือส่ง cancelled เข้า tally
+      // ซึ่งจะถูกนับเป็น "ล้มเหลว" และเด้ง "งานล้มเหลว" — ผิด contract ยิ่งกว่า จึงเลือกไม่เรียก
+      return;
+    }
     item.status = "error";
     item.errMsg = errMsg(e);
+  } finally {
+    inflightControllers.delete(item.id);
   }
   recordModelStat(item.model, item.status === "done");
   // ลบออกจาก pending-job ledger เมื่อไม่มีอะไรให้ resume ต่อแล้วเท่านั้น: done เสมอ, หรือ error ที่ item.jobId
@@ -1174,7 +1379,7 @@ function videoPollIntervalMs(elapsedMs: number): number {
 
 // Video API เป็น async job: submit ได้ job id แล้ว poll จน completed ค่อยได้ URL
 // โหลดไฟล์เป็น blob ทันทีกัน unsigned URL หมดอายุระหว่างหน้ายังเปิดอยู่
-async function requestVideo(item: GenItem): Promise<string> {
+async function requestVideo(item: GenItem, signal: AbortSignal): Promise<string> {
   item.startedAt = Date.now();
   item.jobStatus = "pending";
   mutate();
@@ -1203,6 +1408,7 @@ async function requestVideo(item: GenItem): Promise<string> {
       method: "POST",
       headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
@@ -1217,7 +1423,8 @@ async function requestVideo(item: GenItem): Promise<string> {
   const pollStartedAt = Date.now();
   while (true) {
     // งานที่ resume มา งานอาจเสร็จอยู่แล้ว — เช็คเร็วๆ รอบแรกไม่ต้องรอเต็ม interval ปกติ
-    await sleep(resumed ? 1500 : videoPollIntervalMs(Date.now() - pollStartedAt));
+    // abortableSleep ไม่ใช่ sleep() เปล่าๆ — ไม่งั้นการยกเลิกจะช้าได้ถึง VIDEO_POLL_MS_MAX (~20s)
+    await abortableSleep(resumed ? 1500 : videoPollIntervalMs(Date.now() - pollStartedAt), signal);
     resumed = false;
     if (Date.now() > deadline) {
       const timeoutMin = Math.round(timeoutMs / 60000);
@@ -1225,6 +1432,7 @@ async function requestVideo(item: GenItem): Promise<string> {
     }
     const pr = await fetch("https://openrouter.ai/api/v1/videos/" + item.jobId, {
       headers: { "Authorization": "Bearer " + state.apiKey },
+      signal,
     });
     const pd = await pr.json().catch(() => ({}));
     if (!pr.ok) {
@@ -1240,7 +1448,7 @@ async function requestVideo(item: GenItem): Promise<string> {
       const vurl = pd.unsigned_urls?.[0];
       if (!vurl) { item.jobId = null; throw new Error("ไม่พบไฟล์วิดีโอใน response"); }
       // ไฟล์อยู่หลัง endpoint ของ OpenRouter — ต้องแนบ key ด้วย ไม่งั้น 401
-      const vres = await fetch(vurl, { headers: { "Authorization": "Bearer " + state.apiKey } });
+      const vres = await fetch(vurl, { headers: { "Authorization": "Bearer " + state.apiKey }, signal });
       // โหลดพลาด: คง jobId ไว้ ให้ "ลองใหม่" มาโหลดซ้ำได้โดยไม่ต้อง gen ใหม่
       if (!vres.ok) throw new Error('โหลดไฟล์วิดีโอไม่สำเร็จ (HTTP ' + vres.status + ') — กด "ลองใหม่" เพื่อโหลดซ้ำได้ค่ะ (ไม่เสียเงินเพิ่ม)');
       item.jobId = null;
@@ -1258,7 +1466,7 @@ async function requestVideo(item: GenItem): Promise<string> {
 // Lyria สร้างเพลงผ่าน chat/completions แต่บังคับ stream:true — เสียงทยอยมาเป็น
 // base64 chunk ใน delta.audio.data ต้อง decode ทีละ chunk (ต่อ base64 string ตรงๆ ไม่ได้
 // เพราะ padding) แล้วค่อยรวม bytes เป็น blob MP3 ตอนจบ
-async function requestAudio(item: GenItem): Promise<string> {
+async function requestAudio(item: GenItem, signal: AbortSignal): Promise<string> {
   item.startedAt = Date.now();
   mutate();
   // เสียงไม่มี job id ให้ resume (stream ตรงๆ ผ่าน chat/completions) — ยัง track ไว้ใน ledger เพื่อ "เห็นเป็นงานที่หายไป"
@@ -1274,6 +1482,7 @@ async function requestAudio(item: GenItem): Promise<string> {
       audio: { format: "mp3" },
       stream: true,
     }),
+    signal,
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -1296,24 +1505,32 @@ async function requestAudio(item: GenItem): Promise<string> {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? ""; // บรรทัดสุดท้ายอาจยังมาไม่ครบ — เก็บไว้รอ chunk ถัดไป
-    for (const line of lines) {
-      const t = line.trim();
-      if (!t.startsWith("data:")) continue;
-      const payload = t.slice(5).trim();
-      if (payload === "[DONE]") continue;
-      let j: AudioChunk;
-      try { j = JSON.parse(payload); } catch { continue; }
-      if (j.error) throw new Error(j.error.message || "การสร้างเพลงล้มเหลว");
-      const c = j.choices?.[0];
-      const b64 = c?.delta?.audio?.data ?? c?.message?.audio?.data;
-      if (b64) pushB64(b64);
+  // abort ระหว่างสตรีม: signal ที่ส่งให้ fetch ทำให้ reader.read() reject เองอยู่แล้ว แต่เช็คซ้ำต้นลูปด้วย
+  // เผื่อ abort มาถึงจังหวะที่ chunk เพิ่ง resolve พอดี — จะได้ไม่ decode/สะสม chunk ต่อโดยเปล่าประโยชน์
+  try {
+    for (;;) {
+      throwIfAborted(signal);
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? ""; // บรรทัดสุดท้ายอาจยังมาไม่ครบ — เก็บไว้รอ chunk ถัดไป
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const payload = t.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        let j: AudioChunk;
+        try { j = JSON.parse(payload); } catch { continue; }
+        if (j.error) throw new Error(j.error.message || "การสร้างเพลงล้มเหลว");
+        const c = j.choices?.[0];
+        const b64 = c?.delta?.audio?.data ?? c?.message?.audio?.data;
+        if (b64) pushB64(b64);
+      }
     }
+  } finally {
+    // ปล่อย lock ของ reader เสมอ ไม่ให้ค้างเมื่อออกจากลูปด้วย abort/error กลางคัน
+    reader.cancel().catch(() => {});
   }
   if (!chunks.length) throw new Error("ไม่พบเสียงใน response");
   const blobUrl = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "audio/mpeg" }));
@@ -1321,11 +1538,12 @@ async function requestAudio(item: GenItem): Promise<string> {
   return blobUrl;
 }
 
-async function requestViaImageAPI(item: GenItem): Promise<string> {
+async function requestViaImageAPI(item: GenItem, signal: AbortSignal): Promise<string> {
   const res = await fetch("https://openrouter.ai/api/v1/images", {
     method: "POST",
     headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
     body: JSON.stringify({ model: item.model, prompt: item.prompt, n: 1, aspect_ratio: item.ratio }),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
@@ -1366,7 +1584,7 @@ function buildChatContent(item: GenItem, promptText: string): string | ChatPart[
   return parts;
 }
 
-async function requestViaChat(item: GenItem): Promise<string> {
+async function requestViaChat(item: GenItem, signal: AbortSignal): Promise<string> {
   // aspect ratio ผ่าน image_config (โมเดลที่ไม่รองรับจะ ignore หรือใช้ hint ใน prompt แทน)
   let promptText = item.ratio !== "1:1" ? item.prompt + "\n\nAspect ratio: " + item.ratio : item.prompt;
   // negative prompt (PHASE 14) — best-effort hint ต่อท้ายด้วย block ที่คั่นชัดเจน ไม่มี param แยกให้ใช้ใน chat/completions
@@ -1381,6 +1599,7 @@ async function requestViaChat(item: GenItem): Promise<string> {
     method: "POST",
     headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
@@ -1395,8 +1614,11 @@ async function requestViaChat(item: GenItem): Promise<string> {
 export function retry(item: GenItem) {
   item.status = "loading";
   item.errMsg = "";
+  // เคลียร์ร่องรอยการยกเลิกรอบก่อน — item ที่ cancelled แล้วกดสร้างใหม่ต้องไม่เหลือ cancelReason/cancelledAt ค้าง
+  delete item.cancelReason;
+  delete item.cancelledAt;
   mutate();
-  runRequest(item);
+  void scheduleRequest(item);
 }
 
 /**
@@ -1424,8 +1646,11 @@ export function retryWithOverride(item: GenItem, modelId: string, ratio: string)
     item.errMsg = "";
     item.jobStatus = "";
     item.startedAt = null;
+    // item ที่เคยถูกยกเลิกแล้วยิงใหม่ ต้องไม่เหลือ cancelReason/cancelledAt ค้าง (คู่กับ status เสมอ)
+    delete item.cancelReason;
+    delete item.cancelledAt;
   });
-  runRequest(item);
+  void scheduleRequest(item);
 }
 
 // คัดลอก prompt ของ card กลับไปที่ช่อง prompt ของโหมดเดียวกับ item (สลับโหมดให้ถ้าจำเป็น)
@@ -1463,9 +1688,9 @@ export function regenerateFromItem(item: GenItem) {
       refs: item.refs,
       ...(item.negPrompt ? { negPrompt: item.negPrompt } : {}),
     };
-    s.modes[item.mode].images.unshift(newItem);
+    addToGallery(s, item.mode, newItem);
   });
-  runRequest(newItem);
+  void scheduleRequest(newItem);
   toast("กำลังสร้างซ้ำค่ะ~");
 }
 
@@ -1544,9 +1769,9 @@ export async function autoExtendFromLastFrame(item: GenItem) {
         refs: [ref],
         parentId: item.id,
       };
-      s.modes.cinematic.images.unshift(newItem);
+      addToGallery(s, "cinematic", newItem);
     });
-    runRequest(newItem);
+    void scheduleRequest(newItem);
     toast("จับเฟรมสุดท้ายแล้ว กำลังสร้าง scene ถัดไปให้ค่ะ~");
   } catch (e) {
     toast("จับเฟรมสุดท้ายไม่สำเร็จ: " + errMsg(e) + " — ลองใช้ TimeFrame & Extend เลือกเฟรมเองแทนนะคะ");
@@ -1678,15 +1903,101 @@ export async function downloadSelected() {
   toast("ดาวน์โหลด " + items.length + " รูปแล้วค่ะ");
 }
 
+// ---------- favorites (F3) ----------
+// cache ของคีย์โปรดต่อโหมด อ่านจาก localStorage ครั้งเดียวตอนถูกใช้ครั้งแรก แล้วถือไว้ใน memory
+// (localStorage เป็น synchronous — ไม่ควรอ่านซ้ำทุกครั้งที่มี item ใหม่โผล่)
+const favoriteKeyCache = new Map<Mode, Set<string>>();
+
+function favoriteKeysFor(mode: Mode): Set<string> {
+  let set = favoriteKeyCache.get(mode);
+  if (!set) { set = new Set(loadFavorites(mode)); favoriteKeyCache.set(mode, set); }
+  return set;
+}
+
+/**
+ * item ที่เพิ่งเกิด/เพิ่งกู้กลับมา ตรงกับลายนิ้วมือที่ผู้ใช้เคยกดดาวไว้หรือเปล่า
+ * เรียกจากจุดที่ item ได้ค่า prompt/model/ratio ครบแล้วเท่านั้น (ดู favoriteKeyOf ใน store.ts ว่าคีย์ประกอบจากอะไร)
+ */
+export function isRememberedFavorite(item: GenItem): boolean {
+  return favoriteKeysFor(item.mode).has(favoriteKeyOf(item));
+}
+
+/**
+ * ทางเข้าเดียวของ item ใหม่สู่แกลเลอรี — ติดดาวคืนให้อัตโนมัติถ้าลายนิ้วมือของมันตรงกับที่ผู้ใช้เคยกดไว้
+ * (นี่คือกลไกที่ทำให้ดาว "รอด reload" ได้โดยไม่ต้องพึ่ง F2/IndexedDB ซึ่งเป็น opt-in ที่ default ปิด)
+ * ต้องเรียกภายใน mutate() เสมอ เพราะแก้ s.modes[...].images ตรงๆ
+ */
+function addToGallery(s: AppState, mode: Mode, item: GenItem) {
+  if (isRememberedFavorite(item)) item.favorite = true;
+  s.modes[mode].images.unshift(item);
+}
+
+/**
+ * สลับสถานะ favorite ของ item หนึ่งชิ้น แล้ว persist ลง localStorage ทันที (ไม่รอ autosave 30s
+ * เพราะผู้ใช้ที่กดดาวแล้วปิดแท็บทันทีต้องได้ดาวนั้นกลับมา)
+ *
+ * item ถูก tag ด้วยโหมดที่มันถูกสร้าง (item.mode) และผู้ใช้สลับโหมดระหว่างที่ยังมีงานค้างได้ จึงต้องไล่หา
+ * ข้ามทุกโหมด ไม่ใช่แค่ cur() — เหมือนที่ retry/autoSave ทำ
+ *
+ * ทุก item ที่มีลายนิ้วมือเดียวกันในโหมดนั้นจะถูกสลับพร้อมกัน เพราะ persist layer แยกกันไม่ได้อยู่แล้ว
+ * (คีย์เดียวกัน = ตอน reload จะติดดาวเหมือนกันหมด) — ให้ UI ตรงกับสิ่งที่จะเกิดหลัง reload ตั้งแต่ตอนกด
+ */
+export function toggleFavorite(id: number) {
+  mutate(s => {
+    for (const mode of Object.keys(s.modes) as Mode[]) {
+      const ms = s.modes[mode];
+      const target = ms.images.find(x => x.id === id);
+      if (!target) continue;
+
+      const key = favoriteKeyOf(target);
+      const next = !target.favorite;
+      for (const it of ms.images) {
+        if (favoriteKeyOf(it) === key) it.favorite = next;
+      }
+
+      // ของที่เพิ่งกดต้องไปอยู่หน้าสุดเสมอ เพราะ saveFavorites ตัด cap จากท้าย = ตัดของเก่าสุดออกก่อน
+      const keys = favoriteKeysFor(mode);
+      keys.delete(key);
+      const ordered = next ? [key, ...keys] : [...keys];
+      keys.clear();
+      for (const k of ordered) keys.add(k);
+      saveFavorites(mode, ordered);
+      return;
+    }
+  });
+}
+
 // ---------- lightbox ----------
+/**
+ * ชุด id ที่ "มองเห็นอยู่จริง" บนกริดตอนนี้ (หลังผ่านตัวกรอง F3) — Gallery เป็นคนประกาศเข้ามา
+ * null = ไม่มีตัวกรองทำงานอยู่ ให้ทุกอย่างทำงานกับ cur().images เต็มชุดเหมือนเดิม
+ *
+ * เก็บนอก AppState โดยตั้งใจ: เป็น derived view ของ Gallery ล้วน ไม่ใช่ข้อมูลที่ต้อง persist/export
+ * และการเขียนมันไม่ควร trigger re-render (ผู้เขียนคือ Gallery ที่กำลัง render อยู่พอดี)
+ */
+let lightboxVisibleIds: Set<number> | null = null;
+
+/** เรียกจาก Gallery ทุกครั้งที่ชุดผลลัพธ์ที่กรองแล้วเปลี่ยน — ส่ง null เพื่อกลับไปใช้ทั้งแกลเลอรี */
+export function setLightboxScope(ids: Set<number> | null) {
+  lightboxVisibleIds = ids;
+}
+
 export function openLightbox(index: number) {
   mutate(() => { cur().lbIndex = index; });
 }
 export function closeLightbox() {
   mutate(() => { cur().lbIndex = -1; });
 }
+/**
+ * index (อ้าง cur().images) ของทุกชิ้นที่ done แล้ว **และยังอยู่ในชุดที่กรองไว้** — เป็นตัวกำหนดว่าปุ่ม
+ * ถัดไป/ก่อนหน้าใน Lightbox เดินไปไหนได้บ้าง (ดู lbStep) พอมีตัวกรอง ผู้ใช้คาดหวังว่าจะเดินอยู่ในชุดที่เห็น
+ * ไม่ใช่โผล่ไปรูปที่ตัวกรองซ่อนไว้
+ */
 export function doneIndices(): number[] {
-  return cur().images.map((x, i) => (x.status === "done" ? i : -1)).filter(i => i >= 0);
+  const scope = lightboxVisibleIds;
+  return cur().images
+    .map((x, i) => (x.status === "done" && (!scope || scope.has(x.id)) ? i : -1))
+    .filter(i => i >= 0);
 }
 export function lbStep(dir: 1 | -1) {
   const ds = doneIndices();
