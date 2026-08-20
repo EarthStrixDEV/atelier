@@ -442,7 +442,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "in_progress",
       "acceptanceCriteria": [
         "types.ts มี interface SpendLedger ที่มีอย่างน้อย ยอดสะสม, เวลาที่เริ่มนับ, และเพดานที่ผู้ใช้ตั้ง",
         "ระบุเป็นลายลักษณ์อักษรว่า gate แทรกที่บรรทัดไหนของ generate() และต้องอยู่หลัง refImageMissing check แต่ก่อน mutate ที่สร้าง item เพื่อไม่ให้มี item ค้างใน gallery ตอนผู้ใช้กดยกเลิกที่ modal",
@@ -452,7 +452,8 @@
       ],
       "filesLikelyTouched": [
         "src/lib/types.ts"
-      ]
+      ],
+      "startedAt": "2026-08-20"
     },
     {
       "id": "T16",
@@ -646,7 +647,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "done",
       "origin": "มายด์ลิน (T8) flag: ผู้ใช้ลบการ์ดแล้ว record ในดิสก์ยังอยู่จนกว่าจะโดน evict",
       "acceptanceCriteria": [
         "ลบการ์ดใน gallery แล้ว record ที่ตรงกันใน IndexedDB ถูกลบด้วย (เรียก deleteItem)",
@@ -657,14 +658,18 @@
       "filesLikelyTouched": [
         "src/lib/actions.ts",
         "src/components/Gallery.tsx"
-      ]
+      ],
+      "completedAt": "2026-08-20",
+      "result": "Reused persistKeys Map<id,key> that T8 already maintains (filled by persistItemToGallery on save AND rehydrateGallery on boot) — no types.ts change, storage handle stays out of export JSON/snapshot/UI. Deliberately did NOT use clearMode(): it wipes the whole mode, which would delete favourited records from disk while their cards stay on screen. Instead resetModeGallery collects droppedIds at the same point releaseBlobUrls fires, so disk matches memory by construction. forgetPersistedItems returns before touching IndexedDB when opt-in is off; queued on galleryPersistChain and reads persistKeys at callback time (not snapshot) so a delete issued while a save is still queued cannot resurrect the record.",
+      "qaNote": "Harness transpiled real galleryStore.ts + brace-extracted resetModeGallery/forgetPersistedItems from actions.ts (not retyped) — 30/30 incl. a control test proving clearMode would have destroyed favourites, and an [ORDER] test for the save-then-delete race.",
+      "scopeNote": "AC1 says \"delete a card\" but Gallery.tsx has no per-card delete button today (only retry/copy/regenerate/extend/refine/star). Only real delete path is ล้างแกลเลอรี which already deletes per-item. เบล declined to invent a button (out of scope + no-touch zones) and removed the wrapper that would have been a dead export."
     }
   ],
   "meta": {
     "totalTasks": 22,
-    "notStarted": 8,
-    "inProgress": 0,
-    "done": 13,
+    "notStarted": 6,
+    "inProgress": 1,
+    "done": 14,
     "blocked": 0,
     "superseded": 1
   }

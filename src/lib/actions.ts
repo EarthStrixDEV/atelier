@@ -1390,14 +1390,6 @@ function forgetPersistedItems(ids: number[]) {
 }
 
 /**
- * ลบ record ของ item ชิ้นเดียว — wrapper บาง ๆ ของ forgetPersistedItems() ไว้ให้ path ที่ลบทีละการ์ด
- * (เช่นปุ่มลบบนการ์ด ถ้ามีในอนาคต) เรียกได้โดยไม่ต้องรู้เรื่อง persistKeys
- */
-export function forgetPersistedItem(id: number) {
-  forgetPersistedItems([id]);
-}
-
-/**
  * โหลดผลลัพธ์ที่เก็บไว้กลับเข้าแกลเลอรีตอนบูต — เรียกครั้งเดียวจาก reconcilePendingJobs()
  * (จุดบูตเดียวใน actions.ts ที่ StudioApp เรียกให้อยู่แล้ว)
  *
