@@ -299,7 +299,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": true,
-      "status": "not_started",
+      "status": "in_progress",
       "acceptanceCriteria": [
         "สร้างรูป 5 ชิ้น reload แล้วยังครบ 5 ชิ้นและกดดาวน์โหลดได้จริง",
         "สร้างวิดีโอ 1 ชิ้น reload แล้ว video element เล่นได้จริง ไม่ใช่ blob URL ที่ตายแล้ว",
@@ -309,7 +309,8 @@
         "boot ที่มีทั้ง pending video job และ persisted item พร้อมกัน ต้องไม่มี item id ซ้ำใน gallery (ย้ายมาจาก T9 — dedupe logic อยู่ที่ actions.ts rehydrateGallery)",
         "ผู้ใช้ที่ไม่เคยเปิด toggle ต้องไม่มีอะไรถูกเขียนลง IndexedDB เลย (ย้ายมาจาก T9)"
       ],
-      "filesLikelyTouched": []
+      "filesLikelyTouched": [],
+      "startedAt": "2026-08-20"
     },
     {
       "id": "T11",
@@ -323,14 +324,15 @@
       ],
       "securitySensitive": true,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "in_progress",
       "acceptanceCriteria": [
         "dump record จริงจาก IndexedDB แล้วยืนยันว่าไม่มีฟิลด์ refs ไม่มี apiKey ไม่มี jobId",
         "ยืนยันว่า opt-in default เป็นปิดจริงในโค้ด ไม่ใช่แค่ใน UI",
         "ยืนยันว่าปุ่มล้างข้อมูลลบครบทั้ง record และ blob ไม่เหลือ orphan",
         "ให้ verdict blocking หรือ pass พร้อมไฟล์:บรรทัดถ้า blocking"
       ],
-      "filesLikelyTouched": []
+      "filesLikelyTouched": [],
+      "startedAt": "2026-08-20"
     },
     {
       "id": "T12",
@@ -573,16 +575,28 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "done",
       "acceptanceCriteria": [
         "ตั้งเพดานต่ำมากแล้วกด generate ต้องเด้ง modal และกดยกเลิกแล้ว gallery ไม่มี item ใหม่",
         "กดยืนยันแล้วงานยิงจริงและยอดสะสมเพิ่มขึ้นตามจำนวนที่สร้างเสร็จ",
         "เปิด Bake-off แล้วกด generate ต้องเห็น modal ยืนยันชั้นเดียวเท่านั้น ไม่ใช่สองชั้นซ้อน",
-        "ตั้งเพดานเป็น 0 แล้วกด generate ต้องไม่ถามเลย",
         "reload แล้วยอดสะสมยังอยู่",
-        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน"
+        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน",
+        "ตั้งเพดานเป็น 0 = เข้มที่สุด ต้องถามทุกครั้ง (ไม่ใช่ปิดฟีเจอร์) — ยืนยันว่า 0 ไม่ถูก falsy-collapse",
+        "ไม่ได้ตั้งเพดาน (undefined) = ปิดฟีเจอร์ ต้องไม่ถามเลยแม้ batch ราคาสูงมาก"
       ],
-      "filesLikelyTouched": []
+      "filesLikelyTouched": [],
+      "startedAt": "2026-08-20",
+      "acAmendedBy": "Loop Controller — AC เดิมขัดกับ contract T15/T16 (ดู workflow.json revisions)",
+      "completedAt": "2026-08-20",
+      "verdict": "All 7 AC PASS, but found 1 BLOCKER + 2 MAJOR + 1 MINOR outside the AC paths. 36/45 harness (failures are the confirmed bugs).",
+      "blockerFixed": "BLOCKER bypassSpendGate leak — confirmSpend sets the flag then calls generate(), but generate() had 3 early returns (:846 apiKey, :869 !prompt||!model, :870 refImageMissing) BEFORE the line that cleared it, so the flag stuck true forever and the NEXT batch fired with no prompt at all. Repro was 100%: open modal, clear the prompt box (modal does not block it), hit confirm -> silent no-op -> type a new prompt, count 10 -> 10 items fire ungated. FIXED by Loop Controller: read+clear moved to the first line of generate(), parentId now reads the local bypassed. Verified: build green, no reader of the raw flag remains.",
+      "remainingBugs": [
+        "MAJOR actions.ts:2551 — confirmSpend restores the queue into pending.mode (correct) but the second generate() pass reads via cur() = CURRENT mode. Switch modes while the modal is open, hit confirm -> scheduled=0, queue sits untouched in the origin mode, no toast. User paid attention and nothing happened. Queue is NOT lost (MAJOR not BLOCKER). Cancel+switch-mode restores correctly.",
+        "MAJOR actions.ts:2522 — pendingSpendJobs is a single module-level slot and shortcuts.ts:39 Ctrl+Enter calls generate() without checking state.spendConfirm (Sidebar:956 does not disable either). Open modal on home queue, switch to video, Ctrl+Enter -> pendingSpendJobs overwritten -> the home queue is gone permanently.",
+        "MINOR actions.ts:2461 — spendCountedIds dedupes by item.id but retryWithOverride (:1878) reuses the id while genuinely firing a NEW paid request. Measured: /usr/bin/bash.01 item retried onto a /usr/bin/bash.50 model leaves the ledger at 0.01 though 0.51 was spent. Plain retry() same. Ledger drifts LOW for heavy retry users, so the gate lets them through after they are already over cap — opposite of the monotonic intent."
+      ],
+      "observation": "unknown-cost gate fires even when the total is far below cap — correct per contract, but users on token-based/free models will be prompted every single time and may just turn the feature off. Worth a product decision."
     },
     {
       "id": "T19",
@@ -747,13 +761,39 @@
       "migration": "v2 prefix on every key; loadFavorites keeps only v2-prefixed entries and drops v1 silently. Chose drop over migrate because v1 embedded the raw prompt separated by spaces so it cannot be split back reliably — a wrong re-hash puts stars on the WRONG image, worse than losing them. v1 only ever existed on this unreleased branch (T13, same sprint), so the real user base is zero.",
       "selfFoundBug": "Harness caught a bug เบล had just written: the in-memory favoriteKeyCache was not truncated to the 300 cap that saveFavorites applies on disk, so stamps grew past the cap AND isRememberedFavorite would answer true for keys that had actually fallen off disk. Fixed with slice before writing back to cache.",
       "qaNote": "65/65 across two harnesses transpiling real store.ts/actions.ts. Includes the exact trap tests: \"F2 off + fresh key: star SURVIVES reload\" and \"default + empty gallery: fresh stars NOT wiped\"."
+    },
+    {
+      "id": "T24",
+      "featureId": "F4",
+      "title": "แก้ 3 บั๊กที่เหลือจาก T18 — confirm ข้ามโหมด, pendingSpendJobs ถูกทับ, ledger ไม่นับ retry ที่ยิงใหม่",
+      "layer": "logic",
+      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
+      "chainDepth": "lite",
+      "dependsOn": [
+        "T18"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": false,
+      "status": "not_started",
+      "origin": "แพร (T18) — BLOCKER แก้แล้วโดย Loop Controller เหลือ 3 ตัวนี้",
+      "acceptanceCriteria": [
+        "สลับโหมดตอนโมดัลเปิดแล้วกดยืนยัน ต้องยิงงานของโหมดต้นทางจริง (หรือถ้าตัดสินใจไม่ยิง ต้องมี toast บอกผู้ใช้ ห้ามเงียบ)",
+        "เปิดโมดัลค้างแล้วกด Ctrl+Enter หรือปุ่ม Generate อีกครั้ง ต้องไม่ทำให้คิวชุดแรกหาย — gate ตัวที่สองต้องไม่ทับ pendingSpendJobs ของตัวแรก",
+        "retryWithOverride ที่เปลี่ยนโมเดลแล้วยิงใหม่จริง ต้องนับยอดเพิ่มเข้า ledger (ยังต้องไม่นับซ้ำสำหรับ retry ที่ resume job เดิมด้วย jobId)",
+        "ยอดสะสมต้องยัง monotonic — ไม่ลดตอน evict หรือล้าง gallery",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/actions.ts",
+        "src/lib/shortcuts.ts"
+      ]
     }
   ],
   "meta": {
-    "totalTasks": 23,
-    "notStarted": 3,
-    "inProgress": 0,
-    "done": 19,
+    "totalTasks": 24,
+    "notStarted": 1,
+    "inProgress": 2,
+    "done": 20,
     "blocked": 0,
     "superseded": 1
   }

@@ -843,6 +843,11 @@ export function resetModeGallery(mode: Mode): number {
 
 // ---------- generation ----------
 export function generate() {
+  // F4: อ่าน+เคลียร์ bypass เป็นบรรทัดแรกสุด **ก่อน early return ทุกจุด** — ถ้าเคลียร์ทีหลัง (เช่นตรงจุด gate)
+  // แล้ว generate() หลุดออกทาง `!state.apiKey` / `!prompt || !model` / `refImageMissing()` flag จะค้าง true
+  // ตลอดไป แล้ว batch ถัดไป "ยิงเงินโดยไม่ถาม" ซึ่งคือสิ่งที่ฟีเจอร์นี้มีไว้กันพอดี (แพร T18 จับได้)
+  const bypassed = bypassSpendGate;
+  bypassSpendGate = false;
   if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
   // ขอสิทธิ์ notification แบบ lazy เฉพาะครั้งแรกที่กด generate ในโหมด video/cinematic — ต้องมาจาก user gesture นี้เท่านั้น
   if (isVideoMode(state.mode)) requestNotifyPermissionOnce();
@@ -852,7 +857,7 @@ export function generate() {
   // ไม่ว่าจะยิงจริงหรือไม่ เพื่อไม่ให้ค้างไปผูกกับ generate ครั้งถัดไปที่ไม่เกี่ยวข้องกันแล้ว
   // รอบ bypass (มาจากปุ่มยืนยันใน F4 modal) ต้องใช้ parentId ที่ snapshot ไว้ตอน gate เด้ง —
   // `refiningParentId` ถูกเคลียร์ไปแล้วตั้งแต่รอบแรก ถ้าอ่านใหม่จะได้ null แล้วสายพันธุ์ "Refine this" ขาด
-  const parentId = bypassSpendGate
+  const parentId = bypassed
     ? (pendingSpendParentId ?? null)
     : (!ms.queue.length ? ms.refiningParentId : null);
   if (ms.refiningParentId != null) mutate(() => { ms.refiningParentId = null; });
@@ -880,8 +885,6 @@ export function generate() {
   // อยู่หลัง pre-flight ทั้งหมด (refImageMissing) และ **ก่อน** addToHistory/สร้าง item ทุกชิ้น
   // เพื่อไม่ให้ batch ที่ผู้ใช้กดยกเลิกทิ้ง zombie card ค้างแกลเลอรีหรือไปโผล่ในประวัติ prompt
   // bypass เป็น one-shot: อ่านแล้วเคลียร์ทันที ไม่ค้างไปข้าม gate ของครั้งถัดไป (ดู confirmSpend)
-  const bypassed = bypassSpendGate;
-  bypassSpendGate = false;
   if (!bypassed) {
     const gate = evaluateSpendGate(state.mode, jobs);
     if (gate) {

@@ -189,6 +189,14 @@
       "scope": "T9 superseded",
       "reason": "T9 (boot restore + opt-in toggle + ปุ่มล้าง) ถูกทำครบไปแล้วโดย T8 (มายด์ลิน: rehydrate เกาะ reconcilePendingJobs + dedupe by id/fingerprint) และ T21 (ออม: toggle + ปุ่มล้าง + usage ใน KeyModal Advanced) — AC ข้อสุดท้ายของ T9 ยังห้ามแตะ KeyModal.tsx ซึ่งขัดกับทางที่ทีมเลือกจริง เพราะ SettingsModal.tsx ไม่มีบน branch นี้",
       "change": "ปิด T9 เป็น superseded ไม่ให้เบลทำซ้ำ, ย้าย AC ที่ยังไม่มีใครตรวจ (dedupe ตอน boot ที่มีทั้ง job ค้างและ persisted item) ไปเป็น AC ของ T10 (QA) แทน, ปลด dep T10 จาก T9 -> T22"
+    },
+    {
+      "at": "2026-08-20",
+      "by": "มินจู (Min-Ju) — Loop Controller",
+      "scope": "T18 AC correction",
+      "reason": "AC เดิมเขียนว่า \"ตั้งเพดานเป็น 0 แล้วกด generate ต้องไม่ถามเลย\" ซึ่งขัดกับ contract ที่นุ่น (T15) ตัดสินและมายด์ลิน (T16) implement ไปแล้ว: capUsd===0 = เข้มที่สุด ถามทุกครั้ง / undefined = ปิดฟีเจอร์",
+      "change": "แก้ AC ข้อนั้นให้ตรงกับ contract จริง และเพิ่ม AC ตรวจว่า 0 ไม่ถูก falsy-collapse เป็นเคสปิด",
+      "evidence": "types.ts contract block + actions.ts evaluateSpendGate cap===undefined check"
     }
   ]
 }
