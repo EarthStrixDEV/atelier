@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, KeyRound, Settings, Trash2, X } from "lucide-react";
-import { mutate, saveApiKey, state, toast, useApp } from "../lib/store";
+import { Check, KeyRound, Settings, ShieldAlert, Trash2, X } from "lucide-react";
+import { loadRememberApiKey, mutate, saveApiKey, state, toast, useApp } from "../lib/store";
 
 export default function KeyModal() {
   const s = useApp();
   const [value, setValue] = useState("");
+  const [remember, setRemember] = useState(loadRememberApiKey);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (s.keyModalOpen) {
       setValue(s.apiKey);
+      setRemember(loadRememberApiKey());
       setTimeout(() => inputRef.current?.focus(), 50);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -17,7 +19,9 @@ export default function KeyModal() {
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (!state.apiKey) return;
+      // เตือนเฉพาะตอนที่ปิดแท็บแล้ว key จะหายจริงๆ — ถ้าผู้ใช้เลือกจำไว้ในเครื่องแล้ว
+      // ไม่มีอะไรจะหาย การเด้ง dialog ทุกครั้งที่ refresh เป็นแค่ความรำคาญเปล่าๆ
+      if (!state.apiKey || loadRememberApiKey()) return;
       e.preventDefault();
       e.returnValue = "";
     };
@@ -30,15 +34,20 @@ export default function KeyModal() {
   const save = () => {
     const v = value.trim();
     mutate(st => { st.apiKey = v; st.keyModalOpen = false; });
-    saveApiKey(v);
-    if (v) toast("บันทึก API Key แล้วค่ะ");
+    saveApiKey(v, remember);
+    if (v) toast(remember ? "บันทึก API Key ไว้ในเครื่องแล้วค่ะ" : "บันทึก API Key แล้วค่ะ");
   };
   const close = () => mutate(st => { st.keyModalOpen = false; });
+  // ตั้งใจไม่ปิด modal (ต่างจาก save) เพราะคนที่กดลบมักตามด้วยการใส่ key ใหม่ทันที
+  // — คืน focus ให้ช่องกรอกเพื่อสื่อว่าพิมพ์ต่อได้เลย ไม่ต้องเปิด modal ใหม่
   const remove = () => {
     setValue("");
+    setRemember(false);
     mutate(st => { st.apiKey = ""; });
-    saveApiKey("");
-    toast("ลบ API Key แล้วค่ะ");
+    // ส่ง remember=false เพื่อล้าง key ออกจากทั้ง localStorage และ sessionStorage พร้อมกัน
+    saveApiKey("", false);
+    toast("ลบ API Key ออกจากเครื่องแล้วค่ะ");
+    inputRef.current?.focus();
   };
 
   return (
@@ -62,7 +71,36 @@ export default function KeyModal() {
           onKeyDown={e => { if (e.key === "Enter") save(); }}
           className="w-full rounded-card border border-border bg-bg px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent"
         />
-        <div className="mt-4 flex gap-2.5">
+        <label className="mt-3.5 flex cursor-pointer items-start gap-2.5 rounded-card border border-border bg-bg px-3 py-2.5 transition-colors hover:border-border-strong">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-accent"
+            checked={remember}
+            onChange={e => setRemember(e.target.checked)}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12.5px] font-semibold text-text">จำ key นี้ไว้ในเครื่อง</span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-text-faint">
+              ไม่ต้องใส่ใหม่ทุกครั้งที่เปิดแอป — เลือกเฉพาะเครื่องส่วนตัวเท่านั้นนะคะ
+            </span>
+          </span>
+        </label>
+
+        {/* จองความสูงไว้ล่วงหน้า ไม่ให้แถวปุ่ม (ซึ่งมีปุ่มลบอยู่ด้วย) ขยับตอนติ๊ก/เอาติ๊กออก
+            จนผู้ใช้กดพลาดปุ่มที่ไม่ได้ตั้งใจ */}
+        <div className="mt-2 min-h-[58px]">
+          {remember && (
+            <p className="flex items-start gap-1.5 rounded-card border border-danger/30 bg-danger/5 px-3 py-2 text-[11px] leading-relaxed text-danger">
+              <ShieldAlert size={13} className="mt-px shrink-0" />
+              <span>
+                key จะถูกเก็บไว้ในเบราว์เซอร์ของเครื่องนี้จนกว่าจะกดลบ ใครที่เปิดเบราว์เซอร์นี้ได้ — รวมถึง
+                extension หรือสคริปต์ที่รันอยู่ — ก็เข้าถึง key ได้ ห้ามใช้กับเครื่องสาธารณะหรือเครื่องที่ใช้ร่วมกับคนอื่นเด็ดขาดค่ะ
+              </span>
+            </p>
+          )}
+        </div>
+
+        <div className="flex gap-2.5">
           <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] border border-border py-[11px] text-[13px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" aria-label="ยกเลิก ปิดหน้าต่างตั้งค่า API Key" onClick={close}>
             <X size={14} /> ยกเลิก
           </button>
@@ -78,9 +116,12 @@ export default function KeyModal() {
             <Check size={14} /> บันทึก
           </button>
         </div>
+        {/* พูดเป็นเงื่อนไข ("ถ้ากดบันทึก") ไม่ใช่ยืนยันสถานะ เพราะ remember เป็น local state ของ checkbox
+            ที่ยังไม่ได้ persist — ถ้าเขียนว่า "เก็บไว้แล้ว" ผู้ใช้ที่ติ๊กแล้วกดยกเลิกจะเข้าใจผิดว่า key ถูกเซฟ */}
         <p className="mt-3.5 text-[11px] leading-relaxed text-text-faint">
-          Key เก็บไว้ใน session ของแท็บนี้เท่านั้น ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — Refresh ได้สบาย แต่ปิดแท็บแล้วต้องใส่ใหม่ค่ะ
-          ระบบจะเตือนก่อนปิดแท็บถ้ายังมี key อยู่
+          {remember
+            ? "Key ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — กดบันทึกแล้วจะถูกเก็บไว้ในเครื่องนี้จนกว่าจะกดลบ ปิดแท็บแล้วเปิดใหม่ก็ยังใช้ได้ค่ะ"
+            : "Key เก็บไว้ใน session ของแท็บนี้เท่านั้น ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — Refresh ได้สบาย แต่ปิดแท็บแล้วต้องใส่ใหม่ค่ะ ระบบจะเตือนก่อนปิดแท็บถ้ายังมี key อยู่"}
         </p>
 
         <div className="mt-4 border-t border-border pt-3.5">

@@ -218,19 +218,60 @@ export function saveUserExtraModels(list: ORModel[]) {
 
 const API_KEY_KEY = "atelier_api_key";
 
+/**
+ * ค่า default คือเก็บ key ใน sessionStorage (หายเมื่อปิดแท็บ) ซึ่งปลอดภัยกว่าสำหรับเครื่องที่ใช้ร่วมกัน
+ * ผู้ใช้เลือก opt-in ให้จำไว้ใน localStorage ได้เองผ่าน KeyModal — เก็บ flag ไว้ที่ localStorage เสมอ
+ * (ไม่ใช่ sessionStorage) เพราะต้องรู้ตั้งแต่ก่อนโหลด key ว่าจะไปอ่านจากที่ไหน
+ */
+const API_KEY_REMEMBER_KEY = "atelier_api_key_remember";
+
+export function loadRememberApiKey(): boolean {
+  try {
+    return localStorage.getItem(API_KEY_REMEMBER_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * fallback เป็น one-way เท่านั้น: อ่าน localStorage ได้ก็ต่อเมื่อผู้ใช้เลือก "จำไว้" จริงๆ
+ * ห้ามทำสองทางเด็ดขาด — ถ้า remember=false แล้วยังไปอ่าน localStorage เป็นตัวสำรอง
+ * key ที่ผู้ใช้สั่งลบไปแล้วจะ "ฟื้นคืนชีพ" ได้เงียบๆ ในเคสที่ removeItem เคย fail
+ * (เช่น storage ถูกบล็อกชั่วคราว) ซึ่งขัดกับสิ่งที่ UI สัญญาไว้ว่าลบออกจากเครื่องแล้ว
+ */
 function loadApiKey(): string {
   try {
+    if (loadRememberApiKey()) {
+      // ทางนี้ยอม fallback ได้ เพราะผู้ใช้ตั้งใจให้ key อยู่ต่ออยู่แล้ว — กันเคส localStorage
+      // ถูกล้างนอกแอปแล้ว key ที่เพิ่งใส่ใน session นี้หายไปด้วยทั้งที่ยังใช้งานอยู่
+      return localStorage.getItem(API_KEY_KEY) ?? sessionStorage.getItem(API_KEY_KEY) ?? "";
+    }
+    // remember=false → localStorage ไม่ควรมี key เลยตาม design ถ้าเจอแปลว่าเป็น stale
+    // จากการลบที่เคยล้มเหลว — ลบทิ้งเลย (self-heal) แทนที่จะเอามาใช้
+    try { localStorage.removeItem(API_KEY_KEY); } catch { /* best-effort */ }
     return sessionStorage.getItem(API_KEY_KEY) ?? "";
   } catch {
     return "";
   }
 }
 
-export function saveApiKey(key: string) {
+/**
+ * เขียน key ลงที่เดียวเท่านั้นตาม remember แล้วลบอีกที่ทิ้งเสมอ — สำคัญมากด้านความปลอดภัย
+ * เพราะถ้าผู้ใช้เปลี่ยนจาก "จำไว้" กลับเป็น "ไม่จำ" key ต้องหายจาก localStorage จริงๆ
+ * ไม่ใช่ค้างอยู่เงียบๆ จน reboot เครื่องก็ยังกู้กลับมาได้
+ */
+export function saveApiKey(key: string, remember = loadRememberApiKey()) {
   try {
-    if (key) sessionStorage.setItem(API_KEY_KEY, key);
-    else sessionStorage.removeItem(API_KEY_KEY);
-  } catch { /* sessionStorage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+    localStorage.setItem(API_KEY_REMEMBER_KEY, remember ? "1" : "0");
+  } catch { /* localStorage ถูกปิด — flag จะกลับไป default (ไม่จำ) ซึ่งปลอดภัยกว่าอยู่แล้ว */ }
+  const [target, other] = remember ? [localStorage, sessionStorage] : [sessionStorage, localStorage];
+  try {
+    if (key) target.setItem(API_KEY_KEY, key);
+    else target.removeItem(API_KEY_KEY);
+  } catch { /* storage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+  try {
+    other.removeItem(API_KEY_KEY);
+  } catch { /* เช่นเดียวกัน */ }
 }
 
 function loadHistory(mode: Mode): HistoryEntry[] {

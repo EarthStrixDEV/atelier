@@ -13,7 +13,7 @@ import {
 } from "../lib/actions";
 import { state, useApp } from "../lib/store";
 import type { GenItem, Mode } from "../lib/types";
-import { isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
+import { classifyGenError, isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
 import PromptComposer from "./PromptComposer";
 
 const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9)
@@ -417,6 +417,45 @@ const ARROW_KEY_DIR: Record<string, "left" | "right" | "up" | "down"> = {
   ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
 };
 
+/**
+ * ข้อความ error บนการ์ด — แปลง error ดิบจาก OpenRouter เป็นหัวข้อ + สิ่งที่ต้องทำต่อ
+ * เพราะ raw message อย่าง "HTTP 402" ไม่บอกผู้ใช้ว่าควรเติมเครดิตหรือแค่กดลองใหม่
+ * ยังเก็บข้อความดิบไว้ให้กางดูได้ ไม่ทิ้งข้อมูลที่จำเป็นตอน debug
+ */
+function GenErrorDetail({ errMsg }: { errMsg: string }) {
+  const [rawOpen, setRawOpen] = useState(false);
+  const info = classifyGenError(errMsg);
+  const trimmed = errMsg.trim();
+  // ถ้าข้อความดิบสั้นและสื่อความอยู่แล้ว (เช่นข้อความไทยที่เราโยนเอง) การกางดูซ้ำไม่ได้ประโยชน์
+  const showRaw = trimmed.length > 0 && trimmed !== info.title;
+
+  return (
+    <div className="flex max-h-full min-h-0 flex-col items-center gap-1">
+      <div className="flex items-center gap-1 text-[12px] font-semibold text-danger">
+        <CircleAlert size={12} className="shrink-0" />
+        <span>{info.title}</span>
+      </div>
+      <p className="text-[11px] leading-normal text-text-dim">{info.hint}</p>
+      {showRaw && (
+        <>
+          <button
+            className="cursor-pointer text-[10.5px] text-text-faint underline transition-colors hover:text-text-dim"
+            aria-expanded={rawOpen}
+            onClick={e => { e.stopPropagation(); setRawOpen(o => !o); }}
+          >
+            {rawOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียด"}
+          </button>
+          {rawOpen && (
+            <p className="max-h-[72px] overflow-y-auto break-words px-1 text-left font-mono text-[10px] leading-normal text-text-faint">
+              {trimmed}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, isTabEntry, onFocusCard, onArrowKey, onEnterKey }: CardProps) {
   // synthetic root ที่ startFromItem สร้าง (ดู actions.ts) เป็น video/cinematic mode แต่ url เป็นภาพนิ่ง (ยังไม่มีวิดีโอจริง) — render เป็น <img> แทน <video>
   const isVid = isVideoMode(item.mode) && !isImageDataUrl(item.url);
@@ -590,7 +629,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
 
         {item.status === "error" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-[18px] text-center">
-            <div className="max-h-[60%] overflow-hidden text-[11.5px] leading-normal text-danger">{item.errMsg}</div>
+            <GenErrorDetail errMsg={item.errMsg} />
             <div className="flex items-center gap-1">
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
