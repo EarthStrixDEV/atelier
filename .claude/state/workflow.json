@@ -182,6 +182,13 @@
       "reason": "มายด์ลิน (T8) flag ว่าไม่มี UI ไหนเรียก setGalleryPersistEnabled(true) เลย (grep ยืนยัน 0 match นอก galleryStore.ts) F2 ทั้ง feature จึงปิดสนิทสำหรับผู้ใช้ทุกคน = งาน T6/T7/T8 ทั้งสายไม่มีใครได้ใช้",
       "change": "เพิ่ม T21 (ออม) ทำ toggle opt-in + ปุ่มล้างข้อมูล + แสดงพื้นที่ใช้ ใน KeyModal Advanced section (SettingsModal.tsx ไม่มีบน branch นี้ — อยู่บน a11y ที่ยังไม่ merge)",
       "evidence": "KeyModal.tsx:240-250 มี Advanced section ที่แสดงพื้นที่ localStorage อยู่แล้ว เป็นที่ที่เข้ากับ toggle นี้พอดี"
+    },
+    {
+      "at": "2026-08-20",
+      "by": "มินจู (Min-Ju) — Loop Controller",
+      "scope": "T9 superseded",
+      "reason": "T9 (boot restore + opt-in toggle + ปุ่มล้าง) ถูกทำครบไปแล้วโดย T8 (มายด์ลิน: rehydrate เกาะ reconcilePendingJobs + dedupe by id/fingerprint) และ T21 (ออม: toggle + ปุ่มล้าง + usage ใน KeyModal Advanced) — AC ข้อสุดท้ายของ T9 ยังห้ามแตะ KeyModal.tsx ซึ่งขัดกับทางที่ทีมเลือกจริง เพราะ SettingsModal.tsx ไม่มีบน branch นี้",
+      "change": "ปิด T9 เป็น superseded ไม่ให้เบลทำซ้ำ, ย้าย AC ที่ยังไม่มีใครตรวจ (dedupe ตอน boot ที่มีทั้ง job ค้างและ persisted item) ไปเป็น AC ของ T10 (QA) แทน, ปลด dep T10 จาก T9 -> T22"
     }
   ]
 }

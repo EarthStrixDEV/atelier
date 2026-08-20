@@ -13,7 +13,7 @@ import {
   pickAutoSaveDir, reconnectAutoSaveDir, urlToBlob,
 } from "./fsAccess";
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
-import { isGalleryPersistEnabled, loadItems, saveItem, setFavorite } from "./galleryStore";
+import { deleteItem, isGalleryPersistEnabled, loadItems, saveItem, setFavorite } from "./galleryStore";
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
   addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites,
@@ -814,12 +814,16 @@ export function reorderQueue(fromIndex: number, toIndex: number) {
  */
 export function resetModeGallery(mode: Mode): number {
   let removed = 0;
+  // id ของชิ้นที่ถูกลบจริงในรอบนี้ — เก็บไว้ลบ record ใน IndexedDB หลัง mutate() จบ (ดู forgetPersistedItems)
+  // ต้องเป็น "เฉพาะชิ้นที่ลบจริง" ไม่ใช่ทั้งโหมด ไม่งั้นของที่ติดดาวจะหายจากดิสก์ทั้งที่การ์ดยังอยู่
+  const droppedIds: number[] = [];
   mutate(s => {
     const ms = s.modes[mode];
     const kept: GenItem[] = [];
     for (const item of ms.images) {
       if (item.favorite) { kept.push(item); continue; }
       releaseBlobUrls(item.id);
+      droppedIds.push(item.id);
       removed++;
     }
     ms.images = kept;
@@ -828,6 +832,9 @@ export function resetModeGallery(mode: Mode): number {
     ms.selected = new Set([...ms.selected].filter(id => keptIds.has(id)));
     ms.lbIndex = -1;
   });
+  // fire-and-forget หลัง mutate() สำเร็จ — no-op เงียบถ้า opt-in ปิด (pattern เดียวกับ syncFavoriteToGallery)
+  // ห้ามทำ resetModeGallery เป็น async: Gallery.tsx เรียกใน onClick แล้วใช้ค่า return ต่อทันที
+  forgetPersistedItems(droppedIds);
   return removed;
 }
 
@@ -1343,6 +1350,51 @@ function syncFavoriteToGallery(touched: GenItem[]) {
       }
     }
   }, () => {});
+}
+
+/**
+ * ลบ record ของ item ที่หลุดออกจากแกลเลอรีไปแล้วออกจาก IndexedDB ด้วย (T22)
+ *
+ * ปัญหาที่แก้: F2 เขียน record ลงดิสก์ตอน item เสร็จ แต่ตอนผู้ใช้ล้างแกลเลอรี record ยังค้างอยู่จนกว่าจะโดน
+ * eviction ตัดทิ้งเอง = กินพื้นที่เครื่องต่อ และ rehydrateGallery() ตอน reload จะดึงของที่ผู้ใช้ลบไปแล้วกลับมา
+ *
+ * === ทำไมไม่ใช้ clearMode(mode) ทั้งที่มีให้ ===
+ * clearMode() ลบ record **ทั้งโหมด** แต่ resetModeGallery() ข้าม item ที่ favorite ไว้โดยเจตนา
+ * (ผู้ใช้กดดาว = ตั้งใจเก็บ) ถ้าเรียก clearMode ตรงๆ ของที่ปักหมุดจะหายจากดิสก์ทั้งที่การ์ดยังอยู่บนจอ
+ * แล้ว reload ครั้งถัดไปมันก็หายไปจริงๆ — ขัดทั้ง UI และ EVICTION POLICY ที่ให้ favorite รอดก่อนเสมอ
+ * จึงวน deleteItem() เฉพาะ id ที่ถูกลบจริงแทน ซึ่งได้ผลลัพธ์ตรงกับ in-memory เป๊ะโดยนิยาม
+ * (clearMode ยังมีที่ใช้อยู่ — เคสที่ต้องล้างยกโหมดจริงๆ ไม่มีข้อยกเว้น ซึ่งตอนนี้ยังไม่มี call site)
+ *
+ * KEY MAPPING: record ไม่ได้ key ด้วย GenItem.id (id มาจาก ++s.seq ที่รีเซ็ตทุก reload) — ใช้ persistKeys
+ * ซึ่ง persistItemToGallery/rehydrateGallery เติมไว้ให้แล้ว item ที่ไม่มี entry = ยังไม่เคยลงดิสก์
+ * (opt-in ปิดตอนมันเกิด / ยังเซฟไม่เสร็จ / เกินโควตา) → ไม่มีอะไรให้ลบ ข้ามไป
+ *
+ * ต่อท้าย galleryPersistChain คิวเดียวกับ save/setFavorite เพื่อไม่ให้ลบแซงหน้า saveItem ของ item เดียวกัน
+ * ที่ยังเขียนไม่เสร็จ (ไม่งั้นจะลบก่อนแล้ว record โผล่กลับมาทีหลัง) — และเพราะเป็นการ "อ่าน persistKeys ทีหลัง"
+ * จึงเก็บ id ไว้เฉยๆ ไม่ snapshot key ตรงนี้ เผื่อ saveItem ที่ยังค้างคิวอยู่เพิ่ง set key ให้
+ *
+ * fire-and-forget + ไม่ throw: deleteItem() กลืน error ให้อยู่แล้ว และผู้ใช้ลบการ์ดไปแล้วในสายตาเขา
+ * การเด้ง toast error เพราะ storage layer ที่เป็นแค่ cache ลบไม่ผ่านไม่ช่วยอะไร
+ */
+function forgetPersistedItems(ids: number[]) {
+  // opt-in ปิด = ไม่เคยมี record ให้ลบ และ persistKeys ก็ว่าง — ออกเงียบๆ ไม่แตะ IndexedDB เลย
+  if (!ids.length || !isGalleryPersistEnabled()) return;
+  galleryPersistChain = galleryPersistChain.then(async () => {
+    for (const id of ids) {
+      const key = persistKeys.get(id);
+      if (!key) continue;
+      await deleteItem(key);
+      persistKeys.delete(id);
+    }
+  }, () => {});
+}
+
+/**
+ * ลบ record ของ item ชิ้นเดียว — wrapper บาง ๆ ของ forgetPersistedItems() ไว้ให้ path ที่ลบทีละการ์ด
+ * (เช่นปุ่มลบบนการ์ด ถ้ามีในอนาคต) เรียกได้โดยไม่ต้องรู้เรื่อง persistKeys
+ */
+export function forgetPersistedItem(id: number) {
+  forgetPersistedItems([id]);
 }
 
 /**

@@ -269,7 +269,7 @@
       ],
       "securitySensitive": true,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "superseded",
       "acceptanceCriteria": [
         "feature เป็น opt-in ค่าเริ่มต้นปิด ผู้ใช้ที่ไม่เคยเปิดต้องไม่มีอะไรถูกเขียนลง IndexedDB เลย ตรวจใน Application tab ว่า store ว่าง",
         "เปิด toggle แล้วสร้างรูป ปิดแท็บ เปิดใหม่ รูปยังอยู่ใน gallery และเปิด lightbox ดูได้จริง",
@@ -282,7 +282,9 @@
         "src/pages/StudioApp.tsx",
         "src/lib/store.ts",
         "src/components/Header.tsx"
-      ]
+      ],
+      "completedAt": "2026-08-20",
+      "result": "Superseded: boot restore done in T8 (actions.ts:221 rehydrateGallery + dedupe by id OR fingerprint), opt-in toggle + clear button + usage readout done in T21 (KeyModal Advanced). T9 AC also forbade touching KeyModal.tsx which conflicts with where the UI actually had to go."
     },
     {
       "id": "T10",
@@ -292,7 +294,7 @@
       "assignee": "แพร (Prae) — QA Lead",
       "chainDepth": "full",
       "dependsOn": [
-        "T9",
+        "T22",
         "T14"
       ],
       "securitySensitive": false,
@@ -303,7 +305,9 @@
         "สร้างวิดีโอ 1 ชิ้น reload แล้ว video element เล่นได้จริง ไม่ใช่ blob URL ที่ตายแล้ว",
         "ยิงจนเกิน cap แล้วตรวจว่า record ไม่โตเกิน cap และ item ที่ favorite ยังอยู่ครบ",
         "ปิด toggle แล้วล้างข้อมูล ตรวจว่า IndexedDB store ว่างจริงใน Application tab",
-        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน"
+        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน",
+        "boot ที่มีทั้ง pending video job และ persisted item พร้อมกัน ต้องไม่มี item id ซ้ำใน gallery (ย้ายมาจาก T9 — dedupe logic อยู่ที่ actions.ts rehydrateGallery)",
+        "ผู้ใช้ที่ไม่เคยเปิด toggle ต้องไม่มีอะไรถูกเขียนลง IndexedDB เลย (ย้ายมาจาก T9)"
       ],
       "filesLikelyTouched": []
     },
@@ -607,7 +611,7 @@
       ],
       "securitySensitive": true,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "done",
       "origin": "มายด์ลิน (T8) flag: F2 ปิดสนิท ไม่มี UI เปิด — verified by Loop Controller",
       "acceptanceCriteria": [
         "KeyModal Advanced section มี toggle เปิด/ปิด Gallery Persistence ที่เรียก setGalleryPersistEnabled จริง",
@@ -620,6 +624,14 @@
       ],
       "filesLikelyTouched": [
         "src/components/KeyModal.tsx"
+      ],
+      "completedAt": "2026-08-20",
+      "result": "GalleryPersistSettings card in KeyModal Advanced (card #2, after localStorage card). role=switch + aria-checked toggle. Confirm on DISABLE only when usage.count>0 (rationale: a confirm that fires every time is a confirm nobody reads). busy lock covers both toggle and clear (same object store). enabled updates only after await resolves — no optimistic lie if localStorage is blocked. getGalleryUsage on Advanced-expand mount only, no polling (it getAll()s blobs). perMode verified to be item COUNT not bytes (galleryStore.ts:259) and labelled accordingly.",
+      "browserDebt": [
+        "toggle knob render at 36x20px",
+        "focus ring on round switch may overflow card",
+        "END-TO-END: enable -> generate -> reload -> images return (first time this path is reachable at all)",
+        "long description text on narrow modal"
       ]
     },
     {
@@ -650,9 +662,10 @@
   ],
   "meta": {
     "totalTasks": 22,
-    "notStarted": 10,
+    "notStarted": 8,
     "inProgress": 0,
-    "done": 12,
-    "blocked": 0
+    "done": 13,
+    "blocked": 0,
+    "superseded": 1
   }
 }
