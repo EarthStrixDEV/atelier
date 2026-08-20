@@ -1,7 +1,7 @@
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from "react-window";
 import {
-  Check, ChevronDown, CircleAlert, Clapperboard, Clock, Cloud, CloudUpload, Columns2, Copy, Crosshair, Download, FastForward, HardDriveDownload,
+  ArrowUp, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Cloud, CloudUpload, Columns2, Copy, Crosshair, Download, FastForward, HardDriveDownload,
   ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Sparkles, Video, Wand2, X,
 } from "lucide-react";
 import { MODE_META, RATIOS, isVideoMode } from "../lib/constants";
@@ -117,6 +117,10 @@ interface VirtualGridProps {
   mode: Mode;
   /** ยกออกมาให้ Gallery ควบคุมจากข้างนอกได้ (เช่น เลื่อนไปแถวบนสุดตอนมี item ใหม่โผล่จาก Generate) */
   listRef: RefObject<ListImperativeAPI | null>;
+  /** รายงานว่าตอนนี้เห็นแถวบนสุดอยู่ไหม — Gallery ใช้ตัดสินว่าจะ auto-scroll หรือโชว์ปุ่มแทน */
+  onAtTopChange: (atTop: boolean) => void;
+  /** ปุ่มลอย "ผลลัพธ์ใหม่" — รับมาวางทับในกรอบเดียวกับ List แทนที่จะให้ Gallery ครอบ div เพิ่มเอง */
+  newResultPill?: React.ReactNode;
 }
 
 /**
@@ -187,7 +191,7 @@ function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObje
  * เป็นแถวๆ ละ columnCount ก่อนส่งให้ List วาดทีละแถวตาม viewport — List เป็นเจ้าของ scroll container ของตัวเอง
  * (overflow-y-auto ภายใน) จึงต้องอยู่ในกล่อง flex-1 min-h-0 แยกจาก header/StoryboardStrip ที่ไม่ virtualize
  */
-function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }: VirtualGridProps) {
+function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, onAtTopChange, newResultPill }: VirtualGridProps) {
   const [width, setWidth] = useState(0);
   const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: 320, key: mode });
   const rowElsRef = useRef(new Map<number, HTMLDivElement>());
@@ -213,6 +217,17 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
 
   useEffect(() => () => unobserveRef.current?.(), []);
 
+  // ฟัง scroll ตรงๆ ด้วย เพราะ onRowsRendered ยิงเฉพาะตอน "ช่วงแถวที่ render" เปลี่ยน —
+  // เลื่อนนิดเดียวในแถวเดิม (ซึ่งเปลี่ยนสถานะ "อยู่บนสุดไหม" ได้จริง) จะไม่ยิงเลย
+  useEffect(() => {
+    const el = listRef.current?.element;
+    if (!el) return;
+    const onScroll = () => onAtTopChange(el.scrollTop <= NEAR_TOP_PX);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [listRef, onAtTopChange, items.length]);
+
   // เดโม/ตรวจสอบ Phase 13 เท่านั้น — นับจำนวน row ที่ react-window บอกว่ากำลัง render จริงตอนนี้ (คูณ columnCount
   // เป็นจำนวน card โดยประมาณ, แถวสุดท้ายอาจมีน้อยกว่านั้นถ้า item ไม่พอดีเต็มแถว) ตัด tree-shake ออกจาก production build
   const onRowsRendered = useCallback((visible: { startIndex: number; stopIndex: number }) => {
@@ -222,6 +237,10 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
       start: visible.startIndex * columnCount,
       stop: (visible.stopIndex + 1) * columnCount - 1,
     });
+    // วัดจาก scrollTop จริงไม่ใช่ index ของแถวที่ render — overscan ทำให้แถว 0 ยังถูก render
+    // อยู่แม้เลื่อนลงไปพอสมควรแล้ว ถ้าใช้ index จะตัดสินผิดว่า "ยังอยู่บนสุด"
+    const el = listRef.current?.element;
+    onAtTopChange(!el || el.scrollTop <= NEAR_TOP_PX);
     if (!import.meta.env.DEV) return;
     const rowsRendered = visible.stopIndex - visible.startIndex + 1;
     const lastRowStart = (rowCount - 1) * columnCount;
@@ -229,7 +248,7 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
     const includesLastRow = visible.stopIndex >= rowCount - 1;
     const full = includesLastRow ? rowsRendered - 1 : rowsRendered;
     setMountedCount(Math.min(items.length, full * columnCount + (includesLastRow ? lastRowSize : columnCount)));
-  }, [columnCount, rowCount, items.length, setRenderedRange]);
+  }, [columnCount, rowCount, items.length, setRenderedRange, onAtTopChange]);
 
   const rowProps = useMemo<GridRowProps>(() => ({
     items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
@@ -248,6 +267,7 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
         onRowsRendered={onRowsRendered}
         style={{ height: "100%", width: "100%" }}
       />
+      {newResultPill}
       <VirtualGridDevReadout mounted={mountedCount} total={items.length} mode={mode} />
     </div>
   );
@@ -412,6 +432,9 @@ interface CardProps {
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
 }
+
+/** เลื่อนลงมาไม่เกินเท่านี้ยังถือว่า "อยู่บนสุด" — เผื่อผู้ใช้ขยับเมาส์นิดหน่อยแล้วยังคาดหวังให้เลื่อนตามของใหม่ */
+const NEAR_TOP_PX = 80;
 
 const ARROW_KEY_DIR: Record<string, "left" | "right" | "up" | "down"> = {
   ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
@@ -877,15 +900,35 @@ export default function Gallery() {
 
   const centerPrompt = s.promptPlacement === "center";
 
-  // item ใหม่ถูก unshift ไว้บนสุดเสมอ — ถ้าผู้ใช้เลื่อนดูรูปเก่าอยู่ตอนกด Generate จะมองไม่เห็น
-  // การ์ดใหม่เลย (ทั้งที่สร้างสำเร็จ) จนกว่าจะเลื่อนขึ้นเอง จึงต้องเลื่อนขึ้นบนสุดให้ทุกครั้งที่มี item ใหม่โผล่
+  // item ใหม่ถูก unshift ไว้บนสุดเสมอ — ถ้าผู้ใช้อยู่บนสุดอยู่แล้วก็เลื่อนตามให้เลย แต่ถ้ากำลังเลื่อน
+  // ดูงานเก่าอยู่ ห้ามดึงกลับขึ้นไป (เป็นพฤติกรรมเดิมที่รำคาญมาก — กำลังดูอยู่ดีๆ จอกระโดด)
+  // ให้ขึ้นปุ่มลอยบอกแทน กดเองเมื่อพร้อม
   // scroll จริงอยู่ใน react-window List (ดู VirtualGrid) จึงต้องสั่งผ่าน listRef.scrollToRow แทน scrollTo ของ div ธรรมดา
   const listRef = useRef<ListImperativeAPI | null>(null);
+  const [atTop, setAtTop] = useState(true);
+  const [pendingNew, setPendingNew] = useState(false);
+  const atTopRef = useRef(true);
+  const onAtTopChange = useCallback((v: boolean) => {
+    atTopRef.current = v;
+    setAtTop(v);
+    // เลื่อนกลับขึ้นบนสุดเองเมื่อไหร่ ถือว่าเห็นของใหม่แล้ว — เก็บปุ่มทิ้ง
+    if (v) setPendingNew(false);
+  }, []);
+
   const newestId = ms.images[0]?.id;
   useEffect(() => {
-    if (newestId != null) listRef.current?.scrollToRow({ index: 0, align: "start", behavior: "smooth" });
+    if (newestId == null) return;
+    // อ่านจาก ref ไม่ใช่ state เพราะ effect นี้ผูกกับ newestId อย่างเดียว ถ้าใส่ atTop ใน deps
+    // มันจะยิงซ้ำทุกครั้งที่ scroll ข้ามขอบบน ทำให้เลื่อนเด้งโดยไม่มี item ใหม่จริง
+    if (atTopRef.current) listRef.current?.scrollToRow({ index: 0, align: "start", behavior: "smooth" });
+    else setPendingNew(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newestId]);
+
+  const jumpToNewest = () => {
+    setPendingNew(false);
+    listRef.current?.scrollToRow({ index: 0, align: "start", behavior: "smooth" });
+  };
 
   return (
     <main aria-label={meta.title} className="relative flex min-w-0 flex-1 overflow-hidden">
@@ -961,6 +1004,20 @@ export default function Gallery() {
           onOpen={openLightbox}
           mode={s.mode}
           listRef={listRef}
+          onAtTopChange={onAtTopChange}
+          newResultPill={
+            /* ปุ่มลอยแทนการดึงจอกลับขึ้นบนเอง — ผู้ใช้เลือกเองว่าจะขึ้นไปดูตอนไหน
+               ต้องวางในตัว VirtualGrid เอง ห้ามครอบ div เพิ่มรอบนอก ไม่งั้น flex chain
+               ของ react-window ขาด (List เป็นเจ้าของ scroll container ของตัวเอง) แล้วกริดเลื่อนไม่ได้เลย */
+            pendingNew && !atTop ? (
+              <button
+                className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border border-border-strong bg-surface px-3.5 py-1.5 text-[11.5px] font-semibold text-text shadow-[0_6px_20px_rgba(0,0,0,.12)] transition-colors hover:border-text"
+                onClick={jumpToNewest}
+              >
+                <ArrowUp size={12} /> ผลลัพธ์ใหม่
+              </button>
+            ) : null
+          }
         />
       )}
       </div>

@@ -62,6 +62,16 @@ function isValidModelEntry(x: unknown): x is ORModel {
  * validate id เทียบกับ model list ที่ fetch มาแล้ว (ถ้ายังโหลดไม่เสร็จ — defer ไม่ฟันธงว่า invalid) แล้วเตือนก่อนเซฟ
  * แต่ยังกด "เซฟถึงจะเตือน" (force save) ได้เสมอ เผื่อโมเดลใหม่จริงๆ ที่ OpenRouter ยังไม่ list
  */
+/** ตัวอย่างที่ผ่าน isValidModelEntry จริง ให้ผู้ใช้กดแทรกแล้วแก้ค่าต่อได้ทันที */
+const EXAMPLE_EXTRA_MODEL_JSON = `[
+  {
+    "id": "vendor/model-name",
+    "name": "Vendor: Model Name",
+    "architecture": { "output_modalities": ["image"] },
+    "pricing": { "image": "0.004" }
+  }
+]`;
+
 function ExtraModelsEditor() {
   const s = useApp();
   const [text, setText] = useState(() => JSON.stringify(s.userExtraModels, null, 2));
@@ -105,9 +115,26 @@ function ExtraModelsEditor() {
 
   return (
     <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-      <label htmlFor="extra-models-json" className="flex items-center gap-1.5 text-[12px] text-text-dim">
-        <ListPlus size={13} /> เพิ่มโมเดลเอง (JSON)
-      </label>
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor="extra-models-json" className="flex items-center gap-1.5 text-[12px] text-text-dim">
+          <ListPlus size={13} /> เพิ่มโมเดลเอง (JSON)
+        </label>
+        {/* ให้ตัวอย่างที่แก้ต่อได้เลย — textarea เปล่ากับ placeholder ที่หายตอนโฟกัส
+            ทำให้คนที่ไม่ถนัด JSON ไม่รู้จะเริ่มยังไง */}
+        <button
+          type="button"
+          className="shrink-0 cursor-pointer rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
+          title="ใส่ตัวอย่างที่ใช้งานได้จริงลงในช่อง แล้วแก้ค่าตามต้องการ"
+          onClick={() => {
+            setText(EXAMPLE_EXTRA_MODEL_JSON);
+            setForceConfirm(false);
+            setParseError("");
+            setUnknownIds([]);
+          }}
+        >
+          แทรกตัวอย่าง
+        </button>
+      </div>
       <p className="mt-1 text-[10.5px] leading-relaxed text-text-faint">
         รูปแบบเดียวกับ EXTRA_MODELS ในโค้ด — array ของ {"{"}"id", "name", "pricing", "architecture"{"}"}  จะถูก merge เข้ารายชื่อโมเดลเดิมโดยไม่ให้ id ซ้ำค่ะ
       </p>
