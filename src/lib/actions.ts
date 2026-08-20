@@ -13,7 +13,7 @@ import {
   pickAutoSaveDir, reconnectAutoSaveDir, urlToBlob,
 } from "./fsAccess";
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
-import { beginNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
+import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
   addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites,
   loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
@@ -1098,7 +1098,13 @@ function scheduleRequest(item: GenItem, batchId: number | null = null): Promise<
     waitingQueue.push({
       item,
       start: run,
-      drop: () => { finalizeCancelled(item, cancelReasons.get(item.id) ?? "user"); resolve(); },
+      // งานที่ถูก drop ตอนยังรอคิวไม่เคยเข้า runRequest เลย จึงต้องหด batch ของ notify.ts เองตรงนี้ (T19)
+      // — ไม่งั้น batch ค้างเหมือนกันทุกประการกับเคสที่ถูก abort กลางทาง
+      drop: () => {
+        finalizeCancelled(item, cancelReasons.get(item.id) ?? "user");
+        dropFromNotifyBatch(batchId);
+        resolve();
+      },
     });
   });
 }
@@ -1128,6 +1134,17 @@ function finalizeCancelled(item: GenItem, reason: CancelReason) {
   item.errMsg = "";
   cancelReasons.delete(item.id);
   mutate();
+}
+
+/**
+ * สถิติของ governor สำหรับโชว์ใน UI (T3) — UI แยก "กำลังยิงอยู่" กับ "รอคิว" จาก state ฝั่ง React ไม่ได้
+ * เพราะ item ทั้งสองกลุ่มมี status = "loading" เหมือนกันหมด ความจริงอยู่ที่ตัวแปร module-level สองตัวนี้เท่านั้น
+ *
+ * `waiting` คือจำนวนงานที่ยัง "ไม่เคยยิง fetch เลย" — ยกเลิกตอนนี้ = ไม่เสียเงิน ซึ่งเป็นจุดขายของปุ่มยกเลิก
+ * ตัวเลขไม่ได้อยู่ใน AppState (ไม่ trigger re-render เอง) — Header poll ทุก 1s ขณะมีงานค้างอยู่
+ */
+export function getSchedulerStats(): { active: number; waiting: number } {
+  return { active: activeCount, waiting: waitingQueue.length };
 }
 
 /** true ถ้า item ชิ้นนี้ยกเลิกได้ตอนนี้ — กำลังยิงอยู่จริง หรือยังนอนรอ slot อยู่ในคิวของ governor */
@@ -1219,10 +1236,10 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
     if (sig.aborted || isAbortError(e)) {
       finalizeCancelled(item, cancelReasons.get(item.id) ?? "user");
       // ตั้งใจไม่เรียก notifyJobSettled() ตามกฎข้อ 4 ของ contract (งานที่ยกเลิกเองไม่ใช่ทั้งสำเร็จและล้มเหลว)
-      // ผลข้างเคียงที่รู้ตัว: batch ของ notify.ts นับจาก total ที่ประกาศไว้ตอน beginNotifyBatch งานที่ถูกยกเลิก
-      // จึงทำให้ batch นั้นไม่ครบ total และไม่ยิงสรุปตอนจบ — แก้ให้ถูกต้องต้องมี API ลดขนาด batch ใน notify.ts
-      // ซึ่งอยู่นอกขอบเขตไฟล์ที่ T2 แตะได้ (ส่งต่อเป็น follow-up) ทางเลือกอื่นคือส่ง cancelled เข้า tally
-      // ซึ่งจะถูกนับเป็น "ล้มเหลว" และเด้ง "งานล้มเหลว" — ผิด contract ยิ่งกว่า จึงเลือกไม่เรียก
+      // แต่ต้องหด total ของ batch ลง 1 แทน (T19) ไม่งั้น batch.settled ไม่มีวันถึง batch.total → entry ค้างใน
+      // `batches` ถาวรและงานที่เหลือเสร็จแล้วเงียบสนิท — dropFromNotifyBatch ยิงสรุปให้เองถ้าการหดครั้งนี้
+      // ทำให้ batch ครบพอดี เรียกได้ทุกโหมด (batchId เป็น null สำหรับโหมดที่ไม่ notifiable — ฟังก์ชัน no-op ให้)
+      dropFromNotifyBatch(batchId);
       return;
     }
     item.status = "error";

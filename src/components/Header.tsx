@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Clapperboard, Download, FolderCheck, FolderInput, FolderX, History, Image,
-  KeyRound, Layers, Music, PanelLeftClose, PanelLeftOpen, Send, Upload, Video,
+  KeyRound, Layers, Loader2, Music, PanelLeftClose, PanelLeftOpen, Send, Upload, Video, X,
 } from "lucide-react";
 import { MODES, modeLabel } from "../lib/constants";
 import type { Mode } from "../lib/types";
@@ -14,10 +14,10 @@ const MODE_ICONS: Record<Mode, typeof Image> = {
   audio: Music,
 };
 import {
-  connectAutoSaveDir, disconnectAutoSaveDir, exportSession, importSession,
+  cancelAll, connectAutoSaveDir, disconnectAutoSaveDir, exportSession, getSchedulerStats, importSession,
   isAutoSaveSupported, reconnectSavedAutoSaveDir, switchMode, toggleAutoSaveEnabled,
 } from "../lib/actions";
-import { loadExportLog, mutate, useApp } from "../lib/store";
+import { loadExportLog, mutate, toast, useApp } from "../lib/store";
 
 /** โชว์เวลาแบบสั้นๆ อ่านง่าย — ไม่ต้องเป๊ะระดับวินาที แค่พอให้แยกออกว่า export ไหนเป็นไหน */
 function fmtExportedAt(at: number): string {
@@ -196,6 +196,90 @@ function AutoSaveControl() {
   );
 }
 
+/**
+ * ตัวบ่งชี้งานที่กำลังรัน + ปุ่มยกเลิกทั้งหมด (T3) — โผล่เฉพาะตอนมีงาน loading อยู่จริง ไม่งั้นซ่อนหายไป
+ * ไม่กิน space ใน header ตอนว่าง
+ *
+ * ทำไมต้อง poll: จำนวน "กำลังยิง" กับ "รอคิว" อยู่ในตัวแปร module-level ของ governor (activeCount /
+ * waitingQueue) ไม่ได้อยู่ใน AppState — mutate() ไม่ถูกเรียกตอนงานขยับจากคิวเข้า slot จึงไม่มี re-render
+ * ให้เกาะ ต้องถามผ่าน getSchedulerStats() เป็นระยะเอง (1s พอสำหรับตัวเลขระดับนี้) และ poll เฉพาะตอนที่
+ * มีงานค้างอยู่จริงเท่านั้น — ว่างเมื่อไหร่ interval ถูก clear ทิ้ง ไม่มี timer วิ่งเปล่าตลอดอายุแอป
+ *
+ * ยืนยันก่อนยกเลิก: "ยกเลิกทั้งหมด" ทีเดียวหลายชิ้นและกู้คืนไม่ได้ (งานที่ยิงไปแล้วเสียเงินไปแล้ว) —
+ * ใช้ two-step ในปุ่มเดิม (กดครั้งแรกเปลี่ยนเป็น "ยืนยันยกเลิก?") แทน window.confirm/modal เพราะเบากว่า
+ * และผู้ใช้กดพลาดแล้วแค่ปล่อยให้หมดเวลา 4 วินาทีก็คืนสภาพเดิมเอง ส่วนการยกเลิก "ทีละชิ้น" ในการ์ด
+ * ไม่ต้องยืนยัน (ผลกระทบชิ้นเดียว เห็นตัวงานอยู่ตรงหน้า และมีปุ่มสร้างใหม่ให้กดกลับได้ทันที)
+ */
+function RunningJobsControl() {
+  const s = useApp();
+  const [stats, setStats] = useState(() => getSchedulerStats());
+  const [confirming, setConfirming] = useState(false);
+
+  // นับจาก state (ทุกโหมด) เพื่อ "ตัดสินใจว่าจะโชว์ไหม" — governor นับได้เฉพาะงานที่ผ่านมันอยู่ตอนนี้
+  const loadingCount = Object.values(s.modes).reduce(
+    (n, m) => n + m.images.filter(x => x.status === "loading").length, 0,
+  );
+
+  useEffect(() => {
+    if (loadingCount === 0) return;
+    setStats(getSchedulerStats());
+    const id = window.setInterval(() => setStats(getSchedulerStats()), 1000);
+    return () => window.clearInterval(id);
+  }, [loadingCount]);
+
+  // กดยืนยันค้างไว้แล้วไม่กดต่อ — คืนปุ่มกลับสภาพเดิม กัน "ยืนยันยกเลิก?" ค้างจนกดโดนทีหลังโดยไม่ตั้งใจ
+  useEffect(() => {
+    if (!confirming) return;
+    const id = window.setTimeout(() => setConfirming(false), 4000);
+    return () => window.clearTimeout(id);
+  }, [confirming]);
+
+  useEffect(() => { if (loadingCount === 0) setConfirming(false); }, [loadingCount]);
+
+  if (loadingCount === 0) return null;
+
+  const running = Math.min(stats.active, loadingCount);
+  const waiting = stats.waiting;
+
+  const doCancelAll = () => {
+    if (!confirming) { setConfirming(true); return; }
+    setConfirming(false);
+    // ยกเลิกทุกโหมด ไม่ใช่แค่โหมดปัจจุบัน — ตัวเลขที่โชว์ก็นับรวมทุกโหมด ปุ่มต้องทำตามที่เห็น
+    const n = cancelAll("user-all");
+    setStats(getSchedulerStats());
+    toast(n > 0 ? `ยกเลิกแล้ว ${n} งานค่ะ` : "ไม่มีงานที่ยกเลิกได้ตอนนี้ค่ะ");
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-2 py-1 pl-2.5 pr-1">
+      <span
+        className="flex items-center gap-1.5 text-[11.5px] font-semibold text-text-dim"
+        aria-live="polite"
+        aria-label={`กำลังสร้าง ${running} งาน รอคิวอีก ${waiting} งาน`}
+      >
+        <Loader2 size={12} className="animate-spin text-accent" />
+        กำลังสร้าง {running}
+        {waiting > 0 && <span className="font-normal text-text-faint">· รอคิว {waiting}</span>}
+      </span>
+      <button
+        className={
+          "cursor-pointer rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors " +
+          (confirming
+            ? "bg-danger text-accent-ink"
+            : "border border-border text-text-dim hover:border-danger hover:text-danger")
+        }
+        title={waiting > 0
+          ? `ยกเลิกทุกงานที่ค้างอยู่ — ${waiting} งานที่ยังรอคิวยังไม่ถูกยิงเลย ยกเลิกตอนนี้ไม่เสียเงิน`
+          : "ยกเลิกทุกงานที่กำลังสร้างอยู่"}
+        aria-label={confirming ? "กดอีกครั้งเพื่อยืนยันยกเลิกงานทั้งหมด" : "ยกเลิกงานทั้งหมดที่กำลังสร้างอยู่"}
+        onClick={doCancelAll}
+      >
+        {confirming ? "ยืนยันยกเลิก?" : <span className="flex items-center gap-1"><X size={11} /> ยกเลิกทั้งหมด</span>}
+      </button>
+    </div>
+  );
+}
+
 export default function Header() {
   const s = useApp();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -239,6 +323,7 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-2 justify-self-end">
+        <RunningJobsControl />
         <button
           className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
           title="Import session (.json)"

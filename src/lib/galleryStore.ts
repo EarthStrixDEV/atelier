@@ -470,3 +470,60 @@ export async function evictIfNeeded(justSavedMode?: Mode): Promise<number> {
     return 0;
   }
 }
+
+/* ============================================================================
+ * HANDOFF → T8 (wiring layer, actions.ts) — signature ที่ตกลงไว้แล้ว
+ *
+ * ไฟล์นี้เป็น storage layer ล้วน ไม่แตะ AppState/mutate() เลย 3 จุดด้านล่างคือทั้งหมดที่ T8 ต้องต่อ
+ * ทุกฟังก์ชันที่อ้างถึง export อยู่แล้วในไฟล์นี้ และ **ไม่ throw** (คืน null/[]/false/0 เมื่อพลาด)
+ * → เรียกได้จาก generation flow โดยไม่ต้องห่อ try/catch เพิ่ม และ storage พังต้องไม่ทำให้การสร้างงานพัง
+ *
+ * ── 1) REHYDRATE ตอนบูต ────────────────────────────────────────────────────
+ *   const restored = await loadItems(mode);           // [] ถ้า opt-in ปิด — ไม่ต้องเช็คเองซ้ำ
+ *   mutate(s => {
+ *     for (const r of restored) {
+ *       registerBlobUrl(r.id, r.url);                 // จาก ./blobUrls — ต้องเรียก ไม่งั้น URL รั่วยันปิดแท็บ
+ *       if (r.id > s.seq) s.seq = r.id;               // pattern เดียวกับ reconcilePendingJobs (actions.ts:249)
+ *       s.modes[r.mode].images.push(toGenItem(r));    // loadItems เรียงเก่า→ใหม่มาแล้ว push ต่อท้ายได้ตรงๆ
+ *     }
+ *   });
+ *   - **bump s.seq ก่อนสร้าง item ใหม่ใดๆ ในเซสชัน** — `seq: 0` รีเซ็ตทุก reload (store.ts:485)
+ *     แต่ r.id มาจาก seq ของเซสชันก่อน ถ้าไม่ bump id จะชนกันแล้ว toggleFavorite/releaseBlobUrls
+ *     (ซึ่งค้นด้วย id) จะไปโดน item ผิดตัว
+ *   - ฟิลด์ที่ record ไม่มี ต้องเติมตอนประกอบ GenItem: status "done", jobStatus "", jobId null,
+ *     errMsg "", refs [] (โดยเจตนา — ดูหัวไฟล์), startedAt = r.savedAt, favorite = r.favorite
+ *   - เก็บ `r.key` ไว้กับ item ด้วย (เพิ่ม field ที่ T8 เลือกเอง เช่น `persistKey?: string` ใน GenItem)
+ *     ไม่งั้นข้อ 3 หา record ที่จะอัปเดตไม่เจอ — `key` เป็น primary key เดียวที่ข้าม session ได้ ไม่ใช่ id
+ *
+ * ── 2) SAVE หลังสร้างเสร็จ ──────────────────────────────────────────────────
+ *   const key = await saveItem(item);   // Promise<string | null>
+ *   จุดเรียก: หลัง `item.status = "done"` ใน runRequest (actions.ts:1215) — ต้องอยู่ **หลัง** บรรทัดนั้น
+ *   เพราะ saveItem() ตัดทิ้งเงียบๆ ถ้า status !== "done" || !item.url
+ *   - อย่า await คา path ที่ผู้ใช้รออยู่จนบล็อก UI: ยิงแล้วเก็บผลทีหลัง (`.then(k => mutate(...))`)
+ *   - null = ไม่ได้เซฟ (opt-in ปิด / MIME ไม่ใช่ media / ใหญ่เกิน GALLERY_MAX_ITEM_BYTES / quota เต็ม)
+ *     ถือเป็นเคสปกติ ห้าม toast error
+ *   - ได้ key มาแล้วเก็บใส่ item (ดูข้อ 1) เพื่อให้ setFavorite/deleteItem ใช้ต่อได้
+ *   - eviction รันเองใน saveItem แล้ว ไม่ต้องเรียก evictIfNeeded() ซ้ำ (จะเรียกเองก็ได้ถ้าอยากได้
+ *     จำนวนชิ้นที่ถูกตัดไปทำ toast — มันคืน number)
+ *
+ * ── 3) SYNC ตอนผู้ใช้กดดาว ─────────────────────────────────────────────────
+ *   จุดเรียก: `toggleFavorite(id)` ใน **actions.ts** (F3/T13 ย้ายออกจาก Gallery.tsx มาแล้ว — ค้นด้วยชื่อ
+ *   ฟังก์ชัน ไม่ใช่เลขบรรทัด ไฟล์นั้นมีคนแก้อยู่) ตอนนี้แก้แค่ state ในหน่วยความจำ + localStorage
+ *   ต้องต่อ storage sync หลัง mutate() สำเร็จ
+ *
+ *   >> ระวัง (สำคัญ): toggleFavorite ไม่ได้แก้ item เดียว — มันหา `favoriteKeyOf(target)` แล้วเซ็ต
+ *      favorite ค่าเดียวกันให้ **ทุก item ที่ favoriteKeyOf ตรงกัน** ในโหมดนั้น (favoriteKeyOf เป็น
+ *      hash ของ prompt/model/ratio/duration/audio ไม่ใช่ id) ดังนั้นการกดดาวครั้งเดียวอาจต้องอัปเดต
+ *      หลาย record ในดิสก์ — sync ต้องวนตาม item ที่ถูกแตะจริง ไม่ใช่ยิง setFavorite ตัวเดียว:
+ *          for (const it of touched) if (it.persistKey) await setFavorite(it.persistKey, next);
+ *      (ยิงตัวเดียวจะเหลือ record พี่น้องที่ favorite ในดิสก์ไม่ตรงกับ UI แล้วโดน evict ทิ้งคนละจังหวะ)
+ *
+ *   - ไม่มี persistKey (item ยังไม่เคยถูกเซฟ เช่น opt-in เพิ่งเปิด) → ข้ามไป หรือเรียก saveItem(item)
+ *     แทนเพื่อเซฟพร้อมค่า favorite ที่ถูกต้อง (saveItem อ่าน item.favorite ให้แล้ว)
+ *   - คืน false = ไม่พบ record (โดน evict ไปแล้ว) หรือเขียนพลาด — ไม่ต้อง rollback state ในหน่วยความจำ
+ *     ดาวใน UI ยังเป็นความจริงของเซสชันนี้อยู่
+ *   - setFavorite เป็น async ส่วน toggleFavorite เป็น sync: อย่าเปลี่ยน signature ของ toggleFavorite
+ *     ให้เป็น async (Gallery เรียกใน onClick) — ยิงแบบ fire-and-forget หลัง mutate() พอ
+ *   - ทำไมต้อง sync: eviction จัดลำดับตัดจาก `favorite` **ในดิสก์** ไม่ใช่ใน state ถ้าไม่ sync
+ *     ของที่ผู้ใช้กดดาวหลังเซฟไปแล้วจะยังถูกตัดก่อนเหมือนเดิม
+ * ========================================================================== */

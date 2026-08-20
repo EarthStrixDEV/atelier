@@ -64,14 +64,14 @@
       "featureId": "F1",
       "title": "ปุ่มยกเลิกงานที่กำลังรัน บน Header + PromptComposer",
       "layer": "ui",
-      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "assignee": "เจน (Jane) — Backend Endpoint Engineer",
       "chainDepth": "full",
       "dependsOn": [
         "T2"
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "done",
       "acceptanceCriteria": [
         "เมื่อมี item ที่ status เป็น loading อย่างน้อย 1 ชิ้น จะมีตัวบ่งชี้จำนวนงานที่รันอยู่และจำนวนที่รอคิวใน Header",
         "กดปุ่มยกเลิกทั้งหมดแล้ว item ที่ยังไม่เริ่มยิงถูกเอาออกจาก scheduler ไม่ถูกยิงเลย ตรวจว่าไม่มี request ใหม่โผล่ใน network tab หลังกด",
@@ -83,7 +83,12 @@
         "src/components/Header.tsx",
         "src/components/PromptComposer.tsx",
         "src/lib/store.ts"
-      ]
+      ],
+      "reassignedBy": "Loop Controller (ดู workflow.json revisions)",
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "Header RunningJobsControl pill (active/waiting from getSchedulerStats, polls 1s only while busy) + two-step confirm cancel-all; PromptComposer per-mode cancel without confirm. Gallery/Sidebar untouched.",
+      "followUp": "dropFromNotifyBatch self-fired summary uses generic \"งานทั้งหมด N ชิ้น\" instead of คลิป/เพลง/scene because the fn has no GenItem to derive the unit label. Deliberate fallback, flagged by เจน, not a bug."
     },
     {
       "id": "T4",
@@ -166,7 +171,7 @@
       ],
       "securitySensitive": true,
       "perfSensitive": false,
-      "status": "in_progress",
+      "status": "done",
       "acceptanceCriteria": [
         "types.ts มี interface PersistedGenItem ที่ระบุฟิลด์ชัดเจน ไม่ใช่ Partial<GenItem> ลอยๆ",
         "PersistedGenItem ต้องไม่มีฟิลด์ refs และไม่มี jobId พร้อม comment อธิบายเหตุผลว่า refs เป็น data URL ภาพผู้ใช้และ jobId ผูกกับ session",
@@ -180,7 +185,9 @@
         "src/lib/types.ts"
       ],
       "revisedBy": "Loop Controller (ดู workflow.json revisions)",
-      "startedAt": "2026-08-20"
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "PersistedGenItem stays in galleryStore.ts + type-only re-export from types.ts (single source, no cycle under isolatedModules). favorite gap CLOSED at galleryStore.ts:317 (!!item.favorite). version field + PERSISTED_ITEM_VERSION + migrateRecord() wired into loadItems (lazy per-record, downgrade-safe: unknown version skipped not deleted). HANDOFF block for T8 at :470-529. Verified by LC."
     },
     {
       "id": "T8",
@@ -325,7 +332,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": true,
-      "status": "not_started",
+      "status": "done",
       "acceptanceCriteria": [
         "รายการที่ส่งเข้า VirtualGrid เป็น useMemo ที่ dep ครบ ไม่คำนวณใหม่ทุก render ตอน filter ไม่เปลี่ยน",
         "เปิด lightbox จากการ์ดขณะ filter เปิดอยู่ ต้องเปิดรูปที่คลิกจริง ไม่ใช่รูปอื่น และปุ่มถัดไป/ก่อนหน้าเดินอยู่ในชุดที่กรองแล้วเท่านั้น",
@@ -349,7 +356,18 @@
         "favorite is optional by design: always read as !!item.favorite; old snapshots lack the field",
         "ms.selected keys on id (not index) so it is already filter-safe"
       ],
-      "scopeNote": "AC 2 ข้อท้ายเพิ่มโดย Loop Controller หลัง T12 — ออม (T12) flag ไว้ว่าเป็น seam ที่ยังเปิดค้างและ verify แล้วว่าเป็นของจริง"
+      "scopeNote": "AC 2 ข้อท้ายเพิ่มโดย Loop Controller หลัง T12 — ออม (T12) flag ไว้ว่าเป็น seam ที่ยังเปิดค้างและ verify แล้วว่าเป็นของจริง",
+      "completedAt": "2026-08-20",
+      "result": "Favorites persisted as FINGERPRINT (mode/prompt/model/ratio/duration/audio) in atelier_favorites_<mode>, NOT id — item.id proven unstable (store.ts:445 seq=0 each reload). Works even with F2 opt-in off. onEnterKey=onOpen alias closes Enter seam without touching useGalleryFocus. setLightboxScope() keeps arrow-nav inside filtered set without touching Lightbox.tsx. resetModeGallery revived, skips favorites, revokes only deleted blobs.",
+      "verificationDebt": [
+        "AC2 lightbox opens correct image while filtered",
+        "AC5 favorited video still plays after clear",
+        "AC6 virtualization still mounts subset",
+        "AC9 Tab into grid + real Enter key",
+        "AC10 star then F5 persists"
+      ],
+      "qaNote": "5 AC proven via Node logic harness replicating real code, NOT a browser (Chrome extension unavailable to the agent). Bell explicitly declined to claim full pass. แพร must verify these 5 on a real browser.",
+      "tradeoff": "favoriteKeyOf groups items with identical prompt/model/ratio/duration/audio — starring one stars the whole group. Deliberate: makes UI match post-reload reality instead of surprising the user later. Verified by LC at actions.ts toggleFavorite + store.ts favoriteKeyOf."
     },
     {
       "id": "T14",
@@ -488,7 +506,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "done",
       "origin": "พบโดยมายด์ลิน (T2) ระหว่างทำ semaphore — verified by Loop Controller ที่ notify.ts:140",
       "problem": "beginNotifyBatch(batch.length) ล็อก total ตั้งแต่ต้น แต่ cancelled path ไม่เรียก notifyJobSettled (ถูกตามกฎ contract ข้อ 4) ทำให้ settled ไม่มีวันถึง total -> entry ค้างใน batches ถาวร และ batch นั้นไม่ยิงสรุปตอนจบ (ยกเลิก 1 คลิปจาก 5 = อีก 4 คลิปเสร็จแล้วเงียบ)",
       "acceptanceCriteria": [
@@ -501,13 +519,17 @@
       "filesLikelyTouched": [
         "src/lib/notify.ts",
         "src/lib/actions.ts"
-      ]
+      ],
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "dropFromNotifyBatch(batchId) in notify.ts, called from BOTH runRequest cancelled path AND scheduleRequest drop() (queued items never reach runRequest — missing that leaves the batch stuck anyway). Edge cases: total<=0 delete silently, settled>=total fire immediately, null no-op.",
+      "qaNote": "Harness transpiled the REAL notify.ts via ts.transpileModule (not a reimplementation) — 18/18 pass incl. regression that real errors still report failures."
     }
   ],
   "meta": {
     "totalTasks": 19,
-    "notStarted": 14,
-    "inProgress": 1,
-    "done": 4
+    "notStarted": 11,
+    "inProgress": 0,
+    "done": 8
   }
 }
