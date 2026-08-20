@@ -41,15 +41,16 @@ export default function GrillPanel() {
   if (!s.grillOpen) {
     return (
       <button
-        className="fixed bottom-[88px] right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full border border-border-strong bg-surface/70 text-text shadow-[0_8px_30px_rgba(0,0,0,.16)] backdrop-blur-xl transition-transform hover:scale-106"
+        className="fixed bottom-[88px] right-6 z-150 flex h-[52px] cursor-pointer items-center justify-center gap-2 rounded-full border border-border-strong bg-surface/70 px-4.5 text-text shadow-[0_8px_30px_rgba(0,0,0,.16)] backdrop-blur-xl transition-transform hover:scale-106 max-[480px]:w-[52px] max-[480px]:px-0"
         title="Grill me — ให้ AI สัมภาษณ์แล้วตกผลึกเป็นชุด prompt"
-        aria-label="เปิด Grill me"
+        aria-label="เปิด Grill me — ให้ AI ช่วยตกผลึกไอเดีย"
         onClick={() => {
           openGrill();
           setTimeout(() => inputRef.current?.focus(), 50);
         }}
       >
-        <Flame size={22} />
+        <Flame size={22} className="shrink-0" />
+        <span aria-hidden="true" className="text-[13px] font-semibold whitespace-nowrap max-[480px]:hidden">ตกผลึกไอเดีย</span>
       </button>
     );
   }

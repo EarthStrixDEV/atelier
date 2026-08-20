@@ -88,7 +88,7 @@ export default function Lightbox() {
       const dataUrl = await generateShareCard(item);
       triggerDownload(dataUrl, randomFileName("png"));
     } catch (e) {
-      toast(e instanceof Error ? e.message : "สร้าง share card ไม่สำเร็จค่ะ");
+      toast(e instanceof Error ? e.message : "สร้าง share card ไม่สำเร็จค่ะ", "error");
     } finally {
       setSharingCard(false);
     }

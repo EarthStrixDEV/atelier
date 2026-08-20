@@ -79,3 +79,19 @@ details.kw-group > summary { list-style: none; }
 details.kw-group > summary::-webkit-details-marker { display: none; }
 details.kw-group > summary::after { content: "+"; color: var(--color-text-faint); font-size: 13px; }
 details.kw-group[open] > summary::after { content: "–"; }
+
+/*
+ * Global focus-visible ring (a11y — WCAG 2.1 SC 2.4.7 Focus Visible) — เขียนแบบ "unlayered"
+ * (นอก @layer ใดๆ) ให้ชนะ Tailwind utilities (@layer utilities) เสมอตาม cascade spec โดยไม่ต้อง
+ * ไล่แก้ className="outline-none" ที่กระจายอยู่หลายสิบจุด (Sidebar/PromptComposer/KeyModal/ฯลฯ)
+ * ใช้ outline (ไม่ใช่ box-shadow) กันโดน overflow-hidden ของ card ตัดขอบ — outline ไม่ถูก clip เหมือนกัน
+ * ในบาง browser เก่า แต่ปลอดภัยกว่า box-shadow บน element ที่ parent มี overflow-hidden จริงจัง
+ *
+ * .js-focus-ring-owned = marker สำหรับ element ที่มี focus ring ของตัวเองอยู่แล้ว (เช่น Gallery Card ที่ใช้
+ * ring-2 ring-text ผ่าน roving tabindex ของ Gallery Focus Mode — PHASE 15) exclude ไว้กัน double ring ซ้อนกัน
+ */
+:focus-visible:not(.js-focus-ring-owned) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

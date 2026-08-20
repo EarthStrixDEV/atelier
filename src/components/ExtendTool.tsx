@@ -40,7 +40,7 @@ export default function ExtendTool() {
 
   const useFrame = () => {
     const v = videoRef.current;
-    if (!v || !v.videoWidth) { toast("วิดีโอยังโหลดไม่เสร็จค่ะ ลองอีกครั้งนะคะ"); return; }
+    if (!v || !v.videoWidth) { toast("วิดีโอยังโหลดไม่เสร็จค่ะ ลองอีกครั้งนะคะ", "error"); return; }
     v.pause();
     const canvas = document.createElement("canvas");
     canvas.width = v.videoWidth;

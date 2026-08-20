@@ -53,15 +53,16 @@ export default function ChatPanel() {
   if (!s.chatOpen) {
     return (
       <button
-        className="fixed bottom-6 right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full bg-accent text-accent-ink shadow-[0_8px_30px_rgba(0,0,0,.16)] transition-transform hover:scale-106"
+        className="fixed bottom-6 right-6 z-150 flex h-[52px] cursor-pointer items-center justify-center gap-2 rounded-full bg-accent px-4.5 text-accent-ink shadow-[0_8px_30px_rgba(0,0,0,.16)] transition-transform hover:scale-106 max-[480px]:w-[52px] max-[480px]:px-0"
         title="Chat with Atelier — ที่ปรึกษาเรื่องสร้างภาพ/วิดีโอด้วย AI"
-        aria-label="เปิด Chat with Atelier"
+        aria-label="เปิด Chat with Atelier — คุยกับ Atelier"
         onClick={() => {
           mutate(st => { st.chatOpen = true; st.grillOpen = false; }); // แผงซ้อนตำแหน่งเดียวกัน — เปิดทีละอัน
           setTimeout(() => inputRef.current?.focus(), 50);
         }}
       >
-        <MessageCircle size={22} />
+        <MessageCircle size={22} className="shrink-0" />
+        <span aria-hidden="true" className="text-[13px] font-semibold whitespace-nowrap max-[480px]:hidden">คุยกับ Atelier</span>
       </button>
     );
   }

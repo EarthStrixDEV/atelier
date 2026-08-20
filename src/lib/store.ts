@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate } from "./types";
+import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, ToastVariant } from "./types";
 import { MAX_CHAT_HISTORY, MAX_EXPORT_LOG, MAX_USER_TEMPLATES, modeLabel, MODES } from "./constants";
 import { PERMISSION_KEY as NOTIFY_PERMISSION_ASKED_KEY } from "./notify";
 
@@ -19,7 +19,7 @@ const QUEUE_NONEMPTY_KEY = "atelier_queue_nonempty_modes";
 export const SESSION_SNAPSHOT_KEY = "atelier_session_snapshot";
 /** ประวัติ export (label/filename/timestamp/summary เท่านั้น — ไม่มี payload จริง) โชว์ใต้ปุ่ม Export ใน Header */
 export const EXPORT_LOG_KEY = "atelier_export_log";
-/** prefix ของทุก key ที่แอปนี้เขียนลง localStorage — ใช้คำนวณขนาดรวมในหน้า Advanced ของ KeyModal */
+/** prefix ของทุก key ที่แอปนี้เขียนลง localStorage — ใช้คำนวณขนาดรวมในหน้า Settings */
 export const STORAGE_KEY_PREFIX = "atelier_";
 
 /**
@@ -34,13 +34,13 @@ export function writeLocalStorage(key: string, value: string): boolean {
   } catch {
     if (!state.storageQuotaWarned) {
       state.storageQuotaWarned = true;
-      toast("บันทึกข้อมูลลง localStorage ไม่สำเร็จ (พื้นที่เต็ม) — history/template ล่าสุดอาจไม่ถูกเซฟค่ะ");
+      toast("บันทึกข้อมูลลง localStorage ไม่สำเร็จ (พื้นที่เต็ม) — history/template ล่าสุดอาจไม่ถูกเซฟค่ะ", "error");
     }
     return false;
   }
 }
 
-/** ขนาดรวมโดยประมาณ (byte) ของทุก key ที่ขึ้นต้นด้วย atelier_ ใน localStorage — ใช้โชว์ใน Advanced ของ KeyModal */
+/** ขนาดรวมโดยประมาณ (byte) ของทุก key ที่ขึ้นต้นด้วย atelier_ ใน localStorage — ใช้โชว์ในหน้า Settings */
 export function estimateAtelierStorageBytes(): number {
   let total = 0;
   try {
@@ -364,7 +364,7 @@ export function saveSessionSnapshotRaw(json: string) {
   writeLocalStorage(SESSION_SNAPSHOT_KEY, json);
 }
 
-/** ลบ snapshot ทิ้ง — เรียกหลังผู้ใช้กด "กู้คืน" สำเร็จแล้ว (กันกู้ซ้ำ) หรือตอนผู้ใช้กดลบแถวนี้ใน Advanced ของ KeyModal */
+/** ลบ snapshot ทิ้ง — เรียกหลังผู้ใช้กด "กู้คืน" สำเร็จแล้ว (กันกู้ซ้ำ) หรือตอนผู้ใช้กดลบแถวนี้ในหน้า Settings */
 export function clearSessionSnapshot() {
   try {
     localStorage.removeItem(SESSION_SNAPSHOT_KEY);
@@ -395,7 +395,7 @@ export function addExportLogEntry(entry: ExportLogEntry) {
   writeLocalStorage(EXPORT_LOG_KEY, JSON.stringify(list));
 }
 
-/** ลบ log ทั้งหมด — ใช้จากปุ่ม "clear" ต่อแถวใน Advanced ของ KeyModal */
+/** ลบ log ทั้งหมด — ใช้จากปุ่ม "clear" ต่อแถวในหน้า Settings */
 export function clearExportLog() {
   try {
     localStorage.removeItem(EXPORT_LOG_KEY);
@@ -453,7 +453,7 @@ export const state: AppState = {
   grillResult: null,
   optimize: { status: "idle", result: null, error: "" },
   extendItemId: null,
-  toast: { msg: "", n: 0 },
+  toast: { msg: "", n: 0, variant: "info" },
   sidebarCollapsed: false,
   promptPlacement: loadPromptPlacement(),
   lbFormat: "png",
@@ -468,9 +468,12 @@ export const state: AppState = {
   importPending: null,
   importUnknownFields: {},
   shortcutsModalOpen: false,
+  settingsModalOpen: false,
   bakeOffConfirmOpen: false,
   compareItems: null,
   userExtraModels: loadUserExtraModels(),
+  driveConnecting: false,
+  driveConnected: false,
 };
 
 let version = 0;
@@ -496,6 +499,7 @@ export function useApp(): AppState {
 
 export const cur = () => state.modes[state.mode];
 
-export function toast(msg: string) {
-  mutate(s => { s.toast = { msg, n: s.toast.n + 1 }; });
+/** default "success" เพราะข้อความส่วนใหญ่ที่เรียกอยู่คือแจ้งผลสำเร็จ — call site ที่เป็น error ให้ส่ง toast(msg, "error") ชัดเจน */
+export function toast(msg: string, variant: ToastVariant = "success") {
+  mutate(s => { s.toast = { msg, n: s.toast.n + 1, variant }; });
 }

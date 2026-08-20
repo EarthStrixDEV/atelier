@@ -1,14 +1,14 @@
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from "react-window";
 import {
-  Check, ChevronDown, CircleAlert, Clapperboard, Clock, Columns2, Copy, Crosshair, Download, FastForward, HardDriveDownload,
+  Check, ChevronDown, CircleAlert, Clapperboard, Clock, Cloud, CloudUpload, Columns2, Copy, Crosshair, Download, FastForward, HardDriveDownload,
   ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Sparkles, Video, Wand2, X,
 } from "lucide-react";
 import { MODE_META, RATIOS, isVideoMode } from "../lib/constants";
 import {
   autoExtendFromLastFrame, canCompareItem, canRefineItem, canStartFrom, cinematicChains, clearSelection,
-  copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, modelsForMode, openCompare,
-  openExtendTool, openLightbox, refineItem, regenerateFromItem, retry, retryWithOverride, startFromItem,
+  copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
+  openExtendTool, openLightbox, refineItem, regenerateFromItem, retry, retryWithOverride, saveItemToDrive, saveSelectedToDrive, startFromItem,
   toggleSelect, useAsVideoFirstFrame,
 } from "../lib/actions";
 import { state, useApp } from "../lib/store";
@@ -411,7 +411,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
       ref={rootRef}
       tabIndex={done ? -1 : undefined}
       className={
-        "group relative overflow-hidden rounded-card border bg-surface transition-colors outline-none " +
+        "group relative overflow-hidden rounded-card border bg-surface transition-colors outline-none js-focus-ring-owned " +
         (selected ? "border-accent" : focused ? "border-text" : "border-border") +
         (done ? " cursor-zoom-in hover:border-border-strong" : "") +
         (focused ? " ring-2 ring-text ring-offset-2 ring-offset-bg" : "")
@@ -514,6 +514,29 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           </span>
         )}
 
+        {done && item.driveSaveStatus && item.driveSaveStatus !== "idle" && (
+          <span
+            className={
+              "absolute z-1 grid h-5 w-5 place-items-center rounded-full border backdrop-blur-sm " +
+              (item.autoSaveStatus && item.autoSaveStatus !== "idle" ? "bottom-2 left-8" : "bottom-2 left-2") + " " +
+              (item.driveSaveStatus === "saved"
+                ? "border-accent/40 bg-[rgba(10,10,10,.72)] text-accent"
+                : item.driveSaveStatus === "failed"
+                ? "border-danger/40 bg-[rgba(10,10,10,.72)] text-danger"
+                : "border-white/15 bg-[rgba(10,10,10,.72)] text-white")
+            }
+            title={
+              item.driveSaveStatus === "saved" ? "Save to Drive: อัพโหลดขึ้น Google Drive แล้ว"
+                : item.driveSaveStatus === "failed" ? "Save to Drive ไม่สำเร็จ: " + (item.driveSaveErrMsg || "ไม่ทราบสาเหตุ")
+                : "Save to Drive: กำลังอัพโหลด…"
+            }
+          >
+            {item.driveSaveStatus === "saved" ? <Cloud size={11} />
+              : item.driveSaveStatus === "failed" ? <CircleAlert size={11} />
+              : <Loader2 size={11} className="animate-spin" />}
+          </span>
+        )}
+
         {!done && item.status === "loading" && (
           isVid ? (
             <VideoProgress item={item} />
@@ -583,6 +606,17 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
             >
               <RefreshCw size={10} /> Regenerate
             </button>
+            {isDriveSaveConfigured() && (
+              <button
+                className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-border py-1.5 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+                title="อัพโหลดขึ้น Google Drive (โฟลเดอร์ Atelier Output)"
+                aria-label={"Save to Drive: " + item.prompt}
+                disabled={item.driveSaveStatus === "pending"}
+                onClick={e => { e.stopPropagation(); saveItemToDrive(item); }}
+              >
+                <CloudUpload size={10} /> Save to Drive
+              </button>
+            )}
             {isCinematicVideoScene && (
               <button
                 className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-accent/60 py-1.5 text-[10.5px] font-semibold text-text transition-colors hover:bg-accent hover:text-accent-ink"
@@ -803,6 +837,15 @@ export default function Gallery() {
               >
                 <Download size={11} /> ดาวน์โหลด
               </button>
+              {isDriveSaveConfigured() && (
+                <button
+                  className="flex cursor-pointer items-center gap-1 rounded-md border border-border-strong px-2.5 py-1 text-[11px] text-text transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+                  aria-label={`อัพโหลดที่เลือกไว้ขึ้น Google Drive (${selectedCount} รายการ)`}
+                  onClick={saveSelectedToDrive}
+                >
+                  <CloudUpload size={11} /> Save to Drive
+                </button>
+              )}
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
                 aria-label="ยกเลิกการเลือกทั้งหมด"
