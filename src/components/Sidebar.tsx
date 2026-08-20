@@ -9,7 +9,7 @@ import {
   MAX_REFS_PER_KIND, modelRequiresRefImage, MODE_META, RATIOS, REF_KINDS, isNegativePromptMode, isVideoMode, modeLabel,
 } from "../lib/constants";
 import {
-  addRefImages, addToQueue, applyOptimizedPrompt, canRunBakeOff, clearOptimize, clearRefImages,
+  addRefImages, addToQueue, applyOptimizedPrompt, bakeOffCostBreakdown, canRunBakeOff, clearOptimize, clearRefImages,
   combinedHistory, computeItemCost, computeQueueJobCost, currentModel, generate, hasFailedAutoSaves, loadModels,
   loadVideoModels, modelsForMode, negPromptSupported, openBakeOffConfirm, refSupportLevel, refsSupported,
   removeFromHistory, removeFromQueue, removeRefImage, reorderQueue, retryFailedAutoSaves, runOptimize, selectModel,
@@ -69,6 +69,7 @@ export default function Sidebar() {
 
   // ค้นหา keyword chip — ล้างเมื่อสลับโหมดกันค้างคำค้นของโหมดก่อนหน้ามาบัง list ของโหมดใหม่
   const [kwSearch, setKwSearch] = useState("");
+  const [bakeOffSearch, setBakeOffSearch] = useState("");
   useEffect(() => { setKwSearch(""); }, [s.mode]);
   const kwQuery = kwSearch.trim().toLowerCase();
   const filteredGroups = useMemo(() => {
@@ -159,6 +160,25 @@ export default function Sidebar() {
   // Bake-off (PHASE 14) เปลี่ยนพฤติกรรมปุ่ม Generate หลัก — ยิงผ่าน openBakeOffConfirm (โมดัลยืนยันราคา) แทน generate() ตรงๆ
   const bakeOffActive = ms.bakeOffEnabled;
   const canGenerateOrBakeOff = bakeOffActive ? canRunBakeOff() : canGenerate;
+  // กรองด้วยทั้งชื่อและ id เพราะผู้ใช้จำ provider (เช่น "google") ได้บ่อยกว่าชื่อเต็มของโมเดล
+  // โมเดลที่ติ๊กไว้แล้วต้องโชว์เสมอ ไม่งั้นพิมพ์ค้นหาแล้วของที่เลือกไว้หายไปจนนึกว่าโดนยกเลิก
+  const bakeOffQuery = bakeOffSearch.trim().toLowerCase();
+  const bakeOffList = bakeOffQuery
+    ? list.filter(m =>
+        ms.bakeOffModelIds.includes(m.id) ||
+        (m.name || "").toLowerCase().includes(bakeOffQuery) ||
+        m.id.toLowerCase().includes(bakeOffQuery))
+    : list;
+  // ยอดประเมินสำหรับโชว์ข้างเช็คลิสต์ — คำนวณเฉพาะตอนเปิด Bake-off เพื่อไม่ให้เสียแรงเปล่าตอนปิดอยู่
+  const bakeOffEstimate = (() => {
+    if (!bakeOffActive) return { total: 0, count: 0, hasUnknown: false };
+    const rows = bakeOffCostBreakdown();
+    return {
+      total: rows.reduce((sum, r) => sum + (r.cost ?? 0), 0),
+      count: rows.length,
+      hasUnknown: rows.some(r => r.cost == null),
+    };
+  })();
 
   let modelMeta = "";
   if (model) {
@@ -692,8 +712,33 @@ export default function Sidebar() {
                 <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
                   เลือกโมเดลได้สูงสุด {MAX_BAKE_OFF_MODELS} ตัว — กด Generate จะยิงทุกโมเดลที่เลือกพร้อมกันด้วย prompt เดียวกัน (แยกจากปุ่มเลือกโมเดลด้านบน)
                 </p>
-                <div className="mt-2 flex max-h-[180px] flex-col gap-1 overflow-y-auto">
-                  {list.map(m => {
+                {/* ค้นหาโมเดล — ลิสต์ยาวหลายสิบตัวใน max-h-[180px] เลื่อนหาเองไม่ไหว
+                    ใช้แพทเทิร์นเดียวกับช่องค้นหา keyword ด้านบน */}
+                <div className="relative mt-2">
+                  <Search size={11} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
+                  <input
+                    type="text"
+                    value={bakeOffSearch}
+                    onChange={e => setBakeOffSearch(e.target.value)}
+                    placeholder="ค้นหาโมเดล…"
+                    aria-label="ค้นหาโมเดลในรายการ Bake-off"
+                    className="w-full rounded-md border border-border bg-bg py-1.5 pl-7 pr-7 text-[11.5px] text-text outline-none transition-colors focus:border-accent"
+                  />
+                  {bakeOffSearch && (
+                    <button
+                      className="absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 cursor-pointer place-items-center rounded text-text-faint transition-colors hover:text-text"
+                      aria-label="ล้างคำค้นหาโมเดล"
+                      onClick={() => setBakeOffSearch("")}
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1.5 flex max-h-[180px] flex-col gap-1 overflow-y-auto">
+                  {bakeOffList.length === 0 && (
+                    <p className="px-1 py-2 text-[11px] text-text-faint">ไม่พบโมเดลที่ตรงกับ "{bakeOffSearch}" ค่ะ</p>
+                  )}
+                  {bakeOffList.map(m => {
                     const checked = ms.bakeOffModelIds.includes(m.id);
                     const disabled = !checked && ms.bakeOffModelIds.length >= MAX_BAKE_OFF_MODELS;
                     return (
@@ -717,7 +762,19 @@ export default function Sidebar() {
                     );
                   })}
                 </div>
-                <div className="mt-1.5 text-[10.5px] text-text-faint">{ms.bakeOffModelIds.length}/{MAX_BAKE_OFF_MODELS} เลือกไว้</div>
+                {/* โชว์ยอดรวมตั้งแต่ตอนติ๊กเลือก ไม่ใช่รอไปเซอร์ไพรส์ที่ confirm modal ตอนกด Generate
+                    — ใช้ bakeOffCostBreakdown() ตัวเดียวกับที่ modal ใช้ ตัวเลขจึงตรงกันเสมอ */}
+                <div className="mt-1.5 flex items-center justify-between gap-2 text-[10.5px] text-text-faint">
+                  <span>{ms.bakeOffModelIds.length}/{MAX_BAKE_OFF_MODELS} เลือกไว้</span>
+                  {bakeOffEstimate.count > 0 && (
+                    <span className="font-mono">
+                      ~${bakeOffEstimate.total.toFixed(4)}{bakeOffEstimate.hasUnknown ? "+" : ""} รวม
+                    </span>
+                  )}
+                </div>
+                {bakeOffEstimate.hasUnknown && bakeOffEstimate.count > 0 && (
+                  <div className="mt-0.5 text-[10px] text-text-faint">มีโมเดลที่ไม่ทราบราคา ยอดจริงอาจสูงกว่านี้ค่ะ</div>
+                )}
               </>
             )}
           </div>
