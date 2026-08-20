@@ -158,6 +158,22 @@
       "reason": "เบล (Bell) ถือ T13 อยู่ระหว่างทาง (Gallery/actions/store) การให้ถือ T3 ควบจะชนไฟล์ตัวเองและทำให้ verify แยกไม่ออก",
       "change": "T3 ย้ายจากเบลไปเจน (Jane) — Backend Endpoint Engineer และให้เจนรับ T19 (notify batch bug) ควบในรอบเดียว เพราะทั้งคู่อยู่โดเมน endpoint/notify เดียวกันและ T19 dependsOn T2 เหมือนกัน",
       "evidence": "T13 in_progress อยู่กับเบล, T3+T19 ต่างก็ dependsOn T2 ซึ่ง done แล้ว"
+    },
+    {
+      "at": "2026-08-20",
+      "by": "มินจู (Min-Ju) — Loop Controller",
+      "scope": "T4 QA method",
+      "reason": "ยืนยันด้วย list_connected_browsers ว่าไม่มี Chrome เชื่อมต่อ (คืน []) — AC ของ T4 ทุกข้อเขียนไว้ให้ตรวจด้วย network tab จริง จึงทำตามตัวอักษรไม่ได้ในรอบนี้",
+      "change": "T4 ทำ static + harness verification ให้ลึกที่สุด (อ่าน code path จริง + รัน harness ที่ transpile โค้ดจริง) แล้วบันทึกส่วนที่ต้องใช้เบราว์เซอร์เป็น browserQaDebt ส่งให้พี่เอิร์ธตรวจเอง ห้ามเคลมผ่านในข้อที่ตรวจไม่ได้",
+      "evidence": "mcp list_connected_browsers -> [] ; เบล (T13) รายงานปัญหาเดียวกันตอนทำ AC 2/5/6/9/10"
+    },
+    {
+      "at": "2026-08-20",
+      "by": "มินจู (Min-Ju) — Loop Controller",
+      "scope": "T20 added — unblock T5 BLOCKING",
+      "reason": "โบว์ (T5) ให้ BLOCKING: CardImpl ไม่มี branch status===cancelled ทำให้ item ที่ยกเลิกแล้วเป็นการ์ดว่าง เข้าไม่ถึง retry() ที่อยู่ใน error branch เท่านั้น -> jobId ที่เก็บไว้ตาม INVARIANT ใช้ไม่ได้ = ผู้ใช้ต้อง generate ใหม่ = จ่ายซ้ำ ซึ่งคือความเสียหายเดียวกับที่ INVARIANT ตั้งใจกัน แค่มาคนละทาง",
+      "rootCause": "Loop Controller (หนูเอง) ล็อก Gallery.tsx ไว้จากทุกคนเพื่อกัน conflict กับ branch a11y แต่ contract ของนุ่นที่ types.ts:15 สั่งไว้ชัดว่าต้องเพิ่ม branch cancelled ใน Gallery Card — ไม่มีใครได้รับอนุญาตให้ทำ จึงตกหล่น",
+      "change": "เพิ่ม T20 (ออม) แก้ F1+F5 ใน Gallery.tsx โดยล็อก footprint เฉพาะ CardImpl cancelled branch + StatusFilter แล้วให้โบว์ re-audit (T5 กลับเป็น in_progress จนกว่าจะ pass)"
     }
   ]
 }

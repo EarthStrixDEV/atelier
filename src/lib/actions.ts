@@ -13,6 +13,7 @@ import {
   pickAutoSaveDir, reconnectAutoSaveDir, urlToBlob,
 } from "./fsAccess";
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
+import { isGalleryPersistEnabled, loadItems, saveItem, setFavorite } from "./galleryStore";
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
   addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites,
@@ -213,6 +214,12 @@ function snapshotDiffersFromFresh(snapshot: ImportFileShape): boolean {
  * snapshotDiffersFromFresh) เป็น banner เดียวกันเสมอ ไม่ยิงซ้อนหลายอันตอน boot
  */
 export function reconcilePendingJobs() {
+  // F2: กู้ผลงานที่เก็บไว้ใน IndexedDB กลับเข้าแกลเลอรี — เกาะจุดบูตนี้เพราะเป็นฟังก์ชันเดียวใน actions.ts
+  // ที่ StudioApp เรียกให้ครั้งเดียวตอน mount อยู่แล้ว (StudioApp.tsx ไม่ได้อยู่ในขอบเขตงานนี้)
+  // ยิงก่อนตัดสินใจ return ด้านล่าง เพราะ ledger ว่างไม่ได้แปลว่าไม่มีของให้กู้
+  // ไม่ await: การกู้ต้องไม่หน่วง resume ของ video job ที่จ่ายเงินไปแล้ว (rehydrateGallery no-op ถ้า opt-in ปิด)
+  void rehydrateGallery();
+
   const ledger = loadPendingJobs();
   const lostQueueModes = consumeQueueNonEmptyFlag().filter(m => state.modes[m].queue.length === 0);
 
@@ -1255,6 +1262,10 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
   // item ถูก mutate ตรงๆ ใน array ของโหมดต้นทาง — broadcast ทีเดียวพอ ทุกโหมดได้ state ถูกต้อง
   mutate();
   if (item.status === "done") autoSaveItem(item); // fire-and-forget — ไม่บล็อก UI, error แค่ toast เตือน
+  // F2: เก็บลง IndexedDB ต่อจาก Auto Save — ต้องอยู่ "หลัง" autoSaveItem เสมอ เพราะ Auto Save เป็นสิ่งที่ผู้ใช้
+  // ตั้งใจเปิดไว้เพื่อเอาไฟล์ลงเครื่องจริง ห้ามให้ storage layer ที่เป็น cache แย่งคิว I/O ไปก่อน
+  // fire-and-forget เหมือนกัน: เขียนพลาด/quota เต็ม ต้องไม่ทำให้ item ที่ done แล้วกลายเป็น error
+  if (item.status === "done") persistItemToGallery(item);
   // แจ้งเตือน desktop/title flicker เฉพาะงานที่ใช้เวลานาน (video/cinematic/audio) — ภาพนิ่งเร็วพอไม่ต้องรบกวน
   if (isVideoMode(item.mode) || item.mode === "audio") notifyJobSettled(item, batchId);
 }
@@ -1264,6 +1275,143 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
 function recordModelStat(modelId: string, ok: boolean) {
   const stat = state.modelStats[modelId] ?? (state.modelStats[modelId] = { ok: 0, fail: 0 });
   if (ok) stat.ok++; else stat.fail++;
+}
+
+// ---------- F2: gallery persistence wiring (IndexedDB) ----------
+/**
+ * ชั้นต่อสายระหว่าง generation flow กับ storage layer ใน galleryStore.ts (T6/T7)
+ * galleryStore ไม่แตะ AppState/mutate() เลยโดยตั้งใจ — ทุกอย่างที่ต้องคุยกับ state อยู่ตรงนี้ที่เดียว
+ *
+ * PRIVACY: ทุก path ผ่าน saveItem/loadItems ซึ่งเช็ค isGalleryPersistEnabled() ให้แล้ว (default = ปิด)
+ * ที่นี่ **ห้ามเปิด opt-in ให้เอง** — ไม่มีการเรียก setGalleryPersistEnabled() ในไฟล์นี้แม้แต่ที่เดียว
+ *
+ * key ของ record เก็บไว้ใน map ข้างนอก GenItem (ไม่เพิ่มฟิลด์ใน types.ts) เพราะมันเป็น handle ของ storage
+ * ล้วนๆ ไม่ใช่ข้อมูลของ item: ไม่ต้อง export, ไม่ต้องเข้า session snapshot, ไม่ต้องให้ UI เห็น
+ * และ item ที่ยังไม่เคยถูกเซฟก็ไม่มี entry — ความหมายเดียวกับ persistKey === undefined
+ */
+const persistKeys = new Map<number, string>();
+
+/**
+ * คิว serialize การเขียนลง IndexedDB ทีละชิ้น — เหตุผลเดียวกับ autoSaveChain แต่คนละคิว
+ * (write ลงดิสก์ผู้ใช้กับ write ลง IndexedDB ไม่ควรบล็อกกันเอง)
+ *
+ * ที่สำคัญกว่านั้น: saveItem() รัน evictIfNeeded() ให้ในตัวอยู่แล้ว และ evictIfNeeded ทำ getAll() ทั้ง store
+ * ถ้าปล่อยให้ batch 30 ชิ้นยิง saveItem พร้อมกันหมด จะได้ full-scan 30 รอบซ้อนกันบน blob หลายสิบ MB
+ * การต่อคิวทำให้ eviction เกิดทีละรอบตามลำดับ = ไม่ต้องมี throttle/debounce แยกอีกชั้น
+ * (ห้ามเรียก evictIfNeeded() ซ้ำหลัง saveItem — จะกลายเป็น full-scan สองรอบต่อชิ้น)
+ */
+let galleryPersistChain: Promise<void> = Promise.resolve();
+
+/**
+ * เซฟผลลัพธ์หนึ่งชิ้นลง IndexedDB — fire-and-forget โดยเจตนา ห้าม await ใน path ที่ผู้ใช้รออยู่
+ * saveItem() ไม่ throw และคืน null เมื่อไม่ได้เซฟ (opt-in ปิด / MIME ไม่ใช่ media / เกินโควตา) ซึ่งเป็นเคสปกติ
+ * ทั้งหมด — ห้าม toast error และห้ามแตะ item.status เด็ดขาด ไม่งั้น storage เต็มจะทำให้ผลงานที่สำเร็จแล้ว
+ * กลายเป็น error ในสายตาผู้ใช้ (item ที่จ่ายเงินไปแล้วต้องแสดงผลได้เสมอ)
+ */
+function persistItemToGallery(item: GenItem) {
+  galleryPersistChain = galleryPersistChain.then(async () => {
+    const key = await saveItem(item);
+    if (key) persistKeys.set(item.id, key);
+  }, () => {});
+}
+
+/**
+ * ซิงก์ค่าดาวลงดิสก์หลังผู้ใช้กดใน UI
+ *
+ * toggleFavorite() ไม่ได้แก้ item เดียว — มันเซ็ตค่าเดียวกันให้ **ทุก item ที่ favoriteKeyOf ตรงกัน**
+ * ในโหมดนั้น (ลายนิ้วมือของ prompt/model/ratio/duration/audio ไม่ใช่ id) ดังนั้นต้องวนตาม item ที่ถูกแตะจริง
+ * ยิง setFavorite ตัวเดียวจะเหลือ record พี่น้องในดิสก์ที่ favorite ไม่ตรงกับ UI แล้วโดน evict คนละจังหวะ
+ * (eviction เรียงลำดับตัดจาก favorite **ในดิสก์** ไม่ใช่ใน state)
+ *
+ * item ที่ไม่มี key = ยังไม่เคยถูกเซฟ (opt-in เพิ่งเปิดหลัง item เกิด) → เซฟตอนนี้เลย saveItem อ่าน
+ * item.favorite ที่ mutate() เพิ่งอัปเดตไปแล้วเอง ค่าที่ลงดิสก์จึงถูกต้องตั้งแต่แรกเขียน
+ * ต่อท้ายคิวเดียวกับ save เพื่อไม่ให้ setFavorite แซงหน้า saveItem ของ item เดียวกันที่ยังเขียนไม่เสร็จ
+ */
+function syncFavoriteToGallery(touched: GenItem[]) {
+  if (!isGalleryPersistEnabled()) return;
+  const snapshot = touched.map(it => ({ item: it, favorite: !!it.favorite }));
+  galleryPersistChain = galleryPersistChain.then(async () => {
+    for (const { item, favorite } of snapshot) {
+      const key = persistKeys.get(item.id);
+      if (key) {
+        // false = record ถูก evict ไปแล้ว — ไม่ rollback state ดาวใน UI ยังเป็นความจริงของเซสชันนี้
+        const ok = await setFavorite(key, favorite);
+        if (!ok) persistKeys.delete(item.id);
+      } else if (item.status === "done") {
+        const fresh = await saveItem(item);
+        if (fresh) persistKeys.set(item.id, fresh);
+      }
+    }
+  }, () => {});
+}
+
+/**
+ * โหลดผลลัพธ์ที่เก็บไว้กลับเข้าแกลเลอรีตอนบูต — เรียกครั้งเดียวจาก reconcilePendingJobs()
+ * (จุดบูตเดียวใน actions.ts ที่ StudioApp เรียกให้อยู่แล้ว)
+ *
+ * ORDER: loadItems() คืนของเรียงเก่า→ใหม่ แต่ addToGallery() ใช้ unshift = แกลเลอรีเรียงใหม่→เก่า
+ * ของที่กู้มาทั้งหมดเก่ากว่าทุกอย่างในเซสชันนี้ จึงต้อง **push ต่อท้าย** และ push แบบใหม่→เก่า (reverse)
+ * ไม่ใช้ addToGallery เพราะมัน unshift และจะไปเขียนทับ favorite จากลายนิ้วมือ ทั้งที่ค่าที่ถูกต้อง
+ * ของ record คือค่าที่ผู้ใช้เคยกดไว้จริง (r.favorite) ซึ่งแม่นกว่า
+ *
+ * DEDUPE: ตอนที่ฟังก์ชันนี้ทำงาน อาจมี item อยู่ใน state แล้วจาก reconcilePendingJobs (job ที่ resume ต่อ)
+ * และผู้ใช้อาจกดสร้างงานใหม่ทันได้แล้ว — กันซ้ำสองชั้น
+ *  1. ข้าม record ที่ id ตรงกับ item ที่มีอยู่แล้ว (job เดิมที่ resume มา = ตัวเดียวกัน ของสดกว่า)
+ *  2. ข้าม record ที่ลายนิ้วมือ (favoriteKeyOf) ซ้ำกับ item ที่มีอยู่แล้วในโหมดนั้น — กันเคสผู้ใช้กด
+ *     "สร้างใหม่" ด้วยพารามิเตอร์เดิมทันทีตอนบูต แล้วเห็นการ์ดหน้าตาเหมือนกันเป๊ะสองใบ
+ * (session snapshot ไม่กู้ media กลับมา — ดู CLAUDE.md — จึงไม่มีทางชนกันจากทางนั้น)
+ *
+ * URL: loadItems() สร้าง object URL ให้แล้ว ต้อง registerBlobUrl() ทุกชิ้น ไม่งั้นไม่มีใคร revoke
+ * (releaseAllBlobUrls ตอนปิดแท็บ / releaseBlobUrls ตอน resetModeGallery ทำงานจาก registry ล้วน)
+ *
+ * SEQ: r.id มาจาก s.seq ของเซสชันก่อน แต่ s.seq รีเซ็ตเป็น 0 ทุก reload — ต้อง bump ให้พ้น id สูงสุด
+ * ที่กู้มา **ก่อน** item ใหม่ชิ้นแรกของเซสชันจะเกิด ไม่งั้น id ชนกันแล้ว toggleFavorite/releaseBlobUrls/
+ * cancelItem ซึ่งค้นด้วย id จะไปโดน item ผิดตัว (pattern เดียวกับ resumable ใน reconcilePendingJobs)
+ */
+export async function rehydrateGallery() {
+  if (!isGalleryPersistEnabled()) return;
+  const modes = Object.keys(state.modes) as Mode[];
+  const loaded = await Promise.all(modes.map(m => loadItems(m)));
+
+  let restoredCount = 0;
+  mutate(s => {
+    for (const rows of loaded) {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const r = rows[i];
+        const ms = s.modes[r.mode];
+        const dupe = ms.images.some(x => x.id === r.id || favoriteKeyOf(x) === favoriteKeyOf(r));
+        if (dupe) { URL.revokeObjectURL(r.url); continue; }
+
+        registerBlobUrl(r.id, r.url);
+        if (r.id > s.seq) s.seq = r.id;
+        persistKeys.set(r.id, r.key);
+        ms.images.push({
+          id: r.id,
+          status: "done",
+          url: r.url,
+          prompt: r.prompt,
+          model: r.model,
+          modelName: r.modelName,
+          ratio: r.ratio,
+          duration: r.duration,
+          audio: r.audio,
+          jobStatus: "",
+          jobId: null,
+          startedAt: r.savedAt,
+          errMsg: "",
+          mode: r.mode,
+          refs: [], // โดยเจตนา: ref ที่ผู้ใช้อัปโหลดเองไม่เคยลงดิสก์ (ดูหัว galleryStore.ts)
+          parentId: r.parentId,
+          negPrompt: r.negPrompt,
+          bakeOffGroupId: r.bakeOffGroupId || undefined,
+          favorite: r.favorite,
+        });
+        restoredCount++;
+      }
+    }
+  });
+
+  if (restoredCount > 0) toast(`กู้ผลงานที่เก็บไว้กลับมาแล้ว ${restoredCount} ชิ้นค่ะ`);
 }
 
 // ---------- auto save ----------
@@ -1960,6 +2108,8 @@ function addToGallery(s: AppState, mode: Mode, item: GenItem) {
  * (คีย์เดียวกัน = ตอน reload จะติดดาวเหมือนกันหมด) — ให้ UI ตรงกับสิ่งที่จะเกิดหลัง reload ตั้งแต่ตอนกด
  */
 export function toggleFavorite(id: number) {
+  // item ทุกชิ้นที่ถูกสลับค่าจริงในรอบนี้ — เก็บไว้ซิงก์ลง IndexedDB หลัง mutate() จบ (ดู syncFavoriteToGallery)
+  const touched: GenItem[] = [];
   mutate(s => {
     for (const mode of Object.keys(s.modes) as Mode[]) {
       const ms = s.modes[mode];
@@ -1969,7 +2119,7 @@ export function toggleFavorite(id: number) {
       const key = favoriteKeyOf(target);
       const next = !target.favorite;
       for (const it of ms.images) {
-        if (favoriteKeyOf(it) === key) it.favorite = next;
+        if (favoriteKeyOf(it) === key) { it.favorite = next; touched.push(it); }
       }
 
       // ของที่เพิ่งกดต้องไปอยู่หน้าสุดเสมอ เพราะ saveFavorites ตัด cap จากท้าย = ตัดของเก่าสุดออกก่อน
@@ -1982,6 +2132,8 @@ export function toggleFavorite(id: number) {
       return;
     }
   });
+  // fire-and-forget หลัง mutate() สำเร็จ — ห้ามเปลี่ยน toggleFavorite เป็น async (Gallery เรียกใน onClick)
+  syncFavoriteToGallery(touched);
 }
 
 // ---------- lightbox ----------

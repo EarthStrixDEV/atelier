@@ -1,7 +1,7 @@
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from "react-window";
 import {
-  ArrowDownWideNarrow, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Columns2, Copy, Crosshair, Download, FastForward,
+  ArrowDownWideNarrow, Ban, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Columns2, Copy, Crosshair, Download, FastForward,
   HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Search, Sparkles, Star, Trash2, Video,
   Wand2, X,
 } from "lucide-react";
@@ -579,6 +579,40 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           <RetryOverridePanel item={item} onClose={() => setRetryPanelOpen(false)} />
         )}
 
+        {/*
+          F1 — การ์ด "ยกเลิกแล้ว" (contract จาก types.ts:15 สั่งให้ Gallery Card เพิ่ม branch นี้เอง)
+          โทนกลางๆ ตั้งใจ **ไม่ใช้ text-danger/border-danger** เพราะผู้ใช้กดยกเลิกเอง = เจตนา ไม่ใช่ความล้มเหลว
+          (เหตุผลเต็มอยู่ที่ types.ts:12-14) จึงใช้ text-text-dim + ไอคอน Ban แทนสีแดงเตือนภัย
+          เงินที่จ่ายไปแล้ว: งานวิดีโอจ่ายตั้งแต่ POST /videos ถ้า item ยังถือ jobId อยู่ (finalizeCancelled
+          ไม่แตะ jobId — INVARIANT ที่ actions.ts:1132-1134) การกด "ทำต่อ" จะ resume job เดิม ไม่จ่ายซ้ำ
+        */}
+        {item.status === "cancelled" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-[18px] text-center">
+            <Ban size={20} strokeWidth={1.6} className="text-text-faint" />
+            <div className="text-[11.5px] leading-normal text-text-dim">
+              {item.cancelReason === "shutdown"
+                ? "งานถูกยกเลิกตอนปิดหน้าเว็บ"
+                : item.cancelReason === "user-all"
+                ? "ยกเลิกแล้ว (ยกเลิกทั้งหมด)"
+                : "ยกเลิกแล้ว"}
+            </div>
+            {/* ข้อความเรื่องเงิน — โทนเดียวกับ timeout path ที่ actions.ts:1596 โชว์เฉพาะตอนยัง resume ได้จริง */}
+            {item.jobId && (
+              <div className="text-[10.5px] leading-normal text-text-faint">
+                กด "ทำต่อ" เพื่อเช็คงานเดิมต่อได้ค่ะ (ไม่เสียเงินเพิ่ม)
+              </div>
+            )}
+            <button
+              className="mt-0.5 flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
+              title={item.jobId ? "ทำงานเดิมต่อจาก job ที่จ่ายเงินไปแล้ว" : "เริ่มงานนี้ใหม่"}
+              aria-label={(item.jobId ? "ทำงานเดิมต่อ: " : "สร้างใหม่: ") + item.prompt}
+              onClick={e => { e.stopPropagation(); retry(item); }}
+            >
+              <RotateCcw size={11} /> {item.jobId ? "ทำต่อ" : "สร้างใหม่"}
+            </button>
+          </div>
+        )}
+
         {done && startFromOpen && (
           <StartFromThisMenu item={item} onDone={() => setStartFromOpen(false)} />
         )}
@@ -700,6 +734,11 @@ function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): b
     a.autoSaveErrMsg === b.autoSaveErrMsg &&
     a.duration === b.duration &&
     a.audio === b.audio &&
+    // การ์ด cancelled สลับ label ปุ่ม ("ทำต่อ" vs "สร้างใหม่") และ gate ข้อความ "ไม่เสียเงินเพิ่ม" จาก jobId
+    // ส่วนข้อความสถานะเลือกจาก cancelReason — ทั้งคู่จึงต้องอยู่ใน comparator ไม่งั้นการ์ดค้าง label เดิม
+    // แล้วผู้ใช้เห็นไม่ตรงกับสิ่งที่ retry() จะทำจริง (ทางลงเอยคือจ่ายเงินซ้ำ)
+    a.jobId === b.jobId &&
+    a.cancelReason === b.cancelReason &&
     // ไม่มีบรรทัดนี้ = กดดาวแล้วการ์ดไม่ repaint เพราะ item ถูก mutate in-place (reference เดิม) — ดู comment ด้านบน
     !!a.favorite === !!b.favorite
   );
@@ -772,7 +811,7 @@ function StoryboardStrip() {
 }
 
 /** ตัวกรองสถานะของ F3 — "all" = ไม่กรอง, ค่าที่เหลือ map ตรงกับ GenItem.status */
-type StatusFilter = "all" | "done" | "error" | "loading";
+type StatusFilter = "all" | "done" | "error" | "loading" | "cancelled";
 type SortOrder = "newest" | "oldest";
 
 const STATUS_CHIPS: { value: StatusFilter; label: string }[] = [
@@ -780,6 +819,8 @@ const STATUS_CHIPS: { value: StatusFilter; label: string }[] = [
   { value: "done", label: "สำเร็จ" },
   { value: "loading", label: "กำลังสร้าง" },
   { value: "error", label: "ล้มเหลว" },
+  // F5 — ถ้าไม่มี chip นี้ item ที่ cancelled จะหาเจอได้แค่ใน "ทั้งหมด" เท่านั้น (ตัวกรองที่ :845 เทียบ status ตรงๆ)
+  { value: "cancelled", label: "ยกเลิกแล้ว" },
 ];
 
 /** สไตล์ chip ร่วมของแถบ filter — on/off ต่างกันที่สีพื้น+เส้นขอบ+สีตัวอักษร ไม่ใช่แค่ opacity */
