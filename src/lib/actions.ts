@@ -17,11 +17,11 @@ import { deleteItem, isGalleryPersistEnabled, loadItems, saveItem, setFavorite }
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
   addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites,
-  loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
+  freshSpendLedger, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
   PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveSessionSnapshotRaw,
-  saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
+  saveSpendLedger, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
 } from "./store";
-import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, StoryboardChain } from "./types";
+import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, SpendConfirmRequest, SpendLedger, StoryboardChain } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -847,11 +847,17 @@ export function generate() {
 
   // "Refine this" ผูก parentId ให้เฉพาะ batch ที่ยิงตรงจาก prompt (ไม่ใช่จากคิว) — ใช้ครั้งเดียวแล้วเคลียร์ทิ้งเสมอ
   // ไม่ว่าจะยิงจริงหรือไม่ เพื่อไม่ให้ค้างไปผูกกับ generate ครั้งถัดไปที่ไม่เกี่ยวข้องกันแล้ว
-  const parentId = !ms.queue.length ? ms.refiningParentId : null;
+  // รอบ bypass (มาจากปุ่มยืนยันใน F4 modal) ต้องใช้ parentId ที่ snapshot ไว้ตอน gate เด้ง —
+  // `refiningParentId` ถูกเคลียร์ไปแล้วตั้งแต่รอบแรก ถ้าอ่านใหม่จะได้ null แล้วสายพันธุ์ "Refine this" ขาด
+  const parentId = bypassSpendGate
+    ? (pendingSpendParentId ?? null)
+    : (!ms.queue.length ? ms.refiningParentId : null);
   if (ms.refiningParentId != null) mutate(() => { ms.refiningParentId = null; });
 
   let jobs: QueueJob[];
-  if (ms.queue.length) {
+  // จำไว้ว่า batch นี้มาจากคิวหรือจาก prompt ปัจจุบัน — F4 gate ใช้ตัดสินว่าตอนผู้ใช้ยกเลิกต้องคืนคิวไหม
+  const fromQueue = ms.queue.length > 0;
+  if (fromQueue) {
     jobs = ms.queue;
     mutate(() => { ms.queue = []; });
   } else {
@@ -865,6 +871,23 @@ export function generate() {
       refs: refsSupported() ? ms.refs.slice() : [],
       ...(negPromptSupportedFor(state.mode, model) && ms.negPrompt.trim() ? { negPrompt: ms.negPrompt.trim() } : {}),
     }];
+  }
+
+  // ---- F4 Spend Guard: จุดแรกที่ jobs[] ประกอบครบทั้งสองสาขา (คิว + prompt ปัจจุบัน) ----
+  // อยู่หลัง pre-flight ทั้งหมด (refImageMissing) และ **ก่อน** addToHistory/สร้าง item ทุกชิ้น
+  // เพื่อไม่ให้ batch ที่ผู้ใช้กดยกเลิกทิ้ง zombie card ค้างแกลเลอรีหรือไปโผล่ในประวัติ prompt
+  // bypass เป็น one-shot: อ่านแล้วเคลียร์ทันที ไม่ค้างไปข้าม gate ของครั้งถัดไป (ดู confirmSpend)
+  const bypassed = bypassSpendGate;
+  bypassSpendGate = false;
+  if (!bypassed) {
+    const gate = evaluateSpendGate(state.mode, jobs);
+    if (gate) {
+      // snapshot jobs ไว้เอง (ไม่เข้า state — refs เป็น data URL ก้อนใหญ่) พร้อมจำว่ามาจากคิวหรือไม่
+      // เพราะสาขาคิวทำ `ms.queue = []` ไปแล้วข้างบน ตอนยกเลิกต้องคืนกลับ ไม่ใช่ปล่อยให้คิวหายเงียบ
+      pendingSpendJobs = { mode: state.mode, jobs, fromQueue, parentId };
+      mutate(s => { s.spendConfirm = gate; });
+      return; // ยังไม่สร้าง item ใดๆ — ปุ่มยืนยันในโมดัลจะเรียก generate() ซ้ำในโหมด bypass
+    }
   }
 
   const mode = state.mode;
@@ -1098,6 +1121,10 @@ function scheduleRequest(item: GenItem, batchId: number | null = null): Promise<
   return new Promise<void>(resolve => {
     const run = () => {
       activeCount++;
+      // F4: จุดเดียวของทั้งแอปที่ request "หลุดคิว governor เข้า in-flight" = เริ่มเสียเงินจริง
+      // บันทึกยอดตรงนี้ครอบทุก path ที่จ่ายเงิน (generate / runBakeOff / retry / regenerate / resume)
+      // โดยที่งานซึ่งถูกยกเลิกตอนยังรอคิวอยู่ไม่เคยมาถึงบรรทัดนี้ จึงไม่ถูกนับตามกติกาพอดี
+      recordSpend(item);
       // controller ถูกสร้าง "ตอนได้ slot" ไม่ใช่ตอนเข้าคิว — งานที่ยังรออยู่ถูกยกเลิกผ่าน waitingQueue แทน
       // (drop ทิ้งโดยไม่มี fetch เลย) ส่วนงานที่วิ่งแล้วถูกยกเลิกผ่าน controller ตัวนี้
       const ctrl = new AbortController();
@@ -2265,6 +2292,206 @@ export function computeItemCost(item: GenItem): number | null {
 export function computeQueueJobCost(mode: Mode, job: QueueJob): number | null {
   const unit = computeCost(mode, job.model, job.audio, job.duration);
   return unit != null ? unit * job.count : null;
+}
+
+/* ============================================================================
+ * F4 — Spend Guard: ledger สะสมข้ามโหมด + gate ก่อนยิง batch
+ * contract เต็มอยู่ที่ types.ts (SpendLedger / SpendConfirmRequest / จุดแทรก gate)
+ * ========================================================================== */
+
+/**
+ * id ของ item ที่ถูกบวกเข้า `totalUsd` ไปแล้ว — กันนับซ้ำตามกติกา "หนึ่ง GenItem.id บวกได้ครั้งเดียวตลอดอายุ"
+ *
+ * ทำไมเป็น Set ระดับ module ไม่ใช่ re-scan gallery: item เดินทาง loading → done และอาจถูก evict/ลบทิ้ง
+ * ระหว่างทาง การ sum ใหม่จาก gallery ทุกครั้งจะทำให้ยอดหดลงเองตอน eviction ทั้งที่เงินจ่ายไปแล้ว
+ * ledger ต้อง monotonic — ตัวนับที่ถูกต้องคือ "เคยบวก id นี้หรือยัง" ไม่ใช่ "ตอนนี้ยังเห็น item อยู่ไหม"
+ *
+ * Set นี้เป็น session-scoped โดยตั้งใจ (ไม่ persist): `totalUsd` ที่ persist ไว้แล้วรวมยอดของ session ก่อนไว้ครบ
+ * การนับของ session ใหม่จึงเริ่มจากศูนย์แล้วบวกทับยอดเดิมต่อ ไม่ใช่นับซ้ำของเก่า
+ */
+const spendCountedIds = new Set<number>();
+
+/** ledger ปัจจุบันแบบรับประกันว่ามีค่า — `spendLedger` เป็น optional ใน AppState (build ที่ยังไม่ wire F4) */
+function ledger(): SpendLedger {
+  if (!state.spendLedger) state.spendLedger = freshSpendLedger();
+  return state.spendLedger;
+}
+
+/** ledger สำหรับฝั่งอ่าน (UI) — ไม่สร้างใหม่/ไม่ mutate state ตอนอ่านเฉยๆ */
+export function getSpendLedger(): SpendLedger | undefined {
+  return state.spendLedger;
+}
+
+/**
+ * บันทึกยอดของ item หนึ่งชิ้นเข้า ledger — เรียก ณ จุดที่ request "ถูกยิงออกไปจริง" เท่านั้น
+ * (`scheduleRequest.run()` ตอนได้ slot ของ governor) ไม่ใช่ตอนสร้าง item และไม่ใช่ตอน done
+ *
+ * เหตุผลของจุดนี้ตามสัญญา: item ที่ยังนอนรอ slot อยู่ยังไม่มี fetch เกิดขึ้น = ยังไม่เสียเงิน แต่ถ้ารอ done
+ * ค่อยนับ ผู้ใช้ยิง 30 ชิ้นรวดเดียวจะผ่าน gate ทั้งชุดเพราะยอดยังเป็น 0 — บั๊กที่ฟีเจอร์นี้มีไว้แก้พอดี
+ *
+ * ครอบทุก path ที่เสียเงินโดยอัตโนมัติ เพราะ generate / runBakeOff / retry / regenerate / resume
+ * เดินผ่าน scheduleRequest หมด — รวมถึง Bake-off ที่ไม่ถูก gate ("ไม่ gate ≠ ไม่นับ")
+ *
+ * เกณฑ์ตามสัญญาถูกครอบด้วยจุดเรียกนี้ทั้งหมด: done/loading-ที่ยิงแล้ว นับตอนได้ slot, cancelled/error ที่มี
+ * jobId ก็เคยผ่านจุดนี้มาแล้วจึงนับไปแล้ว ส่วน cancelled ที่ไม่มี jobId (ถูก drop ตอนยังรอคิว) ไม่เคยถึงจุดนี้
+ * จึงไม่ถูกนับ — ตรงตามกติกาโดยไม่ต้องแยกเช็ค status ที่ไหนเลย
+ *
+ * `computeItemCost()` คืน null = คำนวณราคาไม่ได้ → เข้า `unknownCostCount` **ห้ามบวก 0 เข้า totalUsd**
+ * ไม่งั้นยอดจะต่ำกว่าความจริงเงียบๆ แล้ว gate จะปล่อยผ่านทั้งที่เลยเพดานไปแล้ว
+ */
+function recordSpend(item: GenItem) {
+  if (spendCountedIds.has(item.id)) return; // บวกไปแล้ว (retry ที่ resume job เดิมก็ไม่นับซ้ำ)
+  spendCountedIds.add(item.id);
+  const cost = computeItemCost(item);
+  const l = ledger();
+  if (cost == null) l.unknownCostCount++;
+  else l.totalUsd += cost;
+  saveSpendLedger(l);
+  mutate();
+}
+
+/**
+ * ยอดประเมินของ batch ที่กำลังจะยิง — คืน `unknown` แยกจาก `usd` เสมอ ห้ามยุบ null เป็น 0
+ * ใช้ `computeQueueJobCost()` เดิม (ซึ่งเรียก `computeCost()` ตัวเดียวกับ usage bar) ไม่เขียนสูตรราคาใหม่
+ */
+function estimateJobsCost(mode: Mode, jobs: QueueJob[]): { usd: number; unknown: number; items: number } {
+  let usd = 0, unknown = 0, items = 0;
+  for (const job of jobs) {
+    items += job.count;
+    const c = computeQueueJobCost(mode, job);
+    if (c == null) unknown += job.count;
+    else usd += c;
+  }
+  return { usd, unknown, items };
+}
+
+/**
+ * ตัดสินว่า batch นี้ต้องให้ผู้ใช้ยืนยันก่อนหรือไม่ — คืน `SpendConfirmRequest` เมื่อต้องถาม, `null` เมื่อผ่านเลย
+ * แยกออกมาเป็นฟังก์ชันที่ไม่ mutate อะไร เพื่อให้อ่านซ้ำ/ทดสอบได้โดยไม่มี side effect
+ *
+ * `capUsd === undefined` = ยังไม่ได้ตั้งเพดาน = ปิดฟีเจอร์ → คืน null ทันที
+ * เช็คด้วย `=== undefined` ตรงๆ **ห้าม `!capUsd` หรือ `capUsd || DEFAULT`** เพราะ `capUsd === 0` คือ
+ * "ถามฉันทุกครั้ง" ซึ่งเป็นเคสเข้มที่สุด ถ้าใช้ truthiness จะถูกกลืนเป็นเคสปิดฟีเจอร์พอดี (ตรงข้ามกันสุดขั้ว)
+ */
+export function evaluateSpendGate(mode: Mode, jobs: QueueJob[]): SpendConfirmRequest | null {
+  const l = ledger();
+  const cap = l.capUsd;
+  if (cap === undefined) return null; // ปิดฟีเจอร์ — ผู้ใช้ใหม่ต้องไม่เจอโมดัลโผล่มากวน
+  const est = estimateJobsCost(mode, jobs);
+  const base = {
+    itemCount: est.items,
+    batchUsd: est.usd,
+    batchUnknownCount: est.unknown,
+    ledgerUsd: l.totalUsd,
+    capUsd: cap,
+  };
+  // ยอดสะสมเดิมเลยเพดานไปก่อนหน้านี้แล้ว — เหตุผลนี้มาก่อน over-cap เพราะข้อความในโมดัลคนละแบบ
+  if (l.totalUsd > cap) return { ...base, reason: "already-over" };
+  if (l.totalUsd + est.usd > cap) return { ...base, reason: "over-cap" };
+  // ยังไม่เกินเพดาน "เท่าที่คำนวณได้" แต่มี item ที่ไม่ทราบราคาปนอยู่ → ยืนยันยอดไม่ได้ ต้องถาม
+  // ห้ามตีความว่า "ไม่ทราบราคา = ฟรีจึงผ่าน" เด็ดขาด
+  if (est.unknown > 0) return { ...base, reason: "unknown-cost" };
+  return null;
+}
+
+/**
+ * `jobs[]` ที่ถูก gate กันไว้ รอผู้ใช้ตัดสินใจ — เก็บนอก AppState เพราะ `SpendConfirmRequest` เก็บแค่ตัวเลข
+ * สำหรับแสดงผล (snapshot ที่ serialize ได้) ส่วน jobs จริงมี `refs` เป็น data URL ก้อนใหญ่ ไม่ควรไหลเข้า
+ * state ที่ถูก autosave ลง localStorage ทุก 30 วินาที
+ *
+ * `fromQueue` จำไว้ว่า batch นี้มาจากคิวหรือมาจาก prompt ปัจจุบัน — ตัวตัดสินว่าตอนยกเลิกต้องคืนคิวไหม
+ */
+let pendingSpendJobs: { mode: Mode; jobs: QueueJob[]; fromQueue: boolean; parentId: number | null } | null = null;
+
+/**
+ * flag bypass ของรอบยืนยัน — pattern เดียวกับ Bake-off: ปุ่มยืนยันเรียก `generate()` **ซ้ำ** โดยข้าม gate
+ * แทนที่จะทำให้ `generate()` เป็น async แล้ว await โมดัล (จะได้ floating promise ที่ caller ทั้งสองไม่ handle)
+ *
+ * เป็น one-shot: `generate()` เคลียร์ทิ้งทันทีที่อ่าน จึงไม่มีทางค้างไปข้าม gate ของครั้งถัดไป
+ */
+let bypassSpendGate = false;
+
+/**
+ * parentId ของ "Refine this" ที่ค้างมาจากรอบที่ถูก gate — `generate()` เคลียร์ `refiningParentId` ทิ้งตั้งแต่
+ * รอบแรกไปแล้ว (โดยตั้งใจ กันค้างไปผูกกับ generate ครั้งถัดไป) รอบ bypass จึงต้องอ่านค่าจากที่นี่แทน
+ * one-shot เหมือนกัน: `confirmSpend` เคลียร์ทิ้งทันทีหลัง `generate()` คืนค่า
+ */
+let pendingSpendParentId: number | null = null;
+
+/**
+ * ปุ่ม "ยืนยัน" ในโมดัล — ปิดโมดัลแล้วยิง generate() รอบสองในโหมด bypass (ไม่ถามซ้ำ)
+ *
+ * คืน `jobs[]` ที่ snapshot ไว้กลับเข้าคิวก่อนเรียก generate() **เฉพาะเคสที่ batch มาจากคิวจริง** เพื่อให้
+ * generate() รอบสองเดินสาขาเดิมกับรอบแรกเป๊ะๆ และยิง jobs ชุดเดียวกับที่คำนวณราคาไว้ ไม่ใช่ชุดใหม่ที่ผู้ใช้
+ * อาจแก้ prompt/count ไประหว่างโมดัลเปิดอยู่ (snapshot ไม่ live-bind ตามสัญญาของ SpendConfirmRequest)
+ *
+ * เคสที่มาจาก prompt **ห้าม** ยัดเข้าคิว: generate() รอบสองจะเห็นคิวไม่ว่างแล้วเดินสาขาคิวแทน ซึ่งทำให้
+ * `parentId` ของ "Refine this" กลายเป็น null (บรรทัด `!ms.queue.length ? ms.refiningParentId : null`)
+ * = สายพันธุ์ที่ผู้ใช้ตั้งใจต่อยอดขาดหายไปเงียบๆ — เคสนี้ปล่อยให้ generate() ประกอบ job จาก prompt เองตามเดิม
+ * โดยมี `pendingSpendParentId` พา parentId เดิมข้ามมาให้
+ */
+export function confirmSpend() {
+  if (!state.spendConfirm) return;
+  const pending = pendingSpendJobs;
+  pendingSpendJobs = null;
+  mutate(s => {
+    s.spendConfirm = null;
+    if (pending?.fromQueue && pending.jobs.length) s.modes[pending.mode].queue = pending.jobs;
+  });
+  if (!pending) return;
+  pendingSpendParentId = pending.parentId;
+  bypassSpendGate = true;
+  generate();
+  pendingSpendParentId = null;
+}
+
+/**
+ * ปุ่ม "ยกเลิก"/ปิดโมดัล — เคลียร์ทิ้งโดยไม่ยิงอะไร
+ *
+ * **ต้องคืนคิวกลับ**: สาขา "ยิงจากคิว" ใน generate() ทำ `ms.queue = []` ไปก่อนถึง gate แล้ว ถ้าไม่คืน
+ * ผู้ใช้ที่กดยกเลิกจะเสียคิวทั้งชุดไปเงียบๆ โดยไม่มีอะไรบอก — คืนจาก jobs[] ที่ snapshot ไว้ตอน gate เด้ง
+ * (เฉพาะ fromQueue เท่านั้น — batch ที่ยิงตรงจาก prompt ไม่เคยอยู่ในคิว การใส่เข้าไปจะเป็นการเพิ่มของใหม่)
+ */
+export function cancelSpend() {
+  const pending = pendingSpendJobs;
+  pendingSpendJobs = null;
+  mutate(s => {
+    s.spendConfirm = null;
+    if (pending?.fromQueue) s.modes[pending.mode].queue = pending.jobs;
+  });
+  if (pending?.fromQueue) toast("ยกเลิกแล้วค่ะ คิวถูกคืนกลับให้เรียบร้อย");
+}
+
+/** ตั้งเพดานใหม่ — `null` = ล้างเพดานทิ้ง (ปิดฟีเจอร์) ส่วน `0` = โหมดถามทุกครั้ง ค่าเสีย/ติดลบถูกปฏิเสธ */
+export function setSpendCap(cap: number | null) {
+  const l = ledger();
+  if (cap === null) {
+    delete l.capUsd;
+  } else {
+    if (!Number.isFinite(cap) || cap < 0) { toast("เพดานต้องเป็นตัวเลขไม่ติดลบค่ะ"); return; }
+    l.capUsd = cap;
+  }
+  saveSpendLedger(l);
+  mutate();
+  toast(cap === null ? "ปิดการเตือนค่าใช้จ่ายแล้วค่ะ" : `ตั้งเพดานไว้ที่ $${cap.toFixed(2)} แล้วค่ะ`);
+}
+
+/**
+ * ล้างยอดสะสม — ต้อง reset `totalUsd`/`unknownCostCount`/`startedAt` **พร้อมกันทั้งสามค่า**
+ * (reset ยอดแต่ไม่ reset เวลา = ยอดที่อ่านผิดความหมาย) ส่วนเพดานที่ตั้งไว้คงเดิม ไม่ใช่สิ่งที่ผู้ใช้สั่งล้าง
+ *
+ * `spendCountedIds` ต้องล้างด้วย ไม่งั้น item ที่ยิงไปแล้วในรอบก่อนจะกันไม่ให้ id เดิมถูกนับซ้ำอีกตลอดไป
+ * ซึ่งไม่เป็นปัญหาในทางปฏิบัติ (id ไม่ถูกใช้ซ้ำ) แต่ปล่อยให้ Set โตไปเรื่อยๆ โดยไม่มีเหตุผล
+ */
+export function resetSpendLedger() {
+  const cap = ledger().capUsd;
+  spendCountedIds.clear();
+  const next = freshSpendLedger();
+  if (cap !== undefined) next.capUsd = cap;
+  state.spendLedger = next;
+  saveSpendLedger(next);
+  mutate();
+  toast("ล้างยอดสะสมแล้วค่ะ");
 }
 
 // ---------- export / import session ----------

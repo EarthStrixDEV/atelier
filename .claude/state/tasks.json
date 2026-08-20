@@ -420,7 +420,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": true,
-      "status": "not_started",
+      "status": "done",
       "acceptanceCriteria": [
         "สร้าง item อย่างน้อย 12 ชิ้น กรองด้วยคำค้น แล้วคลิกการ์ดที่ 3 ของผลลัพธ์ ต้องเปิดรูปที่ 3 ของผลลัพธ์นั้นจริง",
         "กด favorite แล้วเปิด chip favorite only เห็นเฉพาะที่กดไว้",
@@ -428,7 +428,19 @@
         "ตรวจ dev readout ว่า mounted น้อยกว่า total ตอนกรองแล้วยังมีผลลัพธ์เยอะ",
         "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน"
       ],
-      "filesLikelyTouched": []
+      "filesLikelyTouched": [],
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "verdict": "All 5 AC PASS — nothing blocks F3 merge. 44/49 harness (5 failures are BUGCHECKs designed to fail if the bug is real; all 5 are real).",
+      "result": "Harness transpiled real Gallery.tsx/actions.ts/store.ts verbatim (constants pulled from source, not hardcoded). AC1 openFiltered round-trips every index in both sort orders. AC3 clear keeps exactly the starred ones, removed count correct, revokes only deleted. AC9 proven statically: onEnterKey=onOpen=openFiltered are literally the same function, Card calls both with the same index.",
+      "bugsFound": [
+        "P1 actions.ts:2166 — starring one item stars every item with the same fingerprint. Bell architecture is CORRECT (fingerprint cannot distinguish siblings) and the comment says so, but the UI gives the user NO hint the star belongs to a group. UX bug: user will think the app is broken. Cheapest fix = toast on first multi-toggle.",
+        "P1 actions.ts:2140 — addToGallery calls isRememberedFavorite on EVERY new item, and NOTHING prunes orphan fingerprints (saveFavorites has one caller). Star an item, let it leave the gallery still starred (reload/evict), regenerate the same prompt -> new item is starred without the user touching it. Confirmed by LC.",
+        "P2 actions.ts:2163 + store.ts:474 — favoriteKeyOf has no status field, so a cancelled card inherits the star from its done twin and then SURVIVES ล้างแกลเลอรี. clearableCount in the confirm box reads lower than what the user sees on screen.",
+        "P2 store.ts:475 — favoriteKeyOf embeds the RAW prompt and the 300 cap counts KEYS not BYTES. Measured: 2000-char prompts x 300 x 5 modes = 5.96MB, over quota. The app own Optimizer/Grill produce long prompts. On overflow writeLocalStorage swallows it and OTHER keys (history/templates/snapshot) fail too. Fix = hash the prompt."
+      ],
+      "lcCorrection": "แพร reported the separator as \u0000; it is actually a plain space (store.ts:475). Does not change the quota finding, but adds a key-collision risk since prompts contain spaces.",
+      "aPreexisting": "Gallery.tsx:419 tabIndex={done ? -1 : undefined} means NO card ever gets tabIndex=0, so Tab cannot enter the grid at all — contradicts the roving-tabindex description in CLAUDE.md. git log -S traces it to commit 2805173, BEFORE this sprint. Not caused by F3."
     },
     {
       "id": "T15",
@@ -442,7 +454,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "in_progress",
+      "status": "done",
       "acceptanceCriteria": [
         "types.ts มี interface SpendLedger ที่มีอย่างน้อย ยอดสะสม, เวลาที่เริ่มนับ, และเพดานที่ผู้ใช้ตั้ง",
         "ระบุเป็นลายลักษณ์อักษรว่า gate แทรกที่บรรทัดไหนของ generate() และต้องอยู่หลัง refImageMissing check แต่ก่อน mutate ที่สร้าง item เพื่อไม่ให้มี item ค้างใน gallery ตอนผู้ใช้กดยกเลิกที่ modal",
@@ -453,7 +465,19 @@
       "filesLikelyTouched": [
         "src/lib/types.ts"
       ],
-      "startedAt": "2026-08-20"
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "SpendLedger{totalUsd,unknownCostCount,startedAt,capUsd?} + SpendConfirmRequest + AppState.spendLedger?/spendConfirm? (optional by necessity — T16 adds initial values in store.ts). Reuses Bake-off state-flag pattern exactly: gate sets state.spendConfirm and returns, confirm button re-enters generate() in bypass mode. generate() stays SYNC — both callers (Sidebar.tsx:249, shortcuts.ts:39) are fire-and-forget and would leak a floating promise if made async.",
+      "gateDecision": "Gate at actions.ts:869. Noon CHANGED this from the originally planned :862 after reading real code: :861 refImageMissing sits INSIDE the else branch, so a gate there would let the QUEUE path (:853-856, the largest possible batch) bypass it entirely — exactly the case the feature exists to stop. :869 is the first line where jobs[] is assembled in both branches. Verified by LC against HEAD.",
+      "countingRule": "Count when the request was actually FIRED, not when it returned: done=yes, loading=yes but ONLY once past the governor queue (counting on enqueue would let 30 items pass the gate at total=0), cancelled+jobId=yes (OpenRouter already charged), cancelled without jobId=no, error+jobId=yes (retry resumes). One GenItem.id may add to totalUsd once ever — never re-scan the gallery and re-sum, since eviction would silently shrink the total.",
+      "handoffToT16": [
+        "Add initial spendLedger value in store.ts (~:500) — T15 could not touch that file",
+        "CRITICAL: the queue branch already did ms.queue = [] at actions.ts:855 BEFORE the gate runs. If the user cancels in the modal you MUST restore the queue from the snapshotted jobs[] or their queue vanishes silently.",
+        "capUsd 0 means STRICTEST (ask every time), undefined means feature off. Never write capUsd || DEFAULT or if (!capUsd) return — 0 is falsy and would collapse the strictest case into the off case.",
+        "null cost goes to unknownCostCount, never adds 0 to totalUsd, and the gate must NOT read it as free-so-allow — a batch with unknown-cost items always prompts (reason: unknown-cost)",
+        "runBakeOff must still RECORD into the ledger even though it is not gated (not gated != not counted)"
+      ],
+      "bakeOffProof": "Bake-off structurally cannot double-prompt: it never goes through generate() at all — both callers branch before it (Sidebar.tsx:159, shortcuts.ts:39) and confirmBakeOff calls runBakeOff directly."
     },
     {
       "id": "T16",
@@ -467,7 +491,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "done",
       "acceptanceCriteria": [
         "มีฟังก์ชันคำนวณยอดสะสมข้ามทั้ง 5 โหมดโดยใช้ computeItemCost เดิม ไม่เขียนสูตรราคาใหม่ซ้ำ",
         "item ที่ราคาคำนวณไม่ได้ต้องถูกนับเป็นไม่ทราบราคา ไม่ใช่นับเป็น 0 เงียบๆ และตัวเลขที่แสดงต้องมีเครื่องหมายบอกว่าไม่ครบ",
@@ -481,7 +505,23 @@
         "src/lib/actions.ts",
         "src/lib/store.ts",
         "src/lib/constants.ts"
-      ]
+      ],
+      "startedAt": "2026-08-20",
+      "partialProgress": {
+        "at": "2026-08-20",
+        "note": "Agent terminated by API connection error mid-task, NOT by a work failure. Verified state below by Loop Controller.",
+        "done": [
+          "store.ts COMPLETE: freshSpendLedger() (capUsd omitted = undefined = feature off for new users), loadSpendLedger() with sanitize (rejects NaN/negative/wrong-type so they cannot silently make every gate comparison false), saveSpendLedger() export, spendLedger: loadSpendLedger() wired into initial state at store.ts:565, storage-breakdown label + delete-key handler that also resets in-memory state (otherwise the next autosave would write the deleted total straight back)"
+        ],
+        "remaining": [
+          "actions.ts NOT STARTED: ledger accumulation at the governor hand-off point, the gate at :869, bypass mode, queue restore on cancel, runBakeOff recording, exported API for T17"
+        ],
+        "buildState": "green at time of failure"
+      },
+      "completedAt": "2026-08-20",
+      "result": "recordSpend() at actions.ts:1123 inside scheduleRequest run() — the single point in the whole app where a request leaves the governor queue and goes in-flight. Covers every paying path (generate/runBakeOff/retry/regenerate/resume) without checking status anywhere; items dropped while still queued never reach it, matching the counting rule exactly. spendCountedIds Set dedupes so the total is monotonic under eviction. Gate at :875-887 after both jobs[] branches, before addToHistory. capUsd checked with === undefined throughout (no falsy guard anywhere in F4).",
+      "selfFoundBug": "มายด์ลิน caught and fixed his own bug during review: first version of confirmSpend restored the queue ALWAYS, so the second generate() pass took the queue branch, making parentId = !ms.queue.length ? ... : null evaluate to null — Refine this would silently lose its parent link (and refiningParentId was already cleared in pass one). Fixed by snapshotting parentId and carrying it across via pendingSpendParentId, restoring the queue only when fromQueue. Verified by LC.",
+      "qaNote": "59/59 across two harnesses transpiling real extracted code (25/25 gate+ledger, 34/34 real generate() + confirm/cancel state machine)."
     },
     {
       "id": "T17",
@@ -495,7 +535,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "in_progress",
       "acceptanceCriteria": [
         "modal ใหม่แยกไฟล์ ไม่แก้ BakeOffConfirmModal.tsx เดิม ตรวจด้วย git diff --stat",
         "modal แสดงยอดที่กำลังจะจ่าย ยอดสะสมปัจจุบัน และเพดานที่ตั้งไว้ ครบทั้ง 3 ตัวเลข",
@@ -509,7 +549,8 @@
         "src/components/SpendGuardModal.tsx",
         "src/components/Header.tsx",
         "src/pages/StudioApp.tsx"
-      ]
+      ],
+      "startedAt": "2026-08-20"
     },
     {
       "id": "T18",
@@ -663,13 +704,41 @@
       "result": "Reused persistKeys Map<id,key> that T8 already maintains (filled by persistItemToGallery on save AND rehydrateGallery on boot) — no types.ts change, storage handle stays out of export JSON/snapshot/UI. Deliberately did NOT use clearMode(): it wipes the whole mode, which would delete favourited records from disk while their cards stay on screen. Instead resetModeGallery collects droppedIds at the same point releaseBlobUrls fires, so disk matches memory by construction. forgetPersistedItems returns before touching IndexedDB when opt-in is off; queued on galleryPersistChain and reads persistKeys at callback time (not snapshot) so a delete issued while a save is still queued cannot resurrect the record.",
       "qaNote": "Harness transpiled real galleryStore.ts + brace-extracted resetModeGallery/forgetPersistedItems from actions.ts (not retyped) — 30/30 incl. a control test proving clearMode would have destroyed favourites, and an [ORDER] test for the save-then-delete race.",
       "scopeNote": "AC1 says \"delete a card\" but Gallery.tsx has no per-card delete button today (only retry/copy/regenerate/extend/refine/star). Only real delete path is ล้างแกลเลอรี which already deletes per-item. เบล declined to invent a button (out of scope + no-touch zones) and removed the wrapper that would have been a dead export."
+    },
+    {
+      "id": "T23",
+      "featureId": "F3",
+      "title": "แก้บั๊ก favorite fingerprint — prune คีย์กำพร้า + hash prompt + กัน cancelled ติดดาวข้าม + บอกผู้ใช้ว่าดาวเป็นของกลุ่ม",
+      "layer": "logic",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "lite",
+      "dependsOn": [
+        "T14"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": true,
+      "status": "not_started",
+      "origin": "แพร (T14) 4 findings — verified by Loop Controller",
+      "acceptanceCriteria": [
+        "favoriteKeyOf ต้อง hash prompt แทนการฝังข้อความดิบ — prompt 2000 ตัวอักษร x 300 คีย์ x 5 โหมด ต้องไม่ทะลุ quota (วัดจริงด้วย harness)",
+        "separator ต้องเป็นอักขระที่ปรากฏใน prompt ไม่ได้ (ตอนนี้เป็น space ซึ่ง prompt มีแน่ๆ) เพื่อกัน key collision",
+        "มี path prune fingerprint กำพร้า — กดดาวแล้ว item หลุดจาก gallery (reload/evict) แล้ว generate prompt เดิมใหม่ ต้องไม่ติดดาวเอง",
+        "favoriteKeyOf หรือ isRememberedFavorite ต้องกันไม่ให้ item ที่ไม่ใช่ done รับดาวข้ามมาจาก twin ที่ done — และการ์ด cancelled ต้องไม่รอด ล้างแกลเลอรี เพราะดาวที่ไม่ได้กดเอง",
+        "ผู้ใช้ต้องรู้ว่าดาวเป็นของกลุ่ม ไม่ใช่ใบเดียว — toast ครั้งแรกที่ toggle โดนหลายใบ (ข้อความบอกจำนวนจริง) หรือ affordance อื่นที่ชัดกว่า",
+        "ของเดิมที่ผู้ใช้เก็บไว้ใน localStorage รูปแบบเก่าต้องไม่พังตอนเปลี่ยนรูปแบบคีย์ (migrate หรือ ignore อย่างสงบ ไม่ throw)",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/store.ts",
+        "src/lib/actions.ts"
+      ]
     }
   ],
   "meta": {
-    "totalTasks": 22,
-    "notStarted": 6,
+    "totalTasks": 23,
+    "notStarted": 4,
     "inProgress": 1,
-    "done": 14,
+    "done": 17,
     "blocked": 0,
     "superseded": 1
   }

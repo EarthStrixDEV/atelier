@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate } from "./types";
+import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, SpendLedger } from "./types";
+import { SPEND_LEDGER_KEY } from "./types";
 import { MAX_CHAT_HISTORY, MAX_EXPORT_LOG, MAX_USER_TEMPLATES, modeLabel, MODES } from "./constants";
 import { PERMISSION_KEY as NOTIFY_PERMISSION_ASKED_KEY } from "./notify";
 
@@ -76,6 +77,7 @@ function labelForStorageKey(key: string): string {
   if (key === QUEUE_NONEMPTY_KEY) return "flag คิวค้างตอนปิดแท็บ";
   if (key === SESSION_SNAPSHOT_KEY) return "บันทึกเซสชันอัตโนมัติ";
   if (key === EXPORT_LOG_KEY) return "ประวัติ Export";
+  if (key === SPEND_LEDGER_KEY) return "ยอดใช้จ่ายประเมินสะสม + เพดาน (Spend Guard)";
   if (key.startsWith(FAVORITES_KEY_PREFIX)) return `รายการโปรดในแกลเลอรี — ${modeLabel(key.slice(FAVORITES_KEY_PREFIX.length) as Mode)}`;
   if (key === ASSIST_MODEL_KEY) return "โมเดลผู้ช่วย AI ที่เลือกไว้";
   if (key === USER_EXTRA_MODELS_KEY) return "โมเดลที่เพิ่มเอง";
@@ -124,6 +126,12 @@ export function clearStorageKey(key: string) {
   }
   if (key === PROMPT_PLACEMENT_KEY) {
     mutate(s => { s.promptPlacement = "sidebar"; });
+    return;
+  }
+  if (key === SPEND_LEDGER_KEY) {
+    // ledger มี mirror ใน AppState — ลบ key แล้วต้องรีเซ็ต state ให้ตรงกันทันที ไม่งั้น gate ยังคิดจากยอดเก่า
+    // ที่ลบไปแล้ว และ autosave ครั้งถัดไปจะเขียนยอดเดิมกลับลง localStorage เหมือนไม่เคยลบ
+    mutate(s => { s.spendLedger = freshSpendLedger(); });
     return;
   }
   if (key.startsWith(HISTORY_KEY_PREFIX)) {
@@ -200,6 +208,49 @@ export function saveAssistModelId(id: string | null) {
     if (id) localStorage.setItem(ASSIST_MODEL_KEY, id);
     else localStorage.removeItem(ASSIST_MODEL_KEY);
   } catch { /* best-effort เท่านั้น — ไม่กระทบการใช้งานหลัก */ }
+}
+
+/* ---------- F4 Spend Guard: ledger persistence (คีย์เดียว SPEND_LEDGER_KEY ประกาศที่ types.ts) ---------- */
+
+/** ledger เปล่าของรอบใหม่ — ใช้ทั้งตอน boot ที่ยังไม่มีข้อมูล, ตอนผู้ใช้กดล้างยอด และตอนลบ key จาก Advanced */
+export function freshSpendLedger(): SpendLedger {
+  // capUsd ไม่ใส่เลย (undefined) = ยังไม่ได้ตั้งเพดาน = ปิดฟีเจอร์ — ผู้ใช้ใหม่ต้องไม่เจอโมดัลโผล่มากวน
+  return { totalUsd: 0, unknownCostCount: 0, startedAt: Date.now() };
+}
+
+/**
+ * sanitize ตัวเลขที่อ่านจาก localStorage ซึ่งผู้ใช้แก้เองได้ — ยอมรับเฉพาะ finite และไม่ติดลบ
+ * ค่าที่ไม่ผ่านคืน fallback แทนที่จะปล่อย NaN ไหลเข้าไปทำให้ทุกการเปรียบเทียบใน gate เป็น false เงียบๆ
+ */
+function sanitizeNonNegative(x: unknown, fallback: number): number {
+  return typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : fallback;
+}
+
+function loadSpendLedger(): SpendLedger {
+  const fresh = freshSpendLedger();
+  try {
+    const raw = localStorage.getItem(SPEND_LEDGER_KEY);
+    if (!raw) return fresh;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return fresh;
+    const o = parsed as Partial<SpendLedger>;
+    // capUsd: 0 เป็นค่าที่ถูกต้อง (โหมดถามทุกครั้ง) จึงเช็คด้วย typeof/isFinite ไม่ใช่ truthiness
+    // ค่าเสีย (ติดลบ/NaN/ชนิดผิด) → undefined = ปิดฟีเจอร์ ปลอดภัยกว่าเดาเพดานมั่วให้ผู้ใช้
+    const capUsd = typeof o.capUsd === "number" && Number.isFinite(o.capUsd) && o.capUsd >= 0 ? o.capUsd : undefined;
+    return {
+      totalUsd: sanitizeNonNegative(o.totalUsd, 0),
+      unknownCostCount: Math.floor(sanitizeNonNegative(o.unknownCostCount, 0)),
+      startedAt: sanitizeNonNegative(o.startedAt, fresh.startedAt),
+      ...(capUsd !== undefined ? { capUsd } : {}),
+    };
+  } catch {
+    return fresh;
+  }
+}
+
+/** เขียน ledger ลง localStorage — ผ่าน writeLocalStorage เสมอ เพื่อให้ quota warning ทำงานเป็นระบบเดียวกันทั้งแอป */
+export function saveSpendLedger(ledger: SpendLedger) {
+  writeLocalStorage(SPEND_LEDGER_KEY, JSON.stringify(ledger));
 }
 
 const USER_EXTRA_MODELS_KEY = "atelier_user_extra_models";
@@ -511,6 +562,8 @@ export const state: AppState = {
   bakeOffConfirmOpen: false,
   compareItems: null,
   userExtraModels: loadUserExtraModels(),
+  spendLedger: loadSpendLedger(),
+  spendConfirm: null,
 };
 
 let version = 0;
