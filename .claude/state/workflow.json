@@ -174,6 +174,14 @@
       "reason": "โบว์ (T5) ให้ BLOCKING: CardImpl ไม่มี branch status===cancelled ทำให้ item ที่ยกเลิกแล้วเป็นการ์ดว่าง เข้าไม่ถึง retry() ที่อยู่ใน error branch เท่านั้น -> jobId ที่เก็บไว้ตาม INVARIANT ใช้ไม่ได้ = ผู้ใช้ต้อง generate ใหม่ = จ่ายซ้ำ ซึ่งคือความเสียหายเดียวกับที่ INVARIANT ตั้งใจกัน แค่มาคนละทาง",
       "rootCause": "Loop Controller (หนูเอง) ล็อก Gallery.tsx ไว้จากทุกคนเพื่อกัน conflict กับ branch a11y แต่ contract ของนุ่นที่ types.ts:15 สั่งไว้ชัดว่าต้องเพิ่ม branch cancelled ใน Gallery Card — ไม่มีใครได้รับอนุญาตให้ทำ จึงตกหล่น",
       "change": "เพิ่ม T20 (ออม) แก้ F1+F5 ใน Gallery.tsx โดยล็อก footprint เฉพาะ CardImpl cancelled branch + StatusFilter แล้วให้โบว์ re-audit (T5 กลับเป็น in_progress จนกว่าจะ pass)"
+    },
+    {
+      "at": "2026-08-20",
+      "by": "มินจู (Min-Ju) — Loop Controller",
+      "scope": "T21 added — F2 opt-in UI",
+      "reason": "มายด์ลิน (T8) flag ว่าไม่มี UI ไหนเรียก setGalleryPersistEnabled(true) เลย (grep ยืนยัน 0 match นอก galleryStore.ts) F2 ทั้ง feature จึงปิดสนิทสำหรับผู้ใช้ทุกคน = งาน T6/T7/T8 ทั้งสายไม่มีใครได้ใช้",
+      "change": "เพิ่ม T21 (ออม) ทำ toggle opt-in + ปุ่มล้างข้อมูล + แสดงพื้นที่ใช้ ใน KeyModal Advanced section (SettingsModal.tsx ไม่มีบน branch นี้ — อยู่บน a11y ที่ยังไม่ merge)",
+      "evidence": "KeyModal.tsx:240-250 มี Advanced section ที่แสดงพื้นที่ localStorage อยู่แล้ว เป็นที่ที่เข้ากับ toggle นี้พอดี"
     }
   ]
 }

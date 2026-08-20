@@ -232,7 +232,7 @@
       ],
       "securitySensitive": true,
       "perfSensitive": true,
-      "status": "in_progress",
+      "status": "done",
       "acceptanceCriteria": [
         "item ที่ status done ถูกเขียนลง IndexedDB โดย hook หลัง autoSaveItem ใน runRequest ที่ actions.ts:1036 ไม่ใช่ก่อนหน้า",
         "การเขียนเป็น fire-and-forget ไม่ block UI และ error ตอนเขียนไม่ทำให้ item กลายเป็น error ตรวจโดยจงใจทำให้ quota เต็มแล้ว item ยังแสดงผลปกติ",
@@ -252,7 +252,10 @@
         "INTEGRATION GAP found by Loop Controller: galleryStore.ts:266 hardcodes favorite:false on save and does NOT read item.favorite, which DOES exist on GenItem now (added by T12/Aom). Left as-is it means: user stars an item -> persisted as false -> eviction discards the pinned item. T8 must wire GenItem.favorite -> PersistedGenItem.favorite on save, and call setFavorite() when the user toggles a persisted item.",
         "saveItem is a no-op when opt-in is off or item is not done; it never throws"
       ],
-      "startedAt": "2026-08-20"
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "Save hook at actions.ts:1268 (verified AFTER autoSaveItem:1264). Rehydrate at :221 piggybacks reconcilePendingJobs (only fn StudioApp calls on mount — StudioApp.tsx untouched), not awaited so paid video resume is not delayed. No extra evictIfNeeded call (saveItem does it); throttled instead via galleryPersistChain serialization so a 30-item batch evicts sequentially not 30 concurrent full-scans. registerBlobUrl + seq bump + setFavorite-per-fingerprint-group all wired. Dedupe by id OR fingerprint, revokes skipped URLs. Harness 67/67 on real transpiled code.",
+      "harnessNote": "Sliced the real wiring block and toggleFavorite out of actions.ts by string slice rather than reimplementing; includes a negative test proving the per-group setFavorite assertion is meaningful (single-fire gives 1/3)."
     },
     {
       "id": "T9",
@@ -591,13 +594,65 @@
         "chip filters correctly on UI",
         "Tab focus-visible on the new button"
       ]
+    },
+    {
+      "id": "T21",
+      "featureId": "F2",
+      "title": "UI opt-in toggle + ปุ่มล้าง + แสดงพื้นที่ใช้ ของ Gallery Persistence (KeyModal Advanced)",
+      "layer": "ui",
+      "assignee": "ออม (Aom) — Frontend UI Engineer",
+      "chainDepth": "lite",
+      "dependsOn": [
+        "T8"
+      ],
+      "securitySensitive": true,
+      "perfSensitive": false,
+      "status": "not_started",
+      "origin": "มายด์ลิน (T8) flag: F2 ปิดสนิท ไม่มี UI เปิด — verified by Loop Controller",
+      "acceptanceCriteria": [
+        "KeyModal Advanced section มี toggle เปิด/ปิด Gallery Persistence ที่เรียก setGalleryPersistEnabled จริง",
+        "ข้อความอธิบายชัดว่าเปิดแล้วจะเขียนไฟล์ media ลงเครื่องถาวร (ต่างจาก session snapshot ที่เก็บแค่ metadata) และปิดแล้วข้อมูลจะถูกล้างทันที",
+        "มีปุ่มล้างข้อมูลที่เรียก clearAllPersistedItems() พร้อม confirm ก่อน",
+        "แสดงพื้นที่ที่ใช้จริงจาก getGalleryUsage() (count + bytes) ในรูปแบบที่อ่านง่าย",
+        "default ต้องยังเป็นปิด — ห้ามเปิดให้เองตอน mount",
+        "ไม่แตะ Gallery.tsx / Sidebar.tsx / actions.ts / galleryStore.ts",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/components/KeyModal.tsx"
+      ]
+    },
+    {
+      "id": "T22",
+      "featureId": "F2",
+      "title": "ต่อสาย deleteItem/clearMode ตอนผู้ใช้ลบการ์ดหรือล้างแกลเลอรี",
+      "layer": "logic",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "lite",
+      "dependsOn": [
+        "T8"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "not_started",
+      "origin": "มายด์ลิน (T8) flag: ผู้ใช้ลบการ์ดแล้ว record ในดิสก์ยังอยู่จนกว่าจะโดน evict",
+      "acceptanceCriteria": [
+        "ลบการ์ดใน gallery แล้ว record ที่ตรงกันใน IndexedDB ถูกลบด้วย (เรียก deleteItem)",
+        "resetModeGallery เรียก clearMode(mode) เพื่อล้าง record ของโหมดนั้น แต่ต้องข้าม item ที่ favorite ให้ตรงกับพฤติกรรม in-memory",
+        "ทั้งสอง path ต้อง no-op เงียบถ้า opt-in ปิดอยู่ ไม่ throw ไม่ toast error",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/actions.ts",
+        "src/components/Gallery.tsx"
+      ]
     }
   ],
   "meta": {
-    "totalTasks": 20,
-    "notStarted": 8,
-    "inProgress": 1,
-    "done": 11,
+    "totalTasks": 22,
+    "notStarted": 10,
+    "inProgress": 0,
+    "done": 12,
     "blocked": 0
   }
 }
