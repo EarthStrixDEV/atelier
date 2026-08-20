@@ -36,6 +36,10 @@ export function useKeyboardShortcuts() {
       // Bake-off (PHASE 14) เปิดอยู่ → เปิดโมดัลยืนยันราคาแทนยิงตรง เหมือนปุ่ม Generate ปกติ
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
+        // T24/#5: โมดัลยืนยันค่าใช้จ่าย (F4) เปิดค้างอยู่ = มี batch ชุดหนึ่งนอนรออยู่ใน pendingSpendJobs
+        // ปุ่มลัดต้องไม่ยิงงานใหม่ทับ generate() มี guard ตัวเดียวกันอยู่แล้ว (ครอบทุกทางเข้า) — ตัวนี้ตัด
+        // ตั้งแต่ต้นทางเพื่อไม่ให้กด Ctrl+Enter รัวๆ แล้วเด้ง toast ซ้ำเป็นชุด และกัน Bake-off เปิดโมดัลซ้อนโมดัล
+        if (state.spendConfirm) return;
         if (cur().bakeOffEnabled) openBakeOffConfirm(); else generate();
         return;
       }

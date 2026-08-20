@@ -21,6 +21,18 @@ export const SESSION_SNAPSHOT_KEY = "atelier_session_snapshot";
 /** ประวัติ export (label/filename/timestamp/summary เท่านั้น — ไม่มี payload จริง) โชว์ใต้ปุ่ม Export ใน Header */
 export const EXPORT_LOG_KEY = "atelier_export_log";
 /**
+ * T24/#1: "id สูงสุดที่เคยลงดิสก์" ของ gallery persistence (F2) — เขียนทุกครั้งที่ saveItem/rehydrate สำเร็จ
+ *
+ * ทำไมต้องมี: `rehydrateGallery()` ถูกยิงแบบ **ไม่ await** จาก `reconcilePendingJobs()` โดยเจตนา (ห้ามหน่วง
+ * resume ของ video job ที่จ่ายเงินไปแล้ว) แต่มัน bump `s.seq` ได้ก็ต่อเมื่อ `await loadItems()` คืนค่าแล้ว
+ * ระหว่างรอ I/O นั้น `s.seq` ยังเป็น 0 — ผู้ใช้กด Generate ทันได้ item ใหม่จะได้ id 1,2,3… ชนกับ id ของ
+ * record ที่กำลังจะกู้ แล้ว dedupe ด้วย id จะทิ้ง record นั้นทั้งที่เป็นคนละชิ้นกัน
+ *
+ * ค่าใน localStorage อ่านแบบ **sync** ได้ จึงยกพื้น `s.seq` ให้พ้น id ที่กู้แน่ๆ ได้ตั้งแต่ก่อนยิง rehydrate
+ * โดยไม่ต้อง await อะไรเลย = ปิด window ทั้งหมด
+ */
+export const GALLERY_MAX_ID_KEY = "atelier_gallery_max_id";
+/**
  * รายการโปรด (F3) — เก็บเป็น "ลายนิ้วมือของคำสั่งสร้าง" ต่อโหมด ไม่ใช่ GenItem.id
  * เพราะ id มาจาก `++s.seq` ที่รีเซ็ตเป็น 0 ทุก reload (ดู `seq: 0` ในไฟล์นี้ และ actions.ts ที่ต้อง bump seq
  * กัน id ชนตอน resume job) — เก็บ id ไว้แล้วโหลดกลับมาจะไปติดดาวให้ item ใหม่ที่ไม่เกี่ยวกันเลย
@@ -79,6 +91,7 @@ function labelForStorageKey(key: string): string {
   if (key === SESSION_SNAPSHOT_KEY) return "บันทึกเซสชันอัตโนมัติ";
   if (key === EXPORT_LOG_KEY) return "ประวัติ Export";
   if (key === FAVORITE_STAMPS_KEY) return "เวลาที่กดดาวล่าสุดของแต่ละรายการโปรด";
+  if (key === GALLERY_MAX_ID_KEY) return "id สูงสุดของผลงานที่เก็บไว้ในเครื่อง (กัน id ชนตอนกู้)";
   if (key === SPEND_LEDGER_KEY) return "ยอดใช้จ่ายประเมินสะสม + เพดาน (Spend Guard)";
   if (key.startsWith(FAVORITES_KEY_PREFIX)) return `รายการโปรดในแกลเลอรี — ${modeLabel(key.slice(FAVORITES_KEY_PREFIX.length) as Mode)}`;
   if (key === ASSIST_MODEL_KEY) return "โมเดลผู้ช่วย AI ที่เลือกไว้";
@@ -383,6 +396,40 @@ export function removePendingJob(id: number) {
   const list = loadPendingJobs();
   const next = list.filter(e => e.id !== id);
   if (next.length !== list.length) savePendingJobs(next);
+}
+
+// ---------- T24/#1: gallery max-id floor (กัน id ชนระหว่าง rehydrate ยังไม่จบ) ----------
+/**
+ * อ่าน "id สูงสุดที่เคยลงดิสก์" แบบ sync — คืน 0 เมื่อไม่มีคีย์/ค่าเสีย (ไม่มีอะไรให้ยกพื้น)
+ * ค่าที่ผู้ใช้แก้เองใน localStorage ได้ จึงต้อง sanitize: ยอมรับเฉพาะ integer ที่ finite และไม่ติดลบ
+ */
+export function loadGalleryMaxId(): number {
+  try {
+    const raw = localStorage.getItem(GALLERY_MAX_ID_KEY);
+    if (!raw) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * ยก high-water mark ให้ครอบ id นี้ — monotonic เท่านั้น ไม่เคยลดลง
+ * (record ถูก evict/ลบทิ้งได้ แต่ id ที่เคยแจกไปแล้วต้องไม่ถูกแจกซ้ำในเซสชันหน้า ไม่งั้นบั๊กเดิมกลับมา)
+ * no-op เมื่อค่าใหม่ไม่ได้มากกว่าเดิม — เลี่ยง write ทุกครั้งที่เซฟ item
+ */
+export function bumpGalleryMaxId(id: number) {
+  if (!Number.isFinite(id) || id <= 0) return;
+  if (id <= loadGalleryMaxId()) return;
+  writeLocalStorage(GALLERY_MAX_ID_KEY, String(Math.floor(id)));
+}
+
+/** ล้าง high-water mark — เรียกตอนผู้ใช้ปิด opt-in F2 (record ถูกลบหมดแล้ว ไม่มีอะไรให้กัน id ชนอีก) */
+export function clearGalleryMaxId() {
+  try {
+    localStorage.removeItem(GALLERY_MAX_ID_KEY);
+  } catch { /* best-effort เท่านั้น */ }
 }
 
 // ---------- queue-nonempty flag (เขียนตอน beforeunload, เทียบตอน boot) ----------

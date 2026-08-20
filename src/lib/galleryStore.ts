@@ -170,7 +170,30 @@ export async function setGalleryPersistEnabled(on: boolean): Promise<void> {
   } catch {
     if (on) throw new Error("เปิดการเก็บผลงานไม่สำเร็จ เพราะเบราว์เซอร์ปิด localStorage อยู่ค่ะ");
   }
-  if (!on) await clearAllPersistedItems();
+  if (!on) {
+    await clearAllPersistedItems();
+    // T24/#3: บอก layer ข้างบน (actions.ts) ว่า record หายหมดแล้ว ให้ล้าง state ที่ผูกกับ record ตามไปด้วย
+    // ยิงหลัง clearAllPersistedItems() เสมอ — subscriber ที่ล้าง cache ต้องเห็นดิสก์ว่างจริงแล้ว
+    // ไฟล์นี้ไม่ import actions.ts (จะเป็น cycle) จึงใช้ callback registry แทน
+    for (const fn of persistDisabledSubscribers) {
+      try { fn(); } catch { /* subscriber พังต้องไม่ทำให้การปิด opt-in ล้มเหลว */ }
+    }
+  }
+}
+
+/**
+ * T24/#3: subscriber ที่ถูกเรียกเมื่อผู้ใช้ "ปิด" opt-in และ record ถูกล้างจากดิสก์เรียบร้อยแล้ว
+ * มีไว้ให้ actions.ts ล้าง `persistKeys` (map จาก item.id → record key) ซึ่งหลังปิด opt-in จะชี้ไป
+ * record ที่ไม่มีอยู่แล้วทั้งหมด — ไม่ใช่ข้อมูลรั่ว (in-memory, ไม่มี PII) แต่ทำให้ path ที่อ่าน map นี้
+ * เข้า branch "เคยเซฟแล้ว" หนึ่งรอบก่อน self-heal โดยไม่จำเป็น
+ *
+ * ไม่มี unsubscribe โดยเจตนา: subscriber เดียวถูกลงทะเบียนตอน module ของ actions.ts ถูกโหลด (module-scope)
+ * ซึ่งเกิดครั้งเดียวตลอดอายุแท็บ
+ */
+const persistDisabledSubscribers = new Set<() => void>();
+
+export function onGalleryPersistDisabled(fn: () => void) {
+  persistDisabledSubscribers.add(fn);
 }
 
 // ---------- IndexedDB plumbing (pattern เดียวกับ fsAccess.ts) ----------

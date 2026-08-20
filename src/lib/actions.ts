@@ -13,11 +13,11 @@ import {
   pickAutoSaveDir, reconnectAutoSaveDir, urlToBlob,
 } from "./fsAccess";
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
-import { deleteItem, isGalleryPersistEnabled, loadItems, saveItem, setFavorite } from "./galleryStore";
+import { deleteItem, isGalleryPersistEnabled, loadItems, onGalleryPersistDisabled, saveItem, setFavorite } from "./galleryStore";
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
-  addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites, loadFavoriteStamps, saveFavoriteStamps, MAX_FAVORITES_PER_MODE,
-  freshSpendLedger, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
+  addExportLogEntry, addPendingJob, bumpGalleryMaxId, clearGalleryMaxId, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites, loadFavoriteStamps, saveFavoriteStamps, MAX_FAVORITES_PER_MODE,
+  freshSpendLedger, loadGalleryMaxId, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
   PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveSessionSnapshotRaw,
   saveSpendLedger, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
 } from "./store";
@@ -217,6 +217,17 @@ export function reconcilePendingJobs() {
   // F2: กู้ผลงานที่เก็บไว้ใน IndexedDB กลับเข้าแกลเลอรี — เกาะจุดบูตนี้เพราะเป็นฟังก์ชันเดียวใน actions.ts
   // ที่ StudioApp เรียกให้ครั้งเดียวตอน mount อยู่แล้ว (StudioApp.tsx ไม่ได้อยู่ในขอบเขตงานนี้)
   // ยิงก่อนตัดสินใจ return ด้านล่าง เพราะ ledger ว่างไม่ได้แปลว่าไม่มีของให้กู้
+  // T24/#1: ยกพื้น s.seq ให้พ้น id สูงสุดที่เคยลงดิสก์ **ก่อน** ยิง rehydrate — sync ล้วน ไม่มี await
+  //
+  // เดิม s.seq ถูก bump อยู่ข้างใน rehydrateGallery() ซึ่งอยู่หลัง `await loadItems()` ระหว่างรอ I/O นั้น
+  // s.seq ยังเป็น 0 ผู้ใช้ที่กด Generate ทันจะได้ item id 1,2,3… ชนกับ id ของ record ที่กำลังจะกู้พอดี
+  // แล้ว dedupe ด้วย id ใน rehydrateGallery จะทิ้ง record นั้นทั้งที่เป็นคนละชิ้นกัน (ของกู้ไม่ขึ้นจอ +
+  // toast รายงานเลขต่ำกว่าจริง) — อ่าน localStorage ตรงนี้ปิด window ได้ทั้งหมดโดยไม่ต้อง await
+  //
+  // การ bump ข้างใน rehydrateGallery ยังคงอยู่ (belt-and-braces): high-water mark อาจต่ำกว่าความจริงได้
+  // ถ้า localStorage เขียนไม่ผ่าน/ผู้ใช้ลบคีย์ทิ้ง — ค่าที่อ่านจาก record จริงยังเป็นแหล่งความจริงสุดท้าย
+  const persistedMaxId = loadGalleryMaxId();
+  if (persistedMaxId > 0) mutate(s => { if (persistedMaxId > s.seq) s.seq = persistedMaxId; });
   // ไม่ await: การกู้ต้องไม่หน่วง resume ของ video job ที่จ่ายเงินไปแล้ว (rehydrateGallery no-op ถ้า opt-in ปิด)
   // เก็บ promise ไว้ให้ pruneOrphanFavorites() รอ — ห้าม await ตรงนี้ (จะหน่วง resume video job ที่จ่ายเงินแล้ว)
   galleryRehydrated = rehydrateGallery().catch(() => {});
@@ -842,16 +853,57 @@ export function resetModeGallery(mode: Mode): number {
 }
 
 // ---------- generation ----------
+/**
+ * `approved` — batch ที่ผู้ใช้เพิ่งกดยืนยันในโมดัล Spend Guard ส่งเข้ามาจาก `confirmSpend()` เท่านั้น (T24/#4)
+ *
+ * ปัญหาที่แก้: `confirmSpend` คืน jobs เข้า `s.modes[pending.mode].queue` ถูกต้องแล้ว แต่ generate() รอบสอง
+ * ประกอบ batch จาก `cur()` = โหมดที่เปิดอยู่ **ตอนนี้** ถ้าผู้ใช้สลับโหมดระหว่างโมดัลเปิดค้าง รอบสองจะไปอ่าน
+ * คิวของโหมดใหม่ (ว่าง) และ prompt ของโหมดใหม่ (ว่าง) → return เงียบสนิท ทั้งที่ผู้ใช้กดยืนยันจ่ายเงินไปแล้ว
+ *
+ * เลือกทาง "ยิงงานของโหมดต้นทางจริง" ไม่ใช่ "เตือนแล้วไม่ยิง": สิ่งที่ผู้ใช้อนุมัติคือ jobs ชุดนั้นของโหมดนั้น
+ * พร้อมยอดเงินที่โมดัลแสดง (snapshot ตอน gate เด้ง ไม่ live-bind ตามสัญญาของ SpendConfirmRequest) การยิง
+ * ตามสิ่งที่เขาเพิ่งกดอนุมัติจึงตรงเจตนาที่สุด — โหมดที่เปิดอยู่บนจอเป็นเรื่อง "จะเห็นผลที่แท็บไหน" ไม่ใช่
+ * "จะยิงอะไร" และ `item.mode` ทำให้ผลลัพธ์ลงแกลเลอรีถูกโหมดอยู่แล้วแม้ผู้ใช้จะค้างอยู่แท็บอื่น
+ *
+ * ส่ง jobs สำเร็จรูปเข้ามาเลย ไม่ใช่แค่ชื่อโหมด เพราะสาขา "ยิงจาก prompt" ประกอบ job ผ่าน `currentModel()` /
+ * `refsSupported()` / `refImageMissing()` ซึ่งอ่าน `state.mode` กันหมด — รอบ bypass จึงไม่มีทางประกอบ job
+ * ของโหมดอื่นได้ถูกต้อง และไม่ควรประกอบใหม่อยู่ดี (ผู้ใช้อาจแก้ prompt/count ระหว่างโมดัลเปิดอยู่)
+ */
+/**
+ * ทางเข้าสาธารณะ — **ต้องไม่รับพารามิเตอร์** เพราะ Sidebar/PromptComposer ผูกมันเป็น `onClick={generate}`
+ * ตรงๆ ถ้ารับ arg เมื่อไหร่ React จะส่ง MouseEvent เข้ามาเป็น payload เงียบๆ (tsc จับได้ในเคสนี้พอดี
+ * แต่กติกานี้สำคัญพอที่จะเขียนไว้ ไม่ใช่ให้จำเอง)
+ */
 export function generate() {
+  runGenerate();
+}
+
+function runGenerate(approved?: { mode: Mode; jobs: QueueJob[] }) {
   // F4: อ่าน+เคลียร์ bypass เป็นบรรทัดแรกสุด **ก่อน early return ทุกจุด** — ถ้าเคลียร์ทีหลัง (เช่นตรงจุด gate)
   // แล้ว generate() หลุดออกทาง `!state.apiKey` / `!prompt || !model` / `refImageMissing()` flag จะค้าง true
   // ตลอดไป แล้ว batch ถัดไป "ยิงเงินโดยไม่ถาม" ซึ่งคือสิ่งที่ฟีเจอร์นี้มีไว้กันพอดี (แพร T18 จับได้)
   const bypassed = bypassSpendGate;
   bypassSpendGate = false;
+
+  // T24/#5: โมดัลยืนยันค่าใช้จ่ายเปิดค้างอยู่ = มี batch ชุดหนึ่งนอนรออยู่ใน `pendingSpendJobs` ซึ่งเป็นตัวแปร
+  // module-level **ตัวเดียว** ถ้าปล่อยให้ generate() รอบใหม่เดินต่อจนถึง gate มันจะเขียนทับ pendingSpendJobs
+  // แล้วคิวชุดแรก (ที่ถูก `ms.queue = []` ไปตั้งแต่รอบแรก) หายถาวร กู้ไม่ได้ ทั้งจากปุ่มยืนยันและปุ่มยกเลิก
+  //
+  // กันที่ gate ตรงนี้จุดเดียว ไม่ใช่ที่ caller: ทางเข้า generate() มีทั้งปุ่ม Generate ใน Sidebar,
+  // Ctrl+Enter ใน shortcuts.ts และ confirmSpend() เอง — กันที่นี่ครอบได้หมดโดยไม่ต้องหวังว่าทุก caller
+  // จะจำเช็คเอง (shortcuts.ts เพิ่ม guard ไว้อีกชั้นเพื่อไม่ให้ toast ซ้ำจากการกดรัวเท่านั้น)
+  // `bypassed` ต้องผ่านได้เสมอ — นั่นคือ confirmSpend() ที่เพิ่งปิดโมดัลไปเองแล้วกำลังยิงรอบสอง
+  if (!bypassed && state.spendConfirm) {
+    toast("มีรายการรอยืนยันค่าใช้จ่ายอยู่ค่ะ — ยืนยันหรือยกเลิกก่อนนะคะ");
+    return;
+  }
+
   if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  // T24/#4: รอบยืนยันผูกกับโหมดต้นทางของ batch เสมอ ไม่ใช่โหมดที่เปิดอยู่ตอนกดยืนยัน
+  const mode = approved ? approved.mode : state.mode;
   // ขอสิทธิ์ notification แบบ lazy เฉพาะครั้งแรกที่กด generate ในโหมด video/cinematic — ต้องมาจาก user gesture นี้เท่านั้น
-  if (isVideoMode(state.mode)) requestNotifyPermissionOnce();
-  const ms = cur();
+  if (isVideoMode(mode)) requestNotifyPermissionOnce();
+  const ms = state.modes[mode];
 
   // "Refine this" ผูก parentId ให้เฉพาะ batch ที่ยิงตรงจาก prompt (ไม่ใช่จากคิว) — ใช้ครั้งเดียวแล้วเคลียร์ทิ้งเสมอ
   // ไม่ว่าจะยิงจริงหรือไม่ เพื่อไม่ให้ค้างไปผูกกับ generate ครั้งถัดไปที่ไม่เกี่ยวข้องกันแล้ว
@@ -865,7 +917,12 @@ export function generate() {
   let jobs: QueueJob[];
   // จำไว้ว่า batch นี้มาจากคิวหรือจาก prompt ปัจจุบัน — F4 gate ใช้ตัดสินว่าตอนผู้ใช้ยกเลิกต้องคืนคิวไหม
   const fromQueue = ms.queue.length > 0;
-  if (fromQueue) {
+  if (approved) {
+    // T24/#4: รอบยืนยัน — ใช้ snapshot ที่โมดัลคิดราคาไว้ตรงๆ ไม่ประกอบใหม่จาก state ที่อาจเปลี่ยนไปแล้ว
+    // ถ้า confirmSpend คืน jobs เข้าคิวไป (สาขา fromQueue) ต้องหยิบออกจากคิวด้วย ไม่งั้นคิวค้างซ้ำกับที่ยิง
+    jobs = approved.jobs;
+    if (fromQueue) mutate(() => { ms.queue = []; });
+  } else if (fromQueue) {
     jobs = ms.queue;
     mutate(() => { ms.queue = []; });
   } else {
@@ -886,17 +943,16 @@ export function generate() {
   // เพื่อไม่ให้ batch ที่ผู้ใช้กดยกเลิกทิ้ง zombie card ค้างแกลเลอรีหรือไปโผล่ในประวัติ prompt
   // bypass เป็น one-shot: อ่านแล้วเคลียร์ทันที ไม่ค้างไปข้าม gate ของครั้งถัดไป (ดู confirmSpend)
   if (!bypassed) {
-    const gate = evaluateSpendGate(state.mode, jobs);
+    const gate = evaluateSpendGate(mode, jobs);
     if (gate) {
       // snapshot jobs ไว้เอง (ไม่เข้า state — refs เป็น data URL ก้อนใหญ่) พร้อมจำว่ามาจากคิวหรือไม่
       // เพราะสาขาคิวทำ `ms.queue = []` ไปแล้วข้างบน ตอนยกเลิกต้องคืนกลับ ไม่ใช่ปล่อยให้คิวหายเงียบ
-      pendingSpendJobs = { mode: state.mode, jobs, fromQueue, parentId };
+      pendingSpendJobs = { mode, jobs, fromQueue, parentId };
       mutate(s => { s.spendConfirm = gate; });
       return; // ยังไม่สร้าง item ใดๆ — ปุ่มยืนยันในโมดัลจะเรียก generate() ซ้ำในโหมด bypass
     }
   }
 
-  const mode = state.mode;
   const seen = new Set<string>();
   for (const job of jobs) {
     if (!seen.has(job.prompt)) { seen.add(job.prompt); addToHistory(mode, job.prompt, job.negPrompt); }
@@ -1334,6 +1390,25 @@ function recordModelStat(modelId: string, ok: boolean) {
 const persistKeys = new Map<number, string>();
 
 /**
+ * T24/#3: ผู้ใช้ปิด opt-in → `setGalleryPersistEnabled(false)` ลบ record ทุกชิ้นจาก IndexedDB ไปแล้ว
+ * แต่ `persistKeys` ยังถือ key ของ record ที่ไม่มีอยู่จริงค้างไว้ทั้งหมด ไม่ใช่ข้อมูลรั่ว (in-memory ล้วน
+ * ไม่มี PII — key เป็นแค่ `mode:timestamp:random`) แต่ทำให้ `syncFavoriteToGallery` เดินเข้า branch
+ * "เคยเซฟแล้ว" ไปเรียก setFavorite() กับ key ที่ตายแล้วหนึ่งรอบก่อนจะ self-heal (setFavorite คืน false
+ * แล้ว map ถึงจะถูกลบ) — ล้างทิ้งตรงนี้เลยชัดกว่ารอ self-heal
+ *
+ * ล้าง high-water mark ด้วย: record หายหมดแล้ว ไม่มี id ไหนบนดิสก์ให้ต้องกันชนอีก ถ้าปล่อยค้างไว้
+ * เซสชันหน้าจะยกพื้น s.seq ขึ้นไปโดยไม่มีเหตุผล
+ *
+ * ลงทะเบียนที่ module scope — เกิดครั้งเดียวตอน actions.ts ถูกโหลด ไม่ต้อง unsubscribe
+ * (ทำผ่าน registry ใน galleryStore.ts เพราะ KeyModal.tsx เป็นจุดเรียก setGalleryPersistEnabled จุดเดียว
+ * และไฟล์นั้นอยู่นอกขอบเขตงานนี้ — galleryStore ก็ import actions.ts ไม่ได้ จะเป็น cycle)
+ */
+onGalleryPersistDisabled(() => {
+  persistKeys.clear();
+  clearGalleryMaxId();
+});
+
+/**
  * คิว serialize การเขียนลง IndexedDB ทีละชิ้น — เหตุผลเดียวกับ autoSaveChain แต่คนละคิว
  * (write ลงดิสก์ผู้ใช้กับ write ลง IndexedDB ไม่ควรบล็อกกันเอง)
  *
@@ -1353,7 +1428,12 @@ let galleryPersistChain: Promise<void> = Promise.resolve();
 function persistItemToGallery(item: GenItem) {
   galleryPersistChain = galleryPersistChain.then(async () => {
     const key = await saveItem(item);
-    if (key) persistKeys.set(item.id, key);
+    if (key) {
+      persistKeys.set(item.id, key);
+      // T24/#1: high-water mark ของ id ที่ลงดิสก์แล้ว — เซสชันหน้าอ่านค่านี้แบบ sync ตอนบูตเพื่อยกพื้น
+      // s.seq ให้พ้น id ที่กำลังจะกู้ ก่อนที่ผู้ใช้จะกด Generate ทัน (ดู reconcilePendingJobs)
+      bumpGalleryMaxId(item.id);
+    }
   }, () => {});
 }
 
@@ -1381,7 +1461,10 @@ function syncFavoriteToGallery(touched: GenItem[]) {
         if (!ok) persistKeys.delete(item.id);
       } else if (item.status === "done") {
         const fresh = await saveItem(item);
-        if (fresh) persistKeys.set(item.id, fresh);
+        if (fresh) {
+          persistKeys.set(item.id, fresh);
+          bumpGalleryMaxId(item.id); // เพิ่งลงดิสก์ครั้งแรกที่นี่ — ต้องยกพื้นเหมือน persistItemToGallery
+        }
       }
     }
   }, () => {});
@@ -1465,11 +1548,17 @@ export async function rehydrateGallery() {
       for (let i = rows.length - 1; i >= 0; i--) {
         const r = rows[i];
         const ms = s.modes[r.mode];
-        const dupe = ms.images.some(x => x.id === r.id || favoriteKeyOf(x) === favoriteKeyOf(r));
+        // T24/#2: dedupe ด้วย id อย่างเดียว — id เชื่อถือได้แล้วหลัง #1 (s.seq ถูกยกพื้นก่อนยิง rehydrate)
+        // ชั้น favoriteKeyOf ถูกถอดทิ้ง: record ไม่มีฟิลด์ `status` (allowlist ของ PersistedGenItem ตัดออก)
+        // favoriteKeyOf(record) จึงคืน "x" เสมอ ส่วน item ที่ done คืน "d" = ไม่มีวันตรงกัน (dead code)
+        // และ **ห้ามแก้ให้มันทำงาน**: ลายนิ้วมือไม่มี id อยู่ในนั้น batch ที่ prompt/model/ratio เดียวกัน
+        // (count=3) จึงมีลายนิ้วมือเหมือนกันทั้งชุด — ถ้าเทียบจริงจะกู้ขึ้นมาได้ใบเดียวจากสามใบ
+        const dupe = ms.images.some(x => x.id === r.id);
         if (dupe) { URL.revokeObjectURL(r.url); continue; }
 
         registerBlobUrl(r.id, r.url);
         if (r.id > s.seq) s.seq = r.id;
+        bumpGalleryMaxId(r.id); // ซิงก์ high-water mark กับสิ่งที่อยู่บนดิสก์จริง เผื่อคีย์หาย/ถูกลบ
         persistKeys.set(r.id, r.key);
         ms.images.push({
           id: r.id,
@@ -1863,6 +1952,11 @@ async function requestViaChat(item: GenItem, signal: AbortSignal): Promise<strin
 }
 
 export function retry(item: GenItem) {
+  // T24/#6: เส้นแบ่ง "ยิงใหม่" vs "resume" อยู่ที่ jobId ตัวเดียว
+  //  - มี jobId → requestVideo จะ poll งานเดิมต่อ ไม่ submit ใหม่ ไม่จ่ายเพิ่ม → **ห้าม** นับซ้ำ
+  //    (นี่คือ label "ทำต่อ (ไม่เสียเงินเพิ่ม)" ที่การ์ดโชว์อยู่ — ดู cardPropsEqual ใน Gallery.tsx)
+  //  - ไม่มี jobId → submit request ใหม่ทั้งใบ จ่ายเต็มราคาอีกรอบ → ต้องนับเพิ่ม
+  if (!item.jobId) markNewPaidAttempt(item);
   item.status = "loading";
   item.errMsg = "";
   // เคลียร์ร่องรอยการยกเลิกรอบก่อน — item ที่ cancelled แล้วกดสร้างใหม่ต้องไม่เหลือ cancelReason/cancelledAt ค้าง
@@ -1888,6 +1982,9 @@ export function retryWithOverride(item: GenItem, modelId: string, ratio: string)
   // โมเดล/ratio เปลี่ยนไป — jobId เดิม (ถ้ามี) ผูกกับ request เก่า resume ต่อไม่ได้แล้ว ลบออกจาก ledger ทิ้งไปเลย
   // (จะได้ entry ใหม่จาก addPendingJob ตอน submit งานใหม่สำเร็จ)
   removePendingJob(item.id);
+  // T24/#6: นี่คือ request ใหม่ที่จ่ายเงินเพิ่มจริง (โมเดล/ratio เปลี่ยน จึง submit ใหม่ ไม่ใช่ resume ของเดิม)
+  // ต้อง bump ก่อน scheduleRequest ไม่งั้น recordSpend จะเห็นคีย์เดิมแล้วข้าม = ยอดต่ำกว่าความจริง
+  markNewPaidAttempt(item);
   mutate(() => {
     item.jobId = null;
     item.model = model.id;
@@ -2421,7 +2518,11 @@ export function computeQueueJobCost(mode: Mode, job: QueueJob): number | null {
  * ========================================================================== */
 
 /**
- * id ของ item ที่ถูกบวกเข้า `totalUsd` ไปแล้ว — กันนับซ้ำตามกติกา "หนึ่ง GenItem.id บวกได้ครั้งเดียวตลอดอายุ"
+ * คีย์ของ "รอบการยิงที่จ่ายเงิน" ที่ถูกบวกเข้า `totalUsd` ไปแล้ว — กันนับซ้ำ
+ *
+ * เดิมเป็น `Set<number>` ของ item.id ล้วน (กติกา "หนึ่ง GenItem.id บวกได้ครั้งเดียว") แต่ T24/#6 พบว่า
+ * `retryWithOverride` ใช้ id เดิมทั้งที่ submit request ใหม่และจ่ายเงินจริง จึงเปลี่ยนเป็น `id:attempt`
+ * (ดู spendAttempts) — กติกาที่ถูกต้องคือ "หนึ่ง **รอบการยิงที่จ่ายเงิน** บวกได้ครั้งเดียว"
  *
  * ทำไมเป็น Set ระดับ module ไม่ใช่ re-scan gallery: item เดินทาง loading → done และอาจถูก evict/ลบทิ้ง
  * ระหว่างทาง การ sum ใหม่จาก gallery ทุกครั้งจะทำให้ยอดหดลงเองตอน eviction ทั้งที่เงินจ่ายไปแล้ว
@@ -2430,7 +2531,43 @@ export function computeQueueJobCost(mode: Mode, job: QueueJob): number | null {
  * Set นี้เป็น session-scoped โดยตั้งใจ (ไม่ persist): `totalUsd` ที่ persist ไว้แล้วรวมยอดของ session ก่อนไว้ครบ
  * การนับของ session ใหม่จึงเริ่มจากศูนย์แล้วบวกทับยอดเดิมต่อ ไม่ใช่นับซ้ำของเก่า
  */
-const spendCountedIds = new Set<number>();
+const spendCountedIds = new Set<string>();
+
+/**
+ * T24/#6: รอบการยิงที่ "จ่ายเงินใหม่จริง" ของแต่ละ item — key เป็น item.id, ค่าเริ่มต้น 0 (รอบแรก)
+ *
+ * ปัญหาที่แก้: `retryWithOverride` เปลี่ยนโมเดล/ratio แล้ว submit request ใหม่ทั้งใบ (มันลบ jobId ทิ้งด้วย
+ * ตัวเอง เพราะ job เดิม resume ต่อกับโมเดลใหม่ไม่ได้) = จ่ายเงินอีกรอบเต็มราคาของโมเดลใหม่ แต่ item.id
+ * ยังเป็นตัวเดิม — guard ที่เช็คแค่ id จึงมองว่า "นับไปแล้ว" แล้วข้ามทิ้ง ledger เลยต่ำกว่าความจริงเรื่อยๆ
+ * ($0.01 → retry ไปโมเดล $0.50 ledger ยังคง $0.01 ทั้งที่จ่าย $0.51) แล้ว gate ก็ปล่อยผ่านทั้งที่เลยเพดาน
+ * = ตรงข้ามกับเจตนาของฟีเจอร์
+ *
+ * === เส้นแบ่ง "ยิงใหม่" กับ "resume" ===
+ * ตัวนับนี้ถูก bump **เฉพาะจุดที่รู้แน่ว่าเป็น request ใหม่ที่ต้องจ่ายเพิ่ม** — เกณฑ์ตัดสินคือ jobId:
+ *  - `retryWithOverride` เปลี่ยนโมเดล/ratio แล้วลบ jobId ทิ้งเอง = submit ใหม่เสมอ → bump เสมอ
+ *  - `retry()` ธรรมดา bump **ต่อเมื่อไม่มี jobId** เท่านั้น — item ที่ยังมี jobId ค้างจะถูก requestVideo
+ *    resume ต่อของเดิม ไม่ submit ใหม่ ไม่จ่ายเพิ่ม (label "ทำต่อ (ไม่เสียเงินเพิ่ม)" บนการ์ด) การ bump
+ *    ตรงนั้นจะกลายเป็นนับซ้ำทันที
+ *  - `generate()`/`runBakeOff()`/`regenerateFromItem()` สร้าง item ใหม่พร้อม id ใหม่จาก `++s.seq` อยู่แล้ว
+ *    รอบแรกของ id ใหม่จึงเป็น attempt 0 ที่ยังไม่เคยถูกนับ ไม่ต้อง bump
+ *
+ * เก็บนอก GenItem โดยตั้งใจ (เหตุผลเดียวกับ persistKeys): เป็นบัญชีของ ledger ล้วนๆ ไม่ใช่ข้อมูลของ item
+ * ไม่ต้อง export / ไม่ต้องเข้า session snapshot / UI ไม่ต้องเห็น — และ types.ts อยู่นอกขอบเขตงานนี้
+ */
+const spendAttempts = new Map<number, number>();
+
+/** คีย์ของ ledger สำหรับ item ณ รอบการยิงปัจจุบัน */
+function spendKeyOf(item: GenItem): string {
+  return item.id + ":" + (spendAttempts.get(item.id) ?? 0);
+}
+
+/**
+ * ประกาศว่า item นี้กำลังจะถูกยิงเป็น request ใหม่ที่ต้องจ่ายเงินเพิ่ม — เรียก **ก่อน** scheduleRequest() เสมอ
+ * (recordSpend อ่านตัวนับตอนได้ slot ของ governor ซึ่งเกิดทีหลัง จึงต้อง bump ให้เสร็จก่อนเข้าคิว)
+ */
+function markNewPaidAttempt(item: GenItem) {
+  spendAttempts.set(item.id, (spendAttempts.get(item.id) ?? 0) + 1);
+}
 
 /** ledger ปัจจุบันแบบรับประกันว่ามีค่า — `spendLedger` เป็น optional ใน AppState (build ที่ยังไม่ wire F4) */
 function ledger(): SpendLedger {
@@ -2461,8 +2598,10 @@ export function getSpendLedger(): SpendLedger | undefined {
  * ไม่งั้นยอดจะต่ำกว่าความจริงเงียบๆ แล้ว gate จะปล่อยผ่านทั้งที่เลยเพดานไปแล้ว
  */
 function recordSpend(item: GenItem) {
-  if (spendCountedIds.has(item.id)) return; // บวกไปแล้ว (retry ที่ resume job เดิมก็ไม่นับซ้ำ)
-  spendCountedIds.add(item.id);
+  // T24/#6: คีย์เป็น "id + รอบการยิง" ไม่ใช่ id เปล่า — ดู spendAttempts/markNewPaidAttempt
+  const key = spendKeyOf(item);
+  if (spendCountedIds.has(key)) return; // บวกไปแล้ว (retry ที่ resume job เดิมก็ไม่นับซ้ำ)
+  spendCountedIds.add(key);
   const cost = computeItemCost(item);
   const l = ledger();
   if (cost == null) l.unknownCostCount++;
@@ -2555,14 +2694,13 @@ export function confirmSpend() {
   if (!state.spendConfirm) return;
   const pending = pendingSpendJobs;
   pendingSpendJobs = null;
-  mutate(s => {
-    s.spendConfirm = null;
-    if (pending?.fromQueue && pending.jobs.length) s.modes[pending.mode].queue = pending.jobs;
-  });
+  mutate(s => { s.spendConfirm = null; });
   if (!pending) return;
   pendingSpendParentId = pending.parentId;
   bypassSpendGate = true;
-  generate();
+  // T24/#4: ส่ง snapshot (โหมดต้นทาง + jobs ที่โมดัลคิดราคาไว้) เข้าไปตรงๆ แทนการคืนคิวแล้วหวังว่า
+  // generate() จะอ่านเจอผ่าน cur() — ซึ่งพังทันทีถ้าผู้ใช้สลับโหมดขณะโมดัลเปิดค้าง (ยิง 0 งาน เงียบสนิท)
+  runGenerate({ mode: pending.mode, jobs: pending.jobs });
   pendingSpendParentId = null;
 }
 
@@ -2607,6 +2745,9 @@ export function setSpendCap(cap: number | null) {
 export function resetSpendLedger() {
   const cap = ledger().capUsd;
   spendCountedIds.clear();
+  // คู่กับ spendCountedIds เสมอ — ล้างอันเดียวแล้วเหลืออีกอันจะทำให้ item ที่เคย retry ไปแล้วเริ่มนับ
+  // จากรอบที่ค้างอยู่ ซึ่งไม่ผิดผลลัพธ์ (Set ว่างแล้ว) แต่ปล่อย Map โตทิ้งไว้โดยไม่มีเหตุผล
+  spendAttempts.clear();
   const next = freshSpendLedger();
   if (cap !== undefined) next.capUsd = cap;
   state.spendLedger = next;

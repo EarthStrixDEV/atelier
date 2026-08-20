@@ -299,7 +299,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": true,
-      "status": "in_progress",
+      "status": "done",
       "acceptanceCriteria": [
         "สร้างรูป 5 ชิ้น reload แล้วยังครบ 5 ชิ้นและกดดาวน์โหลดได้จริง",
         "สร้างวิดีโอ 1 ชิ้น reload แล้ว video element เล่นได้จริง ไม่ใช่ blob URL ที่ตายแล้ว",
@@ -310,7 +310,15 @@
         "ผู้ใช้ที่ไม่เคยเปิด toggle ต้องไม่มีอะไรถูกเขียนลง IndexedDB เลย (ย้ายมาจาก T9)"
       ],
       "filesLikelyTouched": [],
-      "startedAt": "2026-08-20"
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "verdict": "48/48 in harness; AC2 and AC6 carry caveats",
+      "result": "Images restore with live URLs, persistKeys refilled, seq bumped. Video stored as a real Blob (video/mp4) and rehydrate mints a FRESH object URL, so structurally not a dead blob URL — but <video> actually playing needs a browser. Over cap: 70 items -> <=60 kept, the 3 oldest favourites all survive, non-favourites evicted oldest-first. Never-enabled user: 5 generates + forget + syncFavorite + rehydrate = 0 IndexedDB ops. Favourite pressed while loading then saved at done lands as favorite:true (the T7 gap is still closed). Quota full: saveItem no-ops silently, item stays done. No blob leaks — dedupe path revokes 5/5.",
+      "findings": [
+        "HIGH actions.ts:1465/1472 — s.seq is bumped INSIDE rehydrateGallery, i.e. AFTER the await on IndexedDB I/O. reconcilePendingJobs fires rehydrateGallery without awaiting (deliberate, so a paid video resume is not delayed), so during that window s.seq is still 0 and a user pressing Generate gets id 1,2,3... colliding with the very records about to be restored, which are then dropped by the id dedupe. Measured: 10 on disk + 1 new = 9 restored, toast says 6 of 10. NOT permanent (records are never deleted; a clean reload restores 10/10) but the user has no way to know to reload, and if they clear the gallery in that session the invisible items are not cleared from disk.",
+        "LOW actions.ts:1331 — persistKeys is not cleared when opt-in is turned off; 4 stale entries remain. Not a leak (memory only, no PII, just mode:timestamp:rand) and setFavorite self-heals via persistKeys.delete.",
+        "INFO store.ts:519 + actions.ts:1465 — the favoriteKeyOf dedupe clause is DEAD: records have no status field (stripped by the allowlist) so favoriteKeyOf(record) is always \"x\" while restored items are \"d\". They can never match. Accidental benefit: a count=3 same-prompt batch restores all 3 — making this clause work would eat the batch down to 1. Recommend DELETING the clause rather than fixing it."
+      ]
     },
     {
       "id": "T11",
@@ -324,7 +332,7 @@
       ],
       "securitySensitive": true,
       "perfSensitive": false,
-      "status": "in_progress",
+      "status": "done",
       "acceptanceCriteria": [
         "dump record จริงจาก IndexedDB แล้วยืนยันว่าไม่มีฟิลด์ refs ไม่มี apiKey ไม่มี jobId",
         "ยืนยันว่า opt-in default เป็นปิดจริงในโค้ด ไม่ใช่แค่ใน UI",
@@ -332,7 +340,11 @@
         "ให้ verdict blocking หรือ pass พร้อมไฟล์:บรรทัดถ้า blocking"
       ],
       "filesLikelyTouched": [],
-      "startedAt": "2026-08-20"
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "verdict": "PASS — no security blocking",
+      "result": "45/45. Record dumped from a real saveItem() through an instrumented IndexedDB stub = exactly 18 allowlisted fields. Fed an item carrying apiKey \"sk-or-LEAKED\", jobId \"job-SECRET-12345\", refs data URL and an errMsg with a filesystem path, then deep-scanned the record JSON — none of those strings appear. Allowlist still holds after T7/T8/T22: injected a brandNewSecretField into GenItem and it did not reach disk. opt-in off means ZERO IndexedDB ops (measured), and any flag value other than exactly \"1\" counts as off. Disabling wipes records including favourited ones (correct for privacy), clears the flag, leaves no atelier_gallery_* keys. No new dependencies (package.json diff vs main is empty).",
+      "privacyOpinion": "prompt/negPrompt on disk is acceptable — it is metadata the card cannot render without, and atelier_prompt_history already stores prompts in localStorage with NO opt-in at all, so F2 adds no new attack surface; it sits behind a default-off toggle that genuinely wipes. FNV-1a of the prompt is theoretically reversible but irrelevant: favoriteKeyOf already stores p.slice(0,24) as PLAINTEXT, so the hash was never a security boundary. Do NOT switch to SubtleCrypto — it would break the sync render path for nothing. DO add a line to the KeyModal label saying prompts are stored too."
     },
     {
       "id": "T12",
@@ -774,26 +786,33 @@
       ],
       "securitySensitive": true,
       "perfSensitive": false,
-      "status": "not_started",
+      "status": "done",
       "origin": "แพร (T18) — BLOCKER แก้แล้วโดย Loop Controller เหลือ 3 ตัวนี้",
       "acceptanceCriteria": [
         "สลับโหมดตอนโมดัลเปิดแล้วกดยืนยัน ต้องยิงงานของโหมดต้นทางจริง (หรือถ้าตัดสินใจไม่ยิง ต้องมี toast บอกผู้ใช้ ห้ามเงียบ)",
         "เปิดโมดัลค้างแล้วกด Ctrl+Enter หรือปุ่ม Generate อีกครั้ง ต้องไม่ทำให้คิวชุดแรกหาย — gate ตัวที่สองต้องไม่ทับ pendingSpendJobs ของตัวแรก",
         "retryWithOverride ที่เปลี่ยนโมเดลแล้วยิงใหม่จริง ต้องนับยอดเพิ่มเข้า ledger (ยังต้องไม่นับซ้ำสำหรับ retry ที่ resume job เดิมด้วย jobId)",
         "ยอดสะสมต้องยัง monotonic — ไม่ลดตอน evict หรือล้าง gallery",
-        "npm run build ผ่าน"
+        "npm run build ผ่าน",
+        "แก้ HIGH: s.seq ต้องถูก bump ให้พ้น max id ก่อน await I/O ของ rehydrate (เช่นเก็บ atelier_gallery_max_id ตอน save แล้วอ่าน sync ตอน boot) — เปิด F2 มีของ 10 ชิ้น reload แล้วกด Generate ทันที ต้องกู้ครบ 10 และ toast ต้องบอกเลขจริง",
+        "ลบ clause favoriteKeyOf ออกจาก dedupe ใน rehydrateGallery (dead code: record ไม่มี status จึงได้ \"x\" ตลอด ไม่มีวันตรงกับ item ที่เป็น \"d\") — ห้ามแก้ให้มันทำงาน เพราะจะกิน batch ที่ prompt เดียวกันเหลือใบเดียว",
+        "ล้าง persistKeys เมื่อผู้ใช้ปิด opt-in (LOW)"
       ],
       "filesLikelyTouched": [
         "src/lib/actions.ts",
         "src/lib/shortcuts.ts"
-      ]
+      ],
+      "completedAt": "2026-08-20",
+      "result": "All 6 closed. #1 high-water mark atelier_gallery_max_id written on every successful saveItem, read SYNC in reconcilePendingJobs to raise s.seq before rehydrate fires — rehydrate still not awaited; the in-rehydrate bump stays as belt-and-braces since real records remain the final source of truth. #2 dedupe reduced to id only. #3 onGalleryPersistDisabled registry in galleryStore (KeyModal is off-limits and galleryStore cannot import actions — cycle) clears persistKeys + max-id. #4 confirmSpend passes the whole {mode,jobs} snapshot into runGenerate, not just the mode name, because the prompt branch reads state.mode via currentModel/refsSupported/refImageMissing. #5 guard at runGenerate entry covers every caller at once plus a second layer in shortcuts.ts. #6 spendCountedIds keyed id:attempt.",
+      "designNote": "tsc caught that generate is bound directly as onClick={generate} in Sidebar.tsx:956 and PromptComposer.tsx:416 — giving it a parameter would let React silently pass a MouseEvent. Split into public zero-arg generate() and internal runGenerate(approved?) instead, so no forbidden file had to change.",
+      "qaNote": "F4 27/27, F2 19/19 on transpiled real code. NEGATIVE CONTROLS for all four behavioural fixes: reverting each one reproduced exactly the symptom QA measured (toast saying 9 instead of 10, fired=0 with a silent queue, homeQ=0, ledger stuck at 0.01)."
     }
   ],
   "meta": {
     "totalTasks": 24,
-    "notStarted": 1,
-    "inProgress": 2,
-    "done": 20,
+    "notStarted": 0,
+    "inProgress": 0,
+    "done": 23,
     "blocked": 0,
     "superseded": 1
   }
