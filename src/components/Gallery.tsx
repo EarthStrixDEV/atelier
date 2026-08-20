@@ -44,6 +44,8 @@ interface GridRowProps {
   registerRowEl: (index: number, el: HTMLDivElement | null) => void;
   /** id ของ card ที่กำลัง focus อยู่ตอนนี้ (Gallery Focus Mode) — null = ไม่มี card ไหนถูก focus */
   focusedId: number | null;
+  /** id ของ card ที่เป็นประตูเข้า tab order (roving tabindex) — ดู tabEntryId ใน useGalleryFocus */
+  tabEntryId: number | null;
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
@@ -57,7 +59,7 @@ interface GridRowProps {
  */
 function GridRow({
   index, style, items, columnCount, selected, onToggleSelect, onOpen, registerRowEl,
-  focusedId, onFocusCard, onArrowKey, onEnterKey,
+  focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
 }: RowComponentProps<GridRowProps>) {
   const start = index * columnCount;
   const rowItems = items.slice(start, start + columnCount);
@@ -82,6 +84,7 @@ function GridRow({
             onToggleSelect={onToggleSelect}
             onOpen={onOpen}
             focused={focusedId === item.id}
+            isTabEntry={tabEntryId === item.id}
             onFocusCard={onFocusCard}
             onArrowKey={onArrowKey}
             onEnterKey={onEnterKey}
@@ -123,9 +126,13 @@ interface VirtualGridProps {
  */
 function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObject<ListImperativeAPI | null>, mode: Mode) {
   const [focusedId, setFocusedId] = useState<number | null>(null);
+  // ช่วง index ของ item ที่ react-window mount อยู่จริงตอนนี้ — ใช้เลือกประตูเข้า tab order ให้เป็นการ์ด
+  // ที่อยู่ใน DOM เสมอ (ดู tabEntryId) null = ยังไม่เคยได้รับรายงานจาก List
+  const [renderedRange, setRenderedRange] = useState<{ start: number; stop: number } | null>(null);
 
   // สลับโหมด (Home/Video/…) แล้ว focus เดิมไม่มีความหมายอีกต่อไป — เคลียร์ทิ้ง
-  useEffect(() => { setFocusedId(null); }, [mode]);
+  // renderedRange ก็เป็นของ list เก่า เคลียร์ด้วยกันกัน entry point ชี้ช่วงที่ไม่ตรงกับ items ชุดใหม่
+  useEffect(() => { setFocusedId(null); setRenderedRange(null); }, [mode]);
 
   // item ที่ focus ไว้หลุดจาก items จริง (เช่น mode reset) — เคลียร์ focus กัน state ค้าง id ที่ไม่มีอยู่แล้ว
   useEffect(() => {
@@ -152,7 +159,26 @@ function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObje
 
   const onEnterKey = useCallback((index: number) => openLightbox(index), []);
 
-  return { focusedId, onFocusCard, onArrowKey, onEnterKey };
+  /**
+   * roving tabindex — ต้องมีการ์ด "หนึ่งใบเสมอ" ที่ tabIndex=0 เป็นประตูเข้า ไม่งั้น keyboard user
+   * กด Tab เข้ากริดไม่ได้เลย (การ์ด done ที่เหลือเป็น -1 เพื่อไม่ให้ Tab ไล่ทีละใบ — arrow key เป็นตัวขยับแทน)
+   *
+   * ประตูเข้าต้องเป็นการ์ดที่ "mount อยู่จริง" เท่านั้น เพราะ react-window unmount การ์ดนอก viewport ทิ้ง —
+   * ถ้าเลือกใบที่ถูก virtualize ออกไปแล้ว DOM จะไม่เหลือ element ที่ tabIndex=0 เลย และกด Tab เข้ากริดไม่ได้
+   * ทั้งที่มีการ์ดเต็มจอ ลำดับการเลือก: ใบที่ focus อยู่ (ถ้ายัง mount) → ใบ done ใบแรกในช่วงที่ mount →
+   * ใบ done ใบแรกทั้ง list (fallback ตอนยังไม่เคยได้ range จาก List)
+   */
+  const tabEntryId = useMemo(() => {
+    const visible = renderedRange
+      ? items.slice(renderedRange.start, renderedRange.stop + 1)
+      : items;
+    if (focusedId != null && visible.some(x => x.id === focusedId)) return focusedId;
+    const inView = visible.find(x => x.status === "done");
+    if (inView) return inView.id;
+    return items.find(x => x.status === "done")?.id ?? null;
+  }, [items, focusedId, renderedRange]);
+
+  return { focusedId, tabEntryId, setRenderedRange, onFocusCard, onArrowKey, onEnterKey };
 }
 
 /**
@@ -170,7 +196,7 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
 
   const columnCount = columnCountForWidth(width);
   const rowCount = Math.max(1, Math.ceil(items.length / columnCount));
-  const { focusedId, onFocusCard, onArrowKey, onEnterKey } = useGalleryFocus(items, columnCount, listRef, mode);
+  const { focusedId, tabEntryId, setRenderedRange, onFocusCard, onArrowKey, onEnterKey } = useGalleryFocus(items, columnCount, listRef, mode);
 
   const onResize = useCallback((size: { width: number; height: number }) => {
     setWidth(size.width);
@@ -190,6 +216,12 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
   // เดโม/ตรวจสอบ Phase 13 เท่านั้น — นับจำนวน row ที่ react-window บอกว่ากำลัง render จริงตอนนี้ (คูณ columnCount
   // เป็นจำนวน card โดยประมาณ, แถวสุดท้ายอาจมีน้อยกว่านั้นถ้า item ไม่พอดีเต็มแถว) ตัด tree-shake ออกจาก production build
   const onRowsRendered = useCallback((visible: { startIndex: number; stopIndex: number }) => {
+    // แปลงช่วง "แถว" ที่ react-window render อยู่ เป็นช่วง index ของ item เพื่อให้ roving tabindex
+    // เลือกประตูเข้าจากการ์ดที่ mount อยู่จริงเท่านั้น (ดู tabEntryId) — ต้องอยู่ก่อน DEV guard ข้างล่าง
+    setRenderedRange({
+      start: visible.startIndex * columnCount,
+      stop: (visible.stopIndex + 1) * columnCount - 1,
+    });
     if (!import.meta.env.DEV) return;
     const rowsRendered = visible.stopIndex - visible.startIndex + 1;
     const lastRowStart = (rowCount - 1) * columnCount;
@@ -197,11 +229,11 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
     const includesLastRow = visible.stopIndex >= rowCount - 1;
     const full = includesLastRow ? rowsRendered - 1 : rowsRendered;
     setMountedCount(Math.min(items.length, full * columnCount + (includesLastRow ? lastRowSize : columnCount)));
-  }, [columnCount, rowCount, items.length]);
+  }, [columnCount, rowCount, items.length, setRenderedRange]);
 
   const rowProps = useMemo<GridRowProps>(() => ({
-    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, onFocusCard, onArrowKey, onEnterKey,
-  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, onFocusCard, onArrowKey, onEnterKey]);
+    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
+  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -374,6 +406,8 @@ interface CardProps {
   onOpen: (index: number) => void;
   /** Gallery Focus Mode (PHASE 15) — true ถ้าการ์ดนี้คือใบที่ถูก focus อยู่ตอนนี้ */
   focused: boolean;
+  /** true ถ้าการ์ดนี้เป็นประตูเข้า tab order ของกริด (roving tabindex — มีได้ใบเดียวเท่านั้น) */
+  isTabEntry: boolean;
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
@@ -383,7 +417,7 @@ const ARROW_KEY_DIR: Record<string, "left" | "right" | "up" | "down"> = {
   ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
 };
 
-function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, onFocusCard, onArrowKey, onEnterKey }: CardProps) {
+function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, isTabEntry, onFocusCard, onArrowKey, onEnterKey }: CardProps) {
   // synthetic root ที่ startFromItem สร้าง (ดู actions.ts) เป็น video/cinematic mode แต่ url เป็นภาพนิ่ง (ยังไม่มีวิดีโอจริง) — render เป็น <img> แทน <video>
   const isVid = isVideoMode(item.mode) && !isImageDataUrl(item.url);
   const isAud = item.mode === "audio";
@@ -409,7 +443,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
   return (
     <div
       ref={rootRef}
-      tabIndex={done ? -1 : undefined}
+      tabIndex={done ? (isTabEntry ? 0 : -1) : undefined}
       className={
         "group relative overflow-hidden rounded-card border bg-surface transition-colors outline-none js-focus-ring-owned " +
         (selected ? "border-accent" : focused ? "border-text" : "border-border") +
@@ -419,6 +453,12 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
       role={done ? "button" : undefined}
       aria-label={done ? "เปิดดูภาพขยาย: " + item.prompt : undefined}
       onClick={done ? () => { onFocusCard(item.id); onOpen(index); } : undefined}
+      // Tab เข้ามาที่ประตูเข้า (tabIndex=0) ต้องเริ่มโหมด focus ให้ทันที ไม่งั้น arrow key ไม่ทำงาน
+      // เพราะ focusedId ยังเป็น null อยู่ — เช็ค !focused ก่อนกัน setState ซ้ำกับ .focus() ที่ effect เรียกเอง
+      // e.target === e.currentTarget สำคัญ: onFocus ของ React bubble ขึ้นมาจากปุ่มลูกในการ์ด (Copy Prompt,
+      // Crosshair, checkbox, …) ถ้าไม่กรอง แค่ Tab ผ่านปุ่มของการ์ดอื่นก็จะแย่ง focusedId ไปทั้งที่ผู้ใช้
+      // ไม่ได้โฟกัสตัวการ์ดนั้น แล้ว arrow key รอบถัดไปจะยิงจาก id ผิดใบ
+      onFocus={done && !focused ? (e => { if (e.target === e.currentTarget) onFocusCard(item.id); }) : undefined}
       onKeyDown={done ? (e => {
         const dir = ARROW_KEY_DIR[e.key];
         if (dir) { e.preventDefault(); onArrowKey(item.id, dir); return; }
@@ -689,7 +729,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
  */
 function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): boolean {
   if (prev.index !== next.index || prev.selected !== next.selected || prev.autoExtending !== next.autoExtending) return false;
-  if (prev.focused !== next.focused) return false;
+  if (prev.focused !== next.focused || prev.isTabEntry !== next.isTabEntry) return false;
   if (prev.onToggleSelect !== next.onToggleSelect || prev.onOpen !== next.onOpen) return false;
   if (prev.onFocusCard !== next.onFocusCard || prev.onArrowKey !== next.onArrowKey || prev.onEnterKey !== next.onEnterKey) return false;
   const a = prev.item;
