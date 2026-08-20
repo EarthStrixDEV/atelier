@@ -26,6 +26,7 @@ export const EXPORT_LOG_KEY = "atelier_export_log";
  * กัน id ชนตอน resume job) — เก็บ id ไว้แล้วโหลดกลับมาจะไปติดดาวให้ item ใหม่ที่ไม่เกี่ยวกันเลย
  */
 const FAVORITES_KEY_PREFIX = "atelier_favorites_";
+const FAVORITE_STAMPS_KEY = "atelier_favorite_stamps";
 /** prefix ของทุก key ที่แอปนี้เขียนลง localStorage — ใช้คำนวณขนาดรวมในหน้า Advanced ของ KeyModal */
 export const STORAGE_KEY_PREFIX = "atelier_";
 
@@ -77,6 +78,7 @@ function labelForStorageKey(key: string): string {
   if (key === QUEUE_NONEMPTY_KEY) return "flag คิวค้างตอนปิดแท็บ";
   if (key === SESSION_SNAPSHOT_KEY) return "บันทึกเซสชันอัตโนมัติ";
   if (key === EXPORT_LOG_KEY) return "ประวัติ Export";
+  if (key === FAVORITE_STAMPS_KEY) return "เวลาที่กดดาวล่าสุดของแต่ละรายการโปรด";
   if (key === SPEND_LEDGER_KEY) return "ยอดใช้จ่ายประเมินสะสม + เพดาน (Spend Guard)";
   if (key.startsWith(FAVORITES_KEY_PREFIX)) return `รายการโปรดในแกลเลอรี — ${modeLabel(key.slice(FAVORITES_KEY_PREFIX.length) as Mode)}`;
   if (key === ASSIST_MODEL_KEY) return "โมเดลผู้ช่วย AI ที่เลือกไว้";
@@ -468,18 +470,80 @@ export function clearExportLog() {
 // prompt/model/ratio/duration/audio ชุดเดียวกัน — ค่าเหล่านี้อยู่ใน session snapshot/F2 record และไม่ผูกกับ seq เลย
 // ทางเลือกอื่นที่ตัดทิ้ง: รอ F2 (IndexedDB) เก็บให้พร้อมตัว item — แต่ F2 เป็น opt-in ที่ default ปิด
 // ผู้ใช้ที่ไม่เปิดจะยังเสียดาวอยู่ดี ซึ่งขัดกับ requirement ว่าดาวต้องไม่หายแม้ไม่ได้เปิด F2
-const MAX_FAVORITES_PER_MODE = 300; // กัน localStorage บวมจาก session ที่สะสมมานาน — ตัดของเก่าสุดออกจากท้าย
+export const MAX_FAVORITES_PER_MODE = 300; // กัน localStorage บวมจาก session ที่สะสมมานาน — ตัดของเก่าสุดออกจากท้าย
 
-/** ลายนิ้วมือของ item — ต้องคำนวณจากฟิลด์ที่ "รอด" ข้าม reload เท่านั้น ห้ามใส่ id/url/startedAt ลงไป */
-export function favoriteKeyOf(item: { mode: Mode; prompt: string; model: string; ratio: string; duration: number; audio: boolean }): string {
-  return [item.mode, item.prompt, item.model, item.ratio, String(item.duration), item.audio ? "1" : "0"].join(" ");
+/**
+ * separator ของคีย์ — U+001F (UNIT SEPARATOR) เป็น control char ที่พิมพ์ลงช่อง prompt ไม่ได้
+ * และ field ที่เหลือทุกตัว (mode/model/ratio/duration/audio/status) เป็น enum หรือตัวเลขจากโค้ดเอง
+ * ของเดิมใช้ " " ซึ่ง prompt มีได้แน่นอน = ["a b","c"] กับ ["a","b c"] ชนกัน (key collision)
+ */
+const FAV_SEP = "\u001F";
+
+/**
+ * hash ของ prompt — FNV-1a สองช่อง (offset/prime ต่างกัน) รันบน 32-bit ALU ของ JS แล้วต่อกันเป็น ~64-bit
+ * โปรเจกต์นี้ไม่มี crypto lib และ SubtleCrypto เป็น async ส่วน favoriteKeyOf ถูกเรียกใน render path แบบ sync
+ * ไม่ต้องเป็น cryptographic — แค่ต้อง collision ต่ำพอที่ดาวจะไม่ไปโผล่ผิดใบ
+ */
+function fnv1a2x32(str: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x1b873593;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+  }
+  return h1.toString(36) + "." + h2.toString(36);
 }
 
+/**
+ * ลายนิ้วมือของ item — ต้องคำนวณจากฟิลด์ที่ "รอด" ข้าม reload เท่านั้น ห้ามใส่ id/url/startedAt ลงไป
+ *
+ * PROMPT ถูก hash ไม่ฝังข้อความดิบ: Optimizer/Grill ของแอปเองผลิต prompt หลักพันตัวอักษรได้ง่ายมาก
+ * ถ้าฝังดิบ 300 คีย์ × 5 โหมด จะกิน localStorage ระดับหลาย MB จนทะลุ quota แล้วคีย์อื่นของแอป
+ * (history/template/session snapshot) ล้มตามไปทั้งหมด — ลดเหลือ ~60 byte ต่อคีย์คงที่ ไม่โตตาม prompt
+ *
+ * ลด collision 3 ชั้น เพราะ prompt ต่างกันแต่ hash ชนกัน = ดาวไปโผล่ผิดใบ:
+ *   1. hash 2×32-bit (ต้องชนพร้อมกันทั้งคู่)
+ *   2. ความยาว prompt — prompt คนละความยาวชนกันไม่ได้เลย
+ *   3. prefix 24 ตัวแรก — prompt ที่จะชนต้องขึ้นต้นเหมือนกันด้วย
+ * ทั้งสามชั้นมีขนาดคงที่ ไม่โตตามความยาว prompt จริง
+ *
+ * STATUS อยู่ในคีย์ (normalize เหลือ done/ไม่ done): กันการ์ด cancelled/error รับดาวข้ามมาจาก twin ที่ done
+ * ซึ่งทำให้มันรอด "ล้างแกลเลอรี" ทั้งที่ผู้ใช้ไม่เคยกดดาวใบนั้น — แยกแค่สองค่าพอ เพราะชิ้นเดียวกันเดินทาง
+ * loading → done ระหว่างทาง ถ้าแยกทุกสถานะคีย์จะเปลี่ยนกลางคันจนดาวหลุด
+ */
+export function favoriteKeyOf(item: { mode: Mode; prompt: string; model: string; ratio: string; duration: number; audio: boolean; status?: string }): string {
+  const p = item.prompt ?? "";
+  return [
+    "v2",
+    item.mode,
+    item.status === "done" ? "d" : "x",
+    item.model,
+    item.ratio,
+    String(item.duration),
+    item.audio ? "1" : "0",
+    String(p.length),
+    fnv1a2x32(p),
+    p.slice(0, 24),
+  ].join(FAV_SEP);
+}
+
+/**
+ * อ่านคีย์โปรดของโหมด — ทิ้งคีย์รูปแบบเก่า (v1) อย่างเงียบๆ ไม่ throw
+ *
+ * MIGRATION: v1 ฝัง prompt ดิบและใช้ space คั่น จึงแยกส่วนกลับมาไม่ได้แน่นอน (prompt มี space ได้)
+ * การเดา split ผิดแล้ว re-hash = ดาวไปโผล่ผิดใบ ซึ่งแย่กว่าดาวหาย — เลือกทิ้งคีย์เก่าแทนการเดา
+ * ผลกระทบจำกัดอยู่แค่ "ดาวที่เคยกดในเวอร์ชันก่อนหน้าหายไป" ส่วนตัวไฟล์/ผลงานไม่ได้หายตาม
+ * และ v1 อยู่บน branch ที่ยังไม่ปล่อยจริง (T13 คอมมิตในสปรินต์เดียวกันนี้) ฐานผู้ใช้จริงจึงเป็นศูนย์
+ */
 export function loadFavorites(mode: Mode): string[] {
   try {
     const raw = localStorage.getItem(FAVORITES_KEY_PREFIX + mode);
     const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string").slice(0, MAX_FAVORITES_PER_MODE) : [];
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((x): x is string => typeof x === "string" && x.startsWith("v2" + FAV_SEP))
+      .slice(0, MAX_FAVORITES_PER_MODE);
   } catch {
     return [];
   }
@@ -490,6 +554,32 @@ export function saveFavorites(mode: Mode, keys: string[]) {
   if (trimmed.length) writeLocalStorage(FAVORITES_KEY_PREFIX + mode, JSON.stringify(trimmed));
   else {
     try { localStorage.removeItem(FAVORITES_KEY_PREFIX + mode); } catch { /* best-effort เท่านั้น */ }
+  }
+}
+
+/**
+ * เวลาที่คีย์โปรดแต่ละอันถูกกดล่าสุด — เก็บแยกจากตัวลิสต์คีย์เพราะรูปแบบของลิสต์ (array ของ string)
+ * ถูกอ่าน/เขียนจากหลายที่แล้ว การยัด object เข้าไปแทนจะพัง import/export และคีย์ที่ผู้ใช้มีอยู่เดิมทันที
+ * ใช้โดย pruneOrphanFavorites() ตอน F2 ปิด ซึ่งพิสูจน์การมีอยู่จริงของ item ไม่ได้ จึงตัดตามอายุแทน
+ * เป็น map เดียวรวมทุกโหมด — คีย์มี mode อยู่ในตัวอยู่แล้ว (ดู favoriteKeyOf) จึงไม่ชนกันข้ามโหมด
+ */
+export function loadFavoriteStamps(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(FAVORITE_STAMPS_KEY);
+    const obj = raw ? JSON.parse(raw) : null;
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(obj)) if (typeof v === "number") out[k] = v;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function saveFavoriteStamps(stamps: Record<string, number>) {
+  if (Object.keys(stamps).length) writeLocalStorage(FAVORITE_STAMPS_KEY, JSON.stringify(stamps));
+  else {
+    try { localStorage.removeItem(FAVORITE_STAMPS_KEY); } catch { /* best-effort เท่านั้น */ }
   }
 }
 

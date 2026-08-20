@@ -16,7 +16,7 @@ import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
 import { deleteItem, isGalleryPersistEnabled, loadItems, saveItem, setFavorite } from "./galleryStore";
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
-  addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites,
+  addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites, loadFavoriteStamps, saveFavoriteStamps, MAX_FAVORITES_PER_MODE,
   freshSpendLedger, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
   PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveSessionSnapshotRaw,
   saveSpendLedger, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
@@ -218,7 +218,10 @@ export function reconcilePendingJobs() {
   // ที่ StudioApp เรียกให้ครั้งเดียวตอน mount อยู่แล้ว (StudioApp.tsx ไม่ได้อยู่ในขอบเขตงานนี้)
   // ยิงก่อนตัดสินใจ return ด้านล่าง เพราะ ledger ว่างไม่ได้แปลว่าไม่มีของให้กู้
   // ไม่ await: การกู้ต้องไม่หน่วง resume ของ video job ที่จ่ายเงินไปแล้ว (rehydrateGallery no-op ถ้า opt-in ปิด)
-  void rehydrateGallery();
+  // เก็บ promise ไว้ให้ pruneOrphanFavorites() รอ — ห้าม await ตรงนี้ (จะหน่วง resume video job ที่จ่ายเงินแล้ว)
+  galleryRehydrated = rehydrateGallery().catch(() => {});
+  // ล้างคีย์โปรดกำพร้าตอนบูต — fire-and-forget, รอ rehydrate เองข้างใน (ดู pruneOrphanFavorites)
+  void pruneOrphanFavorites();
 
   const ledger = loadPendingJobs();
   const lostQueueModes = consumeQueueNonEmptyFlag().filter(m => state.modes[m].queue.length === 0);
@@ -1293,6 +1296,8 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
   // ถูกเคลียร์ไปแล้ว (fail ถาวร/ต้อง submit ใหม่) — ส่วน error ที่ยังมี jobId ค้างอยู่ (เช่น timeout, โหลดไฟล์พลาด)
   // ต้องคง entry ไว้ เพราะ "ลองใหม่" ยัง resume งานเดิมได้โดยไม่จ่ายซ้ำ (ดู addPendingJob ใน requestVideo/requestAudio)
   if (item.status === "done" || (item.status === "error" && !item.jobId)) removePendingJob(item.id);
+  // ติดดาวคืนเมื่อ item เพิ่งกลายเป็น done — คีย์โปรดผูกกับ status จึงตรงเฉพาะตอนนี้ ไม่ใช่ตอน addToGallery
+  restoreFavoriteOnSettle(item);
   // item ถูก mutate ตรงๆ ใน array ของโหมดต้นทาง — broadcast ทีเดียวพอ ทุกโหมดได้ state ถูกต้อง
   mutate();
   if (item.status === "done") autoSaveItem(item); // fire-and-forget — ไม่บล็อก UI, error แค่ toast เตือน
@@ -1439,6 +1444,13 @@ function forgetPersistedItems(ids: number[]) {
  * ที่กู้มา **ก่อน** item ใหม่ชิ้นแรกของเซสชันจะเกิด ไม่งั้น id ชนกันแล้ว toggleFavorite/releaseBlobUrls/
  * cancelItem ซึ่งค้นด้วย id จะไปโดน item ผิดตัว (pattern เดียวกับ resumable ใน reconcilePendingJobs)
  */
+/**
+ * promise ที่ resolve เมื่อ rehydrateGallery() รอบบูตทำงานจบ (สำเร็จหรือไม่ก็ตาม) — pruneOrphanFavorites()
+ * ต้องรอตัวนี้ก่อน ไม่งั้นจะ prune ตอนแกลเลอรียังว่างแล้วลบดาวทิ้งหมด (ดู pruneOrphanFavorites)
+ * ตั้งเป็น resolved ไว้ก่อน: ถ้า opt-in ปิด rehydrateGallery() return ทันทีและไม่มีอะไรให้รอ
+ */
+let galleryRehydrated: Promise<void> = Promise.resolve();
+
 export async function rehydrateGallery() {
   if (!isGalleryPersistEnabled()) return;
   const modes = Object.keys(state.modes) as Mode[];
@@ -2153,19 +2165,101 @@ function favoriteKeysFor(mode: Mode): Set<string> {
 /**
  * item ที่เพิ่งเกิด/เพิ่งกู้กลับมา ตรงกับลายนิ้วมือที่ผู้ใช้เคยกดดาวไว้หรือเปล่า
  * เรียกจากจุดที่ item ได้ค่า prompt/model/ratio ครบแล้วเท่านั้น (ดู favoriteKeyOf ใน store.ts ว่าคีย์ประกอบจากอะไร)
+ *
+ * item ที่ยังไม่ done รับดาวคืนอัตโนมัติไม่ได้เลย: คีย์ของมันมี status = "x" ซึ่งไม่มีทางตรงกับคีย์ที่
+ * toggleFavorite เขียนลง localStorage (เขียนเฉพาะคีย์ของ item ที่ done — ดู toggleFavorite) จึงกัน
+ * การ์ด cancelled/error ไม่ให้รับดาวข้ามมาจาก twin ที่ done แล้วไปรอด "ล้างแกลเลอรี" (P2)
  */
 export function isRememberedFavorite(item: GenItem): boolean {
-  return favoriteKeysFor(item.mode).has(favoriteKeyOf(item));
+  return item.status === "done" && favoriteKeysFor(item.mode).has(favoriteKeyOf(item));
 }
 
 /**
  * ทางเข้าเดียวของ item ใหม่สู่แกลเลอรี — ติดดาวคืนให้อัตโนมัติถ้าลายนิ้วมือของมันตรงกับที่ผู้ใช้เคยกดไว้
  * (นี่คือกลไกที่ทำให้ดาว "รอด reload" ได้โดยไม่ต้องพึ่ง F2/IndexedDB ซึ่งเป็น opt-in ที่ default ปิด)
  * ต้องเรียกภายใน mutate() เสมอ เพราะแก้ s.modes[...].images ตรงๆ
+ *
+ * item ส่วนใหญ่เข้ามาที่นี่ตอน status = "loading" จึงยังไม่เข้าเงื่อนไข — การติดดาวคืนจริงเกิดที่
+ * restoreFavoriteOnSettle() ตอน runRequest ปิดงานเป็น done แทน (ดูเหตุผลใน isRememberedFavorite)
+ * ที่ยังเช็คตรงนี้ด้วยเพราะมี path ที่ยัด item ซึ่ง done มาแล้วเข้าตรงๆ (scene เริ่มต้นของ cinematic)
  */
 function addToGallery(s: AppState, mode: Mode, item: GenItem) {
   if (isRememberedFavorite(item)) item.favorite = true;
   s.modes[mode].images.unshift(item);
+}
+
+/**
+ * ติดดาวคืนตอน item เพิ่งกลายเป็น done — เรียกจาก runRequest จุดเดียว (ภายใน mutate())
+ * ต้องอยู่ตรงนี้ไม่ใช่ที่ addToGallery เพราะคีย์โปรดผูกกับ status = done (ดู favoriteKeyOf ใน store.ts)
+ * ตอน addToGallery ถูกเรียก item ยังเป็น loading อยู่เสมอ คีย์จึงยังไม่ตรง
+ */
+function restoreFavoriteOnSettle(item: GenItem) {
+  if (item.status === "done" && !item.favorite && isRememberedFavorite(item)) item.favorite = true;
+}
+
+/**
+ * เคยเตือนผู้ใช้เรื่อง "ดาวเป็นของกลุ่ม" ไปแล้วหรือยังในเซสชันนี้ — เตือนครั้งเดียวพอ ไม่รบกวนซ้ำทุกคลิก
+ * ตั้งใจไม่ persist: เป็นเรื่องความเข้าใจของผู้ใช้ ณ ตอนใช้งาน ไม่ใช่ข้อมูลที่ต้องรอด reload
+ */
+let groupFavoriteHintShown = false;
+
+/**
+ * ลบคีย์โปรดที่ไม่มี item ตัวจริงรองรับแล้ว ("คีย์กำพร้า") — เรียกครั้งเดียวตอนบูตจาก reconcilePendingJobs()
+ *
+ * ปัญหาที่แก้: ผู้ใช้กดดาว "a cat" แล้วใบนั้นหลุดจากแกลเลอรี (reload/สลับโหมด) โดยที่คีย์ยังค้างใน
+ * localStorage → generate "a cat" ด้วย model/ratio เดิมอีกครั้ง ใบใหม่ติดดาวเองทั้งที่ผู้ใช้ไม่ได้กด
+ *
+ * === กับดัก "แกลเลอรีว่างตอนบูต" ===
+ * แกลเลอรีเป็น memory-only ตอน prune ทำงานมันจึงว่างเสมอ ถ้า prune ตามสิ่งที่อยู่ในแกลเลอรีตรงๆ
+ * ดาวจะถูกลบเกลี้ยงทุกครั้งที่เปิดแอป = พังหนักกว่าบั๊กเดิม จึงต้องรอ "แหล่งความจริง" ที่ถูกต้องก่อน:
+ *
+ *  - F2 เปิด → IndexedDB คือความจริง: await rehydrateGallery() ให้เสร็จก่อน แล้วคีย์ที่ไม่มี item
+ *    ตัวจริงในแกลเลอรีหลังกู้เสร็จ = กำพร้าแน่นอน ลบได้เต็มปาก (แม่นที่สุด)
+ *  - F2 ปิด → ไม่มีแหล่งความจริงใดๆ พิสูจน์ไม่ได้ว่าคีย์กำพร้าจริงไหม จึงตัดตามอายุแทน:
+ *    คีย์ที่เก่ากว่า FAVORITE_TTL_MS ถือว่าหมดอายุ เพราะผลงานที่มันชี้ไปไม่มีทางยังอยู่ใน memory
+ *    ของเซสชันไหนแล้ว (ไม่มี persist = ตายตอนปิดแท็บ) — เป็น upper bound ไม่ใช่การพิสูจน์ แต่ทำให้
+ *    คีย์กำพร้าไม่สะสมไม่มีที่สิ้นสุด และผู้ใช้ที่กดดาวแล้ว reload ทันทีก็ยังได้ดาวคืนตามเจตนาเดิม
+ */
+const FAVORITE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 วัน
+
+export async function pruneOrphanFavorites() {
+  const modes = Object.keys(state.modes) as Mode[];
+
+  if (isGalleryPersistEnabled()) {
+    // ต้องรอ rehydrate ให้จบก่อน ไม่งั้นจะ prune ตอนแกลเลอรียังว่าง = ลบดาวทิ้งหมด (ดูกับดักด้านบน)
+    await galleryRehydrated;
+    for (const mode of modes) {
+      const live = new Set(state.modes[mode].images.filter(x => x.status === "done").map(x => favoriteKeyOf(x)));
+      const keys = favoriteKeysFor(mode);
+      const kept = [...keys].filter(k => live.has(k));
+      if (kept.length === keys.size) continue;
+      keys.clear();
+      for (const k of kept) keys.add(k);
+      saveFavorites(mode, kept);
+    }
+    return;
+  }
+
+  // F2 ปิด — ตัดตามอายุอย่างเดียว (ดูเหตุผลด้านบน) timestamp เก็บแยกคีย์ ไม่ปนกับตัวคีย์เอง
+  const now = Date.now();
+  const stamps = loadFavoriteStamps();
+  let changed = false;
+  for (const mode of modes) {
+    const keys = favoriteKeysFor(mode);
+    const kept = [...keys].filter(k => {
+      const t = stamps[k];
+      // ไม่มี timestamp = คีย์จากเวอร์ชันก่อนหน้าที่ยังไม่เคยประทับเวลา — ให้โอกาสรอบนี้ ประทับเวลาให้แล้วรอบหน้าค่อยตัด
+      if (t === undefined) { stamps[k] = now; changed = true; return true; }
+      return now - t < FAVORITE_TTL_MS;
+    });
+    if (kept.length === keys.size) continue;
+    for (const k of [...keys]) if (!kept.includes(k)) { delete stamps[k]; }
+    keys.clear();
+    for (const k of kept) keys.add(k);
+    saveFavorites(mode, kept);
+    changed = true;
+  }
+  if (changed) saveFavoriteStamps(stamps);
 }
 
 /**
@@ -2177,10 +2271,16 @@ function addToGallery(s: AppState, mode: Mode, item: GenItem) {
  *
  * ทุก item ที่มีลายนิ้วมือเดียวกันในโหมดนั้นจะถูกสลับพร้อมกัน เพราะ persist layer แยกกันไม่ได้อยู่แล้ว
  * (คีย์เดียวกัน = ตอน reload จะติดดาวเหมือนกันหมด) — ให้ UI ตรงกับสิ่งที่จะเกิดหลัง reload ตั้งแต่ตอนกด
+ * ผู้ใช้ไม่มีทางเดาพฤติกรรมนี้เองได้ จึง toast บอกจำนวนใบที่โดนจริงในครั้งแรกที่มันเกิด (ดู groupFavoriteHintShown)
+ *
+ * เขียนคีย์ลง localStorage เฉพาะ item ที่ status = done เท่านั้น (คีย์มี status อยู่ในตัว — ดู favoriteKeyOf)
+ * ผู้ใช้ยังกดดาวใบ cancelled/error ได้ตามปกติ ดาวจะติดใน UI ของเซสชันนี้จริง แต่ไม่ถูกจำข้าม reload
+ * ซึ่งถูกต้องตามความหมาย: ใบที่ไม่มีผลงานจริงไม่มีอะไรให้ "เก็บไว้" และการจำมันไว้คือต้นเหตุของ P2
  */
 export function toggleFavorite(id: number) {
   // item ทุกชิ้นที่ถูกสลับค่าจริงในรอบนี้ — เก็บไว้ซิงก์ลง IndexedDB หลัง mutate() จบ (ดู syncFavoriteToGallery)
   const touched: GenItem[] = [];
+  let hintCount = 0;
   mutate(s => {
     for (const mode of Object.keys(s.modes) as Mode[]) {
       const ms = s.modes[mode];
@@ -2192,17 +2292,35 @@ export function toggleFavorite(id: number) {
       for (const it of ms.images) {
         if (favoriteKeyOf(it) === key) { it.favorite = next; touched.push(it); }
       }
+      if (touched.length > 1 && !groupFavoriteHintShown) hintCount = touched.length;
+
+      // ใบที่ยังไม่ done ไม่ต้องแตะ localStorage เลย — ดาวของมันเป็นเรื่องของเซสชันนี้เท่านั้น
+      if (target.status !== "done") return;
 
       // ของที่เพิ่งกดต้องไปอยู่หน้าสุดเสมอ เพราะ saveFavorites ตัด cap จากท้าย = ตัดของเก่าสุดออกก่อน
       const keys = favoriteKeysFor(mode);
       keys.delete(key);
-      const ordered = next ? [key, ...keys] : [...keys];
+      // ตัด cap ที่นี่ด้วย ไม่ปล่อยให้ saveFavorites ตัดฝ่ายเดียว — ไม่งั้น cache ใน memory จะมีคีย์
+      // ที่ไม่ได้อยู่บนดิสก์จริง แล้ว isRememberedFavorite จะตอบ true ให้คีย์ที่ reload แล้วหายไป (cache หลุดจากดิสก์)
+      const ordered = (next ? [key, ...keys] : [...keys]).slice(0, MAX_FAVORITES_PER_MODE);
       keys.clear();
       for (const k of ordered) keys.add(k);
       saveFavorites(mode, ordered);
+
+      // ประทับ/ลบเวลาให้ตรงกับลิสต์ที่เพิ่งเขียน — pruneOrphanFavorites() ตอน F2 ปิด ใช้ค่านี้ตัดคีย์หมดอายุ
+      const stamps = loadFavoriteStamps();
+      if (next) stamps[key] = Date.now(); else delete stamps[key];
+      // คีย์ที่หลุด cap 300 ไปแล้วไม่มีใครอ้างถึงอีก — เก็บ stamps ให้ตรงกับคีย์ที่มีจริงทุกโหมด ไม่ให้บวมค้าง
+      const alive = new Set((Object.keys(s.modes) as Mode[]).flatMap(m => [...favoriteKeysFor(m)]));
+      for (const k of Object.keys(stamps)) if (!alive.has(k)) delete stamps[k];
+      saveFavoriteStamps(stamps);
       return;
     }
   });
+  if (hintCount > 1) {
+    groupFavoriteHintShown = true;
+    toast(`ดาวผูกกับ prompt + โมเดล + สัดส่วน ไม่ใช่รูปเดี่ยว — รอบนี้จึงติดพร้อมกัน ${hintCount} ใบค่ะ`);
+  }
   // fire-and-forget หลัง mutate() สำเร็จ — ห้ามเปลี่ยน toggleFavorite เป็น async (Gallery เรียกใน onClick)
   syncFavoriteToGallery(touched);
 }

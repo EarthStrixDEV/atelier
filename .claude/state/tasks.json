@@ -535,7 +535,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": false,
-      "status": "in_progress",
+      "status": "done",
       "acceptanceCriteria": [
         "modal ใหม่แยกไฟล์ ไม่แก้ BakeOffConfirmModal.tsx เดิม ตรวจด้วย git diff --stat",
         "modal แสดงยอดที่กำลังจะจ่าย ยอดสะสมปัจจุบัน และเพดานที่ตั้งไว้ ครบทั้ง 3 ตัวเลข",
@@ -550,7 +550,16 @@
         "src/components/Header.tsx",
         "src/pages/StudioApp.tsx"
       ],
-      "startedAt": "2026-08-20"
+      "startedAt": "2026-08-20",
+      "completedAt": "2026-08-20",
+      "result": "SpendGuardModal.tsx (new, 145 lines) cloned from BakeOffConfirmModal structure. 3 numbers in a divide-y block + projected total as a 4th row that turns danger when over cap. reasonCopy() exhaustive switch gives each of already-over/over-cap/unknown-cost its own icon, heading and body. Unknown count shown in TWO places so it can never be silent, inside a paragraph that always labels the figures as estimates not a real bill. SpendGuardControl pill in Header shows ALWAYS (not hidden at /usr/bin/bash) because it is the only entry point to the cap setting — hiding it would mean only users who already know the feature exists can find it. Cap set via popover cloned from ExportControl. Reset ledger uses the two-step confirm pattern from RunningJobsControl rather than a modal-on-popover.",
+      "designNote": "Autofocus goes to the CANCEL button, not confirm (via the KeyModal setTimeout pattern): this modal interrupts right after the user pressed Generate, so someone reflexively hitting Enter must not thereby approve a spend unread.",
+      "browserDebt": [
+        "header right-group may overflow on narrow screens — no wrap/breakpoint there and this pill is always visible",
+        "popover 300px right-0 clipping",
+        "focus ring inside popover",
+        "modal layout per reason variant"
+      ]
     },
     {
       "id": "T18",
@@ -717,7 +726,7 @@
       ],
       "securitySensitive": false,
       "perfSensitive": true,
-      "status": "not_started",
+      "status": "done",
       "origin": "แพร (T14) 4 findings — verified by Loop Controller",
       "acceptanceCriteria": [
         "favoriteKeyOf ต้อง hash prompt แทนการฝังข้อความดิบ — prompt 2000 ตัวอักษร x 300 คีย์ x 5 โหมด ต้องไม่ทะลุ quota (วัดจริงด้วย harness)",
@@ -731,14 +740,20 @@
       "filesLikelyTouched": [
         "src/lib/store.ts",
         "src/lib/actions.ts"
-      ]
+      ],
+      "completedAt": "2026-08-20",
+      "result": "favoriteKeyOf v2: FNV-1a twin-hash (Math.imul, sync-safe for render path) + prompt LENGTH + 24-char prefix, three fixed-size collision layers. Separator U+001F (cannot be typed into a prompt). Measured quota: 5.81MB/11.53MB -> 0.36MB flat regardless of prompt length. 200k distinct prompts = 0 collisions. prune waits on galleryRehydrated promise so it never runs against an empty gallery; with F2 on it prunes by real gallery contents, with F2 off it falls back to a 30-day TTL via atelier_favorite_stamps. status normalized to d/x in the key (not per-status, or a key would change mid-flight as loading->done and drop the star), and restore moved to restoreFavoriteOnSettle in runRequest.",
+      "ac34Decision": "AC3 vs AC4 resolved without choosing: the user CAN still star a cancelled card and it stays starred in that session (survives resetModeGallery per their intent), but it is never written to localStorage — a card with no real output has nothing worth persisting, and persisting it was the root of P2. Side benefit: creates no new orphan keys.",
+      "migration": "v2 prefix on every key; loadFavorites keeps only v2-prefixed entries and drops v1 silently. Chose drop over migrate because v1 embedded the raw prompt separated by spaces so it cannot be split back reliably — a wrong re-hash puts stars on the WRONG image, worse than losing them. v1 only ever existed on this unreleased branch (T13, same sprint), so the real user base is zero.",
+      "selfFoundBug": "Harness caught a bug เบล had just written: the in-memory favoriteKeyCache was not truncated to the 300 cap that saveFavorites applies on disk, so stamps grew past the cap AND isRememberedFavorite would answer true for keys that had actually fallen off disk. Fixed with slice before writing back to cache.",
+      "qaNote": "65/65 across two harnesses transpiling real store.ts/actions.ts. Includes the exact trap tests: \"F2 off + fresh key: star SURVIVES reload\" and \"default + empty gallery: fresh stars NOT wiped\"."
     }
   ],
   "meta": {
     "totalTasks": 23,
-    "notStarted": 4,
-    "inProgress": 1,
-    "done": 17,
+    "notStarted": 3,
+    "inProgress": 0,
+    "done": 19,
     "blocked": 0,
     "superseded": 1
   }
