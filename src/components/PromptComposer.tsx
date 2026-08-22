@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BookmarkPlus, Check, ChevronDown, Layers3, LayoutTemplate, PanelBottom, PanelLeft, PenLine,
-  Sparkles, Trash2, WandSparkles, Wand2, X,
+  Sparkles, Trash2, WandSparkles, Wand2, X, XCircle,
 } from "lucide-react";
 import { INFOGRAPHIC_STRUCTURAL_PRESETS, MODE_META, PROMPT_LENGTH_WARN } from "../lib/constants";
 import {
-  applyInfographicPreset, applyOptimizedPrompt, canRunBakeOff, clearOptimize, dedupPromptKeywords, deleteUserTemplate,
+  applyInfographicPreset, applyOptimizedPrompt, canRunBakeOff, cancelAll, clearOptimize, dedupPromptKeywords, deleteUserTemplate,
   generate, insertTemplateText, modelsForMode, openBakeOffConfirm, runOptimize, saveCurrentPromptAsTemplate, setPrompt,
   setPromptPlacement, templatesForMode, toggleKeyword,
 } from "../lib/actions";
-import { useApp } from "../lib/store";
+import { toast, useApp } from "../lib/store";
 import type { PromptPlacement } from "../lib/types";
 import { hasKeyword } from "../lib/utils";
 import { ExplainedChip } from "./ExplainedChip";
@@ -194,6 +194,17 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   const canGenerateOrBakeOff = bakeOffActive ? canRunBakeOff() : canGenerate;
   const runGenerate = bakeOffActive ? openBakeOffConfirm : generate;
 
+  /**
+   * ยกเลิกงานทั้งหมด "ของโหมดนี้" (ต่างจากปุ่มใน Header ที่ยกเลิกทุกโหมด) — ผู้ใช้ที่กำลังจ้องกล่อง prompt
+   * อยู่มักตั้งใจแค่ล้างงานชุดที่เพิ่งกดพลาดในโหมดที่เห็นอยู่ ไม่ใช่ล้มงาน video ที่รันค้างอยู่อีกโหมด
+   * ไม่มี confirm ตรงนี้: ปุ่มโผล่เฉพาะตอนกำลัง generate อยู่ ตัวเลขในปุ่มบอกชัดว่าจะโดนกี่งาน และ
+   * ปุ่ม "ยกเลิกทั้งหมด" ที่กระทบข้ามโหมด (ซึ่งอันตรายกว่า) มี two-step confirm คุมไว้แล้วใน Header
+   */
+  const cancelThisMode = () => {
+    const n = cancelAll("user-all", s.mode);
+    toast(n > 0 ? `ยกเลิกแล้ว ${n} งานค่ะ` : "ไม่มีงานที่ยกเลิกได้ตอนนี้ค่ะ");
+  };
+
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
@@ -330,6 +341,16 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
           <Wand2 size={13} />
           {s.optimize.status === "loading" ? "กำลังจูน Prompt…" : "Optimize"}
         </button>
+        {generatingCount > 0 && (
+          <button
+            type="button"
+            className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-[9px] text-xs font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
+            aria-label={`ยกเลิกงานที่กำลังสร้างอยู่ในโหมดนี้ ${generatingCount} งาน`}
+            onClick={cancelThisMode}
+          >
+            <XCircle size={13} /> ยกเลิกงานที่กำลังสร้าง ({generatingCount})
+          </button>
+        )}
         {(s.optimize.status === "done" || s.optimize.status === "error") && <div className="mt-2.5">{optimizePanel}</div>}
       </div>
     );
@@ -399,6 +420,17 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
               ? `Generate Bake-off (${ms.bakeOffModelIds.length})`
               : ms.queue.length ? `Generate Queue (${ms.queue.length})` : "Generate"}
           </button>
+          {generatingCount > 0 && (
+            <button
+              type="button"
+              className="mb-1 grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-danger hover:text-danger"
+              title={`ยกเลิกงานที่กำลังสร้างอยู่ในโหมดนี้ (${generatingCount} งาน)`}
+              aria-label={`ยกเลิกงานที่กำลังสร้างอยู่ในโหมดนี้ ${generatingCount} งาน`}
+              onClick={cancelThisMode}
+            >
+              <XCircle size={15} />
+            </button>
+          )}
         </div>
       </div>
     </div>

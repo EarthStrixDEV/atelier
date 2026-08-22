@@ -109,6 +109,42 @@ export function beginNotifyBatch(jobCount: number): number {
   return id;
 }
 
+/**
+ * ลดขนาด batch ลง 1 เมื่อมีงานถูก "ยกเลิก" (status = "cancelled") — งานที่ผู้ใช้ยกเลิกเองไม่ใช่ทั้งความสำเร็จ
+ * และความล้มเหลว จึงห้ามส่งเข้า notifyJobSettled() (จะถูกนับเป็น failed แล้วเด้ง "งานล้มเหลว" ผิด contract)
+ * แต่ถ้าไม่ทำอะไรเลย batch.settled จะไม่มีวันถึง batch.total → entry ค้างใน `batches` ถาวรและ batch นั้น
+ * ไม่ยิงสรุปตอนจบ (ยกเลิก 1 จาก 5 → อีก 4 เสร็จแล้วเงียบสนิท) ทางแก้คือ "หด total" ให้เท่ากับจำนวนงาน
+ * ที่ยังนับผลได้จริง
+ *
+ * สามเคสหลังหด total:
+ * 1. total <= 0 — ทั้ง batch ถูกยกเลิกหมด: ลบ entry ทิ้ง ไม่แจ้งอะไรเลย (ไม่มีงานสำเร็จหรือล้มเหลวให้สรุป)
+ * 2. settled >= total — งานที่เหลือ settle ครบไปก่อนแล้ว การยกเลิกชิ้นสุดท้ายคือสิ่งที่ปลดล็อกให้ batch จบ:
+ *    ต้องยิงสรุปตรงนี้ทันที ไม่งั้นไม่มีใครยิงให้อีกแล้ว (notifyJobSettled จะไม่ถูกเรียกอีก)
+ * 3. นอกนั้น — ยังมีงานค้างอยู่ ปล่อยให้ notifyJobSettled ของงานที่เหลือเป็นคนสรุปตามปกติ
+ *
+ * หมายเหตุ guard `batch.total <= 1` ใน notifyJobSettled: ถ้าหด total เหลือ 1 (เช่น batch 2 ชิ้น ยกเลิกไป 1)
+ * งานที่เหลือจะวิ่งเข้า path "batch เดี่ยว" = แจ้งทันทีทีละงาน + ลบ entry ทิ้ง ซึ่งถูกต้องตามเจตนาเดิมอยู่แล้ว
+ * (เหลืองานเดียวก็ไม่ต่างอะไรกับ batch เดี่ยว) และไม่มี entry ค้างเช่นกัน
+ */
+export function dropFromNotifyBatch(batchId: number | null) {
+  if (batchId == null) return;
+  const batch = batches.get(batchId);
+  if (!batch) return;
+
+  batch.total--;
+
+  if (batch.total <= 0) { batches.delete(batchId); return; }
+  if (batch.settled < batch.total) return;
+
+  batches.delete(batchId);
+  if (typeof document === "undefined" || !document.hidden) return; // แท็บเปิดดูอยู่ — ไม่ต้องรบกวน
+  const summary = batch.failed > 0
+    ? `${batch.done}/${batch.total} เสร็จ, ${batch.failed} ล้มเหลว`
+    : `งานทั้งหมด ${batch.total} ชิ้นเสร็จเรียบร้อยแล้วค่ะ`;
+  fireNotification("Atelier — คิวเสร็จแล้ว", summary);
+  startTitleFlicker(batch.failed > 0 ? "⚠️ คิวเสร็จ (มีล้มเหลว) — Atelier" : "✅ คิวเสร็จแล้ว — Atelier");
+}
+
 const unitLabelFor = (item: GenItem): string =>
   item.mode === "audio" ? "เพลง" : item.mode === "cinematic" ? "scene" : "คลิป";
 

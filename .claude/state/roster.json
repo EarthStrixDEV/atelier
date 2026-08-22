@@ -1,0 +1,16 @@
+{
+  "sprint": "feat/agent-team-sprint-01",
+  "castAt": "2026-08-20",
+  "loopController": "มินจู (Min-Ju) — Lead Engineer",
+  "roster": [
+    { "name": "พลอย",    "en": "Ploy",    "title": "Lead Planner",                  "function": "Dynamic workflow design, task graph, scope depth per task" },
+    { "name": "ฟ้า",     "en": "Fah",     "title": "Database Engineer",             "function": "Schema design, migrations — maps to persistence/localStorage layer in this client-only app" },
+    { "name": "นุ่น",    "en": "Noon",    "title": "API Contract Engineer",         "function": "Request/response contracts before implementation — OpenRouter payload shapes, types.ts" },
+    { "name": "มายด์ลิน", "en": "Maidlin", "title": "Backend Logic Engineer",        "function": "Core business logic — actions.ts flows" },
+    { "name": "เจน",     "en": "Jane",    "title": "Backend Endpoint Engineer",     "function": "Wires logic to endpoints / store integration" },
+    { "name": "ออม",     "en": "Aom",     "title": "Frontend UI Engineer",          "function": "Components, layout" },
+    { "name": "เบล",     "en": "Bell",    "title": "Frontend Integration Engineer", "function": "Wires UI to actions/store, state & data handling" },
+    { "name": "แพร",     "en": "Prae",    "title": "QA Lead",                       "function": "Functional testing against acceptance criteria" },
+    { "name": "โบว์",    "en": "Bow",     "title": "Security & Dependency Auditor", "function": "Security review, dependency risk — blocking findings" }
+  ]
+}

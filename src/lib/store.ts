@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate } from "./types";
+import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, SpendLedger } from "./types";
+import { SPEND_LEDGER_KEY } from "./types";
 import { MAX_CHAT_HISTORY, MAX_EXPORT_LOG, MAX_USER_TEMPLATES, modeLabel, MODES } from "./constants";
 import { PERMISSION_KEY as NOTIFY_PERMISSION_ASKED_KEY } from "./notify";
 
@@ -19,6 +20,25 @@ const QUEUE_NONEMPTY_KEY = "atelier_queue_nonempty_modes";
 export const SESSION_SNAPSHOT_KEY = "atelier_session_snapshot";
 /** ประวัติ export (label/filename/timestamp/summary เท่านั้น — ไม่มี payload จริง) โชว์ใต้ปุ่ม Export ใน Header */
 export const EXPORT_LOG_KEY = "atelier_export_log";
+/**
+ * T24/#1: "id สูงสุดที่เคยลงดิสก์" ของ gallery persistence (F2) — เขียนทุกครั้งที่ saveItem/rehydrate สำเร็จ
+ *
+ * ทำไมต้องมี: `rehydrateGallery()` ถูกยิงแบบ **ไม่ await** จาก `reconcilePendingJobs()` โดยเจตนา (ห้ามหน่วง
+ * resume ของ video job ที่จ่ายเงินไปแล้ว) แต่มัน bump `s.seq` ได้ก็ต่อเมื่อ `await loadItems()` คืนค่าแล้ว
+ * ระหว่างรอ I/O นั้น `s.seq` ยังเป็น 0 — ผู้ใช้กด Generate ทันได้ item ใหม่จะได้ id 1,2,3… ชนกับ id ของ
+ * record ที่กำลังจะกู้ แล้ว dedupe ด้วย id จะทิ้ง record นั้นทั้งที่เป็นคนละชิ้นกัน
+ *
+ * ค่าใน localStorage อ่านแบบ **sync** ได้ จึงยกพื้น `s.seq` ให้พ้น id ที่กู้แน่ๆ ได้ตั้งแต่ก่อนยิง rehydrate
+ * โดยไม่ต้อง await อะไรเลย = ปิด window ทั้งหมด
+ */
+export const GALLERY_MAX_ID_KEY = "atelier_gallery_max_id";
+/**
+ * รายการโปรด (F3) — เก็บเป็น "ลายนิ้วมือของคำสั่งสร้าง" ต่อโหมด ไม่ใช่ GenItem.id
+ * เพราะ id มาจาก `++s.seq` ที่รีเซ็ตเป็น 0 ทุก reload (ดู `seq: 0` ในไฟล์นี้ และ actions.ts ที่ต้อง bump seq
+ * กัน id ชนตอน resume job) — เก็บ id ไว้แล้วโหลดกลับมาจะไปติดดาวให้ item ใหม่ที่ไม่เกี่ยวกันเลย
+ */
+const FAVORITES_KEY_PREFIX = "atelier_favorites_";
+const FAVORITE_STAMPS_KEY = "atelier_favorite_stamps";
 /** prefix ของทุก key ที่แอปนี้เขียนลง localStorage — ใช้คำนวณขนาดรวมในหน้า Advanced ของ KeyModal */
 export const STORAGE_KEY_PREFIX = "atelier_";
 
@@ -70,6 +90,10 @@ function labelForStorageKey(key: string): string {
   if (key === QUEUE_NONEMPTY_KEY) return "flag คิวค้างตอนปิดแท็บ";
   if (key === SESSION_SNAPSHOT_KEY) return "บันทึกเซสชันอัตโนมัติ";
   if (key === EXPORT_LOG_KEY) return "ประวัติ Export";
+  if (key === FAVORITE_STAMPS_KEY) return "เวลาที่กดดาวล่าสุดของแต่ละรายการโปรด";
+  if (key === GALLERY_MAX_ID_KEY) return "id สูงสุดของผลงานที่เก็บไว้ในเครื่อง (กัน id ชนตอนกู้)";
+  if (key === SPEND_LEDGER_KEY) return "ยอดใช้จ่ายประเมินสะสม + เพดาน (Spend Guard)";
+  if (key.startsWith(FAVORITES_KEY_PREFIX)) return `รายการโปรดในแกลเลอรี — ${modeLabel(key.slice(FAVORITES_KEY_PREFIX.length) as Mode)}`;
   if (key === ASSIST_MODEL_KEY) return "โมเดลผู้ช่วย AI ที่เลือกไว้";
   if (key === USER_EXTRA_MODELS_KEY) return "โมเดลที่เพิ่มเอง";
   if (key === NOTIFY_PERMISSION_ASKED_KEY) return "flag เคยขอสิทธิ์ Notification";
@@ -117,6 +141,12 @@ export function clearStorageKey(key: string) {
   }
   if (key === PROMPT_PLACEMENT_KEY) {
     mutate(s => { s.promptPlacement = "sidebar"; });
+    return;
+  }
+  if (key === SPEND_LEDGER_KEY) {
+    // ledger มี mirror ใน AppState — ลบ key แล้วต้องรีเซ็ต state ให้ตรงกันทันที ไม่งั้น gate ยังคิดจากยอดเก่า
+    // ที่ลบไปแล้ว และ autosave ครั้งถัดไปจะเขียนยอดเดิมกลับลง localStorage เหมือนไม่เคยลบ
+    mutate(s => { s.spendLedger = freshSpendLedger(); });
     return;
   }
   if (key.startsWith(HISTORY_KEY_PREFIX)) {
@@ -193,6 +223,49 @@ export function saveAssistModelId(id: string | null) {
     if (id) localStorage.setItem(ASSIST_MODEL_KEY, id);
     else localStorage.removeItem(ASSIST_MODEL_KEY);
   } catch { /* best-effort เท่านั้น — ไม่กระทบการใช้งานหลัก */ }
+}
+
+/* ---------- F4 Spend Guard: ledger persistence (คีย์เดียว SPEND_LEDGER_KEY ประกาศที่ types.ts) ---------- */
+
+/** ledger เปล่าของรอบใหม่ — ใช้ทั้งตอน boot ที่ยังไม่มีข้อมูล, ตอนผู้ใช้กดล้างยอด และตอนลบ key จาก Advanced */
+export function freshSpendLedger(): SpendLedger {
+  // capUsd ไม่ใส่เลย (undefined) = ยังไม่ได้ตั้งเพดาน = ปิดฟีเจอร์ — ผู้ใช้ใหม่ต้องไม่เจอโมดัลโผล่มากวน
+  return { totalUsd: 0, unknownCostCount: 0, startedAt: Date.now() };
+}
+
+/**
+ * sanitize ตัวเลขที่อ่านจาก localStorage ซึ่งผู้ใช้แก้เองได้ — ยอมรับเฉพาะ finite และไม่ติดลบ
+ * ค่าที่ไม่ผ่านคืน fallback แทนที่จะปล่อย NaN ไหลเข้าไปทำให้ทุกการเปรียบเทียบใน gate เป็น false เงียบๆ
+ */
+function sanitizeNonNegative(x: unknown, fallback: number): number {
+  return typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : fallback;
+}
+
+function loadSpendLedger(): SpendLedger {
+  const fresh = freshSpendLedger();
+  try {
+    const raw = localStorage.getItem(SPEND_LEDGER_KEY);
+    if (!raw) return fresh;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return fresh;
+    const o = parsed as Partial<SpendLedger>;
+    // capUsd: 0 เป็นค่าที่ถูกต้อง (โหมดถามทุกครั้ง) จึงเช็คด้วย typeof/isFinite ไม่ใช่ truthiness
+    // ค่าเสีย (ติดลบ/NaN/ชนิดผิด) → undefined = ปิดฟีเจอร์ ปลอดภัยกว่าเดาเพดานมั่วให้ผู้ใช้
+    const capUsd = typeof o.capUsd === "number" && Number.isFinite(o.capUsd) && o.capUsd >= 0 ? o.capUsd : undefined;
+    return {
+      totalUsd: sanitizeNonNegative(o.totalUsd, 0),
+      unknownCostCount: Math.floor(sanitizeNonNegative(o.unknownCostCount, 0)),
+      startedAt: sanitizeNonNegative(o.startedAt, fresh.startedAt),
+      ...(capUsd !== undefined ? { capUsd } : {}),
+    };
+  } catch {
+    return fresh;
+  }
+}
+
+/** เขียน ledger ลง localStorage — ผ่าน writeLocalStorage เสมอ เพื่อให้ quota warning ทำงานเป็นระบบเดียวกันทั้งแอป */
+export function saveSpendLedger(ledger: SpendLedger) {
+  writeLocalStorage(SPEND_LEDGER_KEY, JSON.stringify(ledger));
 }
 
 const USER_EXTRA_MODELS_KEY = "atelier_user_extra_models";
@@ -325,6 +398,40 @@ export function removePendingJob(id: number) {
   if (next.length !== list.length) savePendingJobs(next);
 }
 
+// ---------- T24/#1: gallery max-id floor (กัน id ชนระหว่าง rehydrate ยังไม่จบ) ----------
+/**
+ * อ่าน "id สูงสุดที่เคยลงดิสก์" แบบ sync — คืน 0 เมื่อไม่มีคีย์/ค่าเสีย (ไม่มีอะไรให้ยกพื้น)
+ * ค่าที่ผู้ใช้แก้เองใน localStorage ได้ จึงต้อง sanitize: ยอมรับเฉพาะ integer ที่ finite และไม่ติดลบ
+ */
+export function loadGalleryMaxId(): number {
+  try {
+    const raw = localStorage.getItem(GALLERY_MAX_ID_KEY);
+    if (!raw) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * ยก high-water mark ให้ครอบ id นี้ — monotonic เท่านั้น ไม่เคยลดลง
+ * (record ถูก evict/ลบทิ้งได้ แต่ id ที่เคยแจกไปแล้วต้องไม่ถูกแจกซ้ำในเซสชันหน้า ไม่งั้นบั๊กเดิมกลับมา)
+ * no-op เมื่อค่าใหม่ไม่ได้มากกว่าเดิม — เลี่ยง write ทุกครั้งที่เซฟ item
+ */
+export function bumpGalleryMaxId(id: number) {
+  if (!Number.isFinite(id) || id <= 0) return;
+  if (id <= loadGalleryMaxId()) return;
+  writeLocalStorage(GALLERY_MAX_ID_KEY, String(Math.floor(id)));
+}
+
+/** ล้าง high-water mark — เรียกตอนผู้ใช้ปิด opt-in F2 (record ถูกลบหมดแล้ว ไม่มีอะไรให้กัน id ชนอีก) */
+export function clearGalleryMaxId() {
+  try {
+    localStorage.removeItem(GALLERY_MAX_ID_KEY);
+  } catch { /* best-effort เท่านั้น */ }
+}
+
 // ---------- queue-nonempty flag (เขียนตอน beforeunload, เทียบตอน boot) ----------
 /** เขียนก่อนแท็บปิด/reload ว่าโหมดไหนมีคิวค้างอยู่บ้าง — ใช้เทียบตอน boot ว่าคิวนั้นหายไปจริงไหม (memory-only gallery/queue) */
 export function saveQueueNonEmptyFlag() {
@@ -402,6 +509,127 @@ export function clearExportLog() {
   } catch { /* best-effort เท่านั้น */ }
 }
 
+// ---------- favorites (F3) ----------
+// ทำไมไม่เก็บ id: `state.seq` เริ่มที่ 0 ใหม่ทุก reload (ดู initial state ท้ายไฟล์นี้) ดังนั้น GenItem.id
+// ของ session ก่อนหน้าจะไปทับ id ของ item ที่เพิ่งสร้างใหม่ในเซสชันนี้ — กลายเป็นดาวไปโผล่ผิดรูป
+// ซึ่งเป็นบั๊กที่หนักกว่า "ดาวหาย" เดิมเสียอีก (galleryStore.ts ก็สรุปเรื่องเดียวกันไว้ตอนออกแบบ primary key)
+// จึงเก็บ "ลายนิ้วมือ" ที่ derive จากเนื้อของคำสั่งสร้างแทน: item ที่ผู้ใช้เห็นว่า "รูปเดียวกัน" คือ item ที่มาจาก
+// prompt/model/ratio/duration/audio ชุดเดียวกัน — ค่าเหล่านี้อยู่ใน session snapshot/F2 record และไม่ผูกกับ seq เลย
+// ทางเลือกอื่นที่ตัดทิ้ง: รอ F2 (IndexedDB) เก็บให้พร้อมตัว item — แต่ F2 เป็น opt-in ที่ default ปิด
+// ผู้ใช้ที่ไม่เปิดจะยังเสียดาวอยู่ดี ซึ่งขัดกับ requirement ว่าดาวต้องไม่หายแม้ไม่ได้เปิด F2
+export const MAX_FAVORITES_PER_MODE = 300; // กัน localStorage บวมจาก session ที่สะสมมานาน — ตัดของเก่าสุดออกจากท้าย
+
+/**
+ * separator ของคีย์ — U+001F (UNIT SEPARATOR) เป็น control char ที่พิมพ์ลงช่อง prompt ไม่ได้
+ * และ field ที่เหลือทุกตัว (mode/model/ratio/duration/audio/status) เป็น enum หรือตัวเลขจากโค้ดเอง
+ * ของเดิมใช้ " " ซึ่ง prompt มีได้แน่นอน = ["a b","c"] กับ ["a","b c"] ชนกัน (key collision)
+ */
+const FAV_SEP = "\u001F";
+
+/**
+ * hash ของ prompt — FNV-1a สองช่อง (offset/prime ต่างกัน) รันบน 32-bit ALU ของ JS แล้วต่อกันเป็น ~64-bit
+ * โปรเจกต์นี้ไม่มี crypto lib และ SubtleCrypto เป็น async ส่วน favoriteKeyOf ถูกเรียกใน render path แบบ sync
+ * ไม่ต้องเป็น cryptographic — แค่ต้อง collision ต่ำพอที่ดาวจะไม่ไปโผล่ผิดใบ
+ */
+function fnv1a2x32(str: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x1b873593;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+  }
+  return h1.toString(36) + "." + h2.toString(36);
+}
+
+/**
+ * ลายนิ้วมือของ item — ต้องคำนวณจากฟิลด์ที่ "รอด" ข้าม reload เท่านั้น ห้ามใส่ id/url/startedAt ลงไป
+ *
+ * PROMPT ถูก hash ไม่ฝังข้อความดิบ: Optimizer/Grill ของแอปเองผลิต prompt หลักพันตัวอักษรได้ง่ายมาก
+ * ถ้าฝังดิบ 300 คีย์ × 5 โหมด จะกิน localStorage ระดับหลาย MB จนทะลุ quota แล้วคีย์อื่นของแอป
+ * (history/template/session snapshot) ล้มตามไปทั้งหมด — ลดเหลือ ~60 byte ต่อคีย์คงที่ ไม่โตตาม prompt
+ *
+ * ลด collision 3 ชั้น เพราะ prompt ต่างกันแต่ hash ชนกัน = ดาวไปโผล่ผิดใบ:
+ *   1. hash 2×32-bit (ต้องชนพร้อมกันทั้งคู่)
+ *   2. ความยาว prompt — prompt คนละความยาวชนกันไม่ได้เลย
+ *   3. prefix 24 ตัวแรก — prompt ที่จะชนต้องขึ้นต้นเหมือนกันด้วย
+ * ทั้งสามชั้นมีขนาดคงที่ ไม่โตตามความยาว prompt จริง
+ *
+ * STATUS อยู่ในคีย์ (normalize เหลือ done/ไม่ done): กันการ์ด cancelled/error รับดาวข้ามมาจาก twin ที่ done
+ * ซึ่งทำให้มันรอด "ล้างแกลเลอรี" ทั้งที่ผู้ใช้ไม่เคยกดดาวใบนั้น — แยกแค่สองค่าพอ เพราะชิ้นเดียวกันเดินทาง
+ * loading → done ระหว่างทาง ถ้าแยกทุกสถานะคีย์จะเปลี่ยนกลางคันจนดาวหลุด
+ */
+export function favoriteKeyOf(item: { mode: Mode; prompt: string; model: string; ratio: string; duration: number; audio: boolean; status?: string }): string {
+  const p = item.prompt ?? "";
+  return [
+    "v2",
+    item.mode,
+    item.status === "done" ? "d" : "x",
+    item.model,
+    item.ratio,
+    String(item.duration),
+    item.audio ? "1" : "0",
+    String(p.length),
+    fnv1a2x32(p),
+    p.slice(0, 24),
+  ].join(FAV_SEP);
+}
+
+/**
+ * อ่านคีย์โปรดของโหมด — ทิ้งคีย์รูปแบบเก่า (v1) อย่างเงียบๆ ไม่ throw
+ *
+ * MIGRATION: v1 ฝัง prompt ดิบและใช้ space คั่น จึงแยกส่วนกลับมาไม่ได้แน่นอน (prompt มี space ได้)
+ * การเดา split ผิดแล้ว re-hash = ดาวไปโผล่ผิดใบ ซึ่งแย่กว่าดาวหาย — เลือกทิ้งคีย์เก่าแทนการเดา
+ * ผลกระทบจำกัดอยู่แค่ "ดาวที่เคยกดในเวอร์ชันก่อนหน้าหายไป" ส่วนตัวไฟล์/ผลงานไม่ได้หายตาม
+ * และ v1 อยู่บน branch ที่ยังไม่ปล่อยจริง (T13 คอมมิตในสปรินต์เดียวกันนี้) ฐานผู้ใช้จริงจึงเป็นศูนย์
+ */
+export function loadFavorites(mode: Mode): string[] {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY_PREFIX + mode);
+    const list = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((x): x is string => typeof x === "string" && x.startsWith("v2" + FAV_SEP))
+      .slice(0, MAX_FAVORITES_PER_MODE);
+  } catch {
+    return [];
+  }
+}
+
+export function saveFavorites(mode: Mode, keys: string[]) {
+  const trimmed = keys.slice(0, MAX_FAVORITES_PER_MODE);
+  if (trimmed.length) writeLocalStorage(FAVORITES_KEY_PREFIX + mode, JSON.stringify(trimmed));
+  else {
+    try { localStorage.removeItem(FAVORITES_KEY_PREFIX + mode); } catch { /* best-effort เท่านั้น */ }
+  }
+}
+
+/**
+ * เวลาที่คีย์โปรดแต่ละอันถูกกดล่าสุด — เก็บแยกจากตัวลิสต์คีย์เพราะรูปแบบของลิสต์ (array ของ string)
+ * ถูกอ่าน/เขียนจากหลายที่แล้ว การยัด object เข้าไปแทนจะพัง import/export และคีย์ที่ผู้ใช้มีอยู่เดิมทันที
+ * ใช้โดย pruneOrphanFavorites() ตอน F2 ปิด ซึ่งพิสูจน์การมีอยู่จริงของ item ไม่ได้ จึงตัดตามอายุแทน
+ * เป็น map เดียวรวมทุกโหมด — คีย์มี mode อยู่ในตัวอยู่แล้ว (ดู favoriteKeyOf) จึงไม่ชนกันข้ามโหมด
+ */
+export function loadFavoriteStamps(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(FAVORITE_STAMPS_KEY);
+    const obj = raw ? JSON.parse(raw) : null;
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(obj)) if (typeof v === "number") out[k] = v;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function saveFavoriteStamps(stamps: Record<string, number>) {
+  if (Object.keys(stamps).length) writeLocalStorage(FAVORITE_STAMPS_KEY, JSON.stringify(stamps));
+  else {
+    try { localStorage.removeItem(FAVORITE_STAMPS_KEY); } catch { /* best-effort เท่านั้น */ }
+  }
+}
+
 function freshModeState(mode: Mode): ModeState {
   return {
     prompt: "",
@@ -471,6 +699,8 @@ export const state: AppState = {
   bakeOffConfirmOpen: false,
   compareItems: null,
   userExtraModels: loadUserExtraModels(),
+  spendLedger: loadSpendLedger(),
+  spendConfirm: null,
 };
 
 let version = 0;

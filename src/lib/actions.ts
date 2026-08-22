@@ -2,7 +2,7 @@ import {
   ASSIST_RATE_LIMIT_BACKOFF_MS, ASSIST_RATE_LIMIT_RETRIES,
   AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
   BUILTIN_TEMPLATES, CHAT_MODEL, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
-  MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
+  MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_CONCURRENT_REQUESTS, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage,
   NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, PREFERRED,
   RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
@@ -13,14 +13,15 @@ import {
   pickAutoSaveDir, reconnectAutoSaveDir, urlToBlob,
 } from "./fsAccess";
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
-import { beginNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
+import { deleteItem, isGalleryPersistEnabled, loadItems, onGalleryPersistDisabled, saveItem, setFavorite } from "./galleryStore";
+import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import {
-  addExportLogEntry, addPendingJob, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, loadPendingJobs,
-  loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
-  PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveHistory, saveSessionSnapshotRaw,
-  saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
+  addExportLogEntry, addPendingJob, bumpGalleryMaxId, clearGalleryMaxId, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites, loadFavoriteStamps, saveFavoriteStamps, MAX_FAVORITES_PER_MODE,
+  freshSpendLedger, loadGalleryMaxId, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
+  PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveSessionSnapshotRaw,
+  saveSpendLedger, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
 } from "./store";
-import type { ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, StoryboardChain } from "./types";
+import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, SpendConfirmRequest, SpendLedger, StoryboardChain } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -213,6 +214,26 @@ function snapshotDiffersFromFresh(snapshot: ImportFileShape): boolean {
  * snapshotDiffersFromFresh) เป็น banner เดียวกันเสมอ ไม่ยิงซ้อนหลายอันตอน boot
  */
 export function reconcilePendingJobs() {
+  // F2: กู้ผลงานที่เก็บไว้ใน IndexedDB กลับเข้าแกลเลอรี — เกาะจุดบูตนี้เพราะเป็นฟังก์ชันเดียวใน actions.ts
+  // ที่ StudioApp เรียกให้ครั้งเดียวตอน mount อยู่แล้ว (StudioApp.tsx ไม่ได้อยู่ในขอบเขตงานนี้)
+  // ยิงก่อนตัดสินใจ return ด้านล่าง เพราะ ledger ว่างไม่ได้แปลว่าไม่มีของให้กู้
+  // T24/#1: ยกพื้น s.seq ให้พ้น id สูงสุดที่เคยลงดิสก์ **ก่อน** ยิง rehydrate — sync ล้วน ไม่มี await
+  //
+  // เดิม s.seq ถูก bump อยู่ข้างใน rehydrateGallery() ซึ่งอยู่หลัง `await loadItems()` ระหว่างรอ I/O นั้น
+  // s.seq ยังเป็น 0 ผู้ใช้ที่กด Generate ทันจะได้ item id 1,2,3… ชนกับ id ของ record ที่กำลังจะกู้พอดี
+  // แล้ว dedupe ด้วย id ใน rehydrateGallery จะทิ้ง record นั้นทั้งที่เป็นคนละชิ้นกัน (ของกู้ไม่ขึ้นจอ +
+  // toast รายงานเลขต่ำกว่าจริง) — อ่าน localStorage ตรงนี้ปิด window ได้ทั้งหมดโดยไม่ต้อง await
+  //
+  // การ bump ข้างใน rehydrateGallery ยังคงอยู่ (belt-and-braces): high-water mark อาจต่ำกว่าความจริงได้
+  // ถ้า localStorage เขียนไม่ผ่าน/ผู้ใช้ลบคีย์ทิ้ง — ค่าที่อ่านจาก record จริงยังเป็นแหล่งความจริงสุดท้าย
+  const persistedMaxId = loadGalleryMaxId();
+  if (persistedMaxId > 0) mutate(s => { if (persistedMaxId > s.seq) s.seq = persistedMaxId; });
+  // ไม่ await: การกู้ต้องไม่หน่วง resume ของ video job ที่จ่ายเงินไปแล้ว (rehydrateGallery no-op ถ้า opt-in ปิด)
+  // เก็บ promise ไว้ให้ pruneOrphanFavorites() รอ — ห้าม await ตรงนี้ (จะหน่วง resume video job ที่จ่ายเงินแล้ว)
+  galleryRehydrated = rehydrateGallery().catch(() => {});
+  // ล้างคีย์โปรดกำพร้าตอนบูต — fire-and-forget, รอ rehydrate เองข้างใน (ดู pruneOrphanFavorites)
+  void pruneOrphanFavorites();
+
   const ledger = loadPendingJobs();
   const lostQueueModes = consumeQueueNonEmptyFlag().filter(m => state.modes[m].queue.length === 0);
 
@@ -265,12 +286,12 @@ export function reconcilePendingJobs() {
           refs: [],
           parentId: null,
         };
-        s.modes[entry.mode].images.unshift(item);
+        addToGallery(s, entry.mode, item);
       }
     });
     for (const { entry } of resumable) {
       const item = state.modes[entry.mode].images.find(x => x.id === entry.id);
-      if (item) runRequest(item);
+      if (item) void scheduleRequest(item);
     }
   }
 
@@ -746,7 +767,7 @@ export async function startFromItem(item: GenItem, targetMode: "video" | "cinema
       refs: [],
       parentId: null, // รากใหม่ของ chain เสมอ — ไม่ผูกกับ chain เดิมของ item ต้นทาง แม้ต้นทางจะมี parentId ของตัวเองอยู่แล้ว
     };
-    ts.images.unshift(rootItem);
+    addToGallery(s, targetMode, rootItem);
     if (frameDataUrl) ts.refs = [{ kind: "ref", dataUrl: frameDataUrl, name: "จาก " + modeLabel(item.mode) }];
     if (!ts.prompt.trim()) ts.prompt = item.prompt;
     if (targetModel) ts.modelId = targetModel.id;
@@ -798,33 +819,110 @@ export function reorderQueue(fromIndex: number, toIndex: number) {
 }
 
 /**
- * ล้าง gallery ของโหมดที่ระบุกลับสู่สถานะว่าง — revoke blob URL ของวิดีโอ/เพลงทุกชิ้นก่อนทิ้ง item
- * เพื่อไม่ให้ browser ถือ memory ของไฟล์เหล่านั้นค้างไว้ทั้งที่ไม่มีใครอ้างอิงแล้ว
+ * ล้าง gallery ของโหมดที่ระบุ — revoke blob URL ของวิดีโอ/เพลงเฉพาะชิ้นที่ถูกทิ้งจริง เพื่อไม่ให้ browser
+ * ถือ memory ของไฟล์เหล่านั้นค้างไว้ทั้งที่ไม่มีใครอ้างอิงแล้ว
+ *
+ * item ที่ผู้ใช้กดดาวไว้ถือว่า "ตั้งใจเก็บ" — คงไว้เสมอ และห้าม releaseBlobUrls ของชิ้นเหล่านั้นเด็ดขาด
+ * ไม่งั้น <video>/<audio> ของการ์ดที่ยังอยู่บนจอจะชี้ไปยัง blob URL ที่ถูก revoke ไปแล้ว (เล่นไม่ได้/จอดำ)
+ * คืนจำนวน item ที่ลบไปจริง เพื่อให้ caller รายงานผลให้ผู้ใช้ได้แม่นตรง
  */
-export function resetModeGallery(mode: Mode) {
+export function resetModeGallery(mode: Mode): number {
+  let removed = 0;
+  // id ของชิ้นที่ถูกลบจริงในรอบนี้ — เก็บไว้ลบ record ใน IndexedDB หลัง mutate() จบ (ดู forgetPersistedItems)
+  // ต้องเป็น "เฉพาะชิ้นที่ลบจริง" ไม่ใช่ทั้งโหมด ไม่งั้นของที่ติดดาวจะหายจากดิสก์ทั้งที่การ์ดยังอยู่
+  const droppedIds: number[] = [];
   mutate(s => {
     const ms = s.modes[mode];
-    for (const item of ms.images) releaseBlobUrls(item.id);
-    ms.images = [];
-    ms.selected = new Set();
+    const kept: GenItem[] = [];
+    for (const item of ms.images) {
+      if (item.favorite) { kept.push(item); continue; }
+      releaseBlobUrls(item.id);
+      droppedIds.push(item.id);
+      removed++;
+    }
+    ms.images = kept;
+    // selected key ด้วย id — เหลือไว้เฉพาะ id ที่ยังมีตัวจริงอยู่ ไม่ใช่เคลียร์ทิ้งทั้งชุด
+    const keptIds = new Set(kept.map(x => x.id));
+    ms.selected = new Set([...ms.selected].filter(id => keptIds.has(id)));
     ms.lbIndex = -1;
   });
+  // fire-and-forget หลัง mutate() สำเร็จ — no-op เงียบถ้า opt-in ปิด (pattern เดียวกับ syncFavoriteToGallery)
+  // ห้ามทำ resetModeGallery เป็น async: Gallery.tsx เรียกใน onClick แล้วใช้ค่า return ต่อทันที
+  forgetPersistedItems(droppedIds);
+  return removed;
 }
 
 // ---------- generation ----------
+/**
+ * `approved` — batch ที่ผู้ใช้เพิ่งกดยืนยันในโมดัล Spend Guard ส่งเข้ามาจาก `confirmSpend()` เท่านั้น (T24/#4)
+ *
+ * ปัญหาที่แก้: `confirmSpend` คืน jobs เข้า `s.modes[pending.mode].queue` ถูกต้องแล้ว แต่ generate() รอบสอง
+ * ประกอบ batch จาก `cur()` = โหมดที่เปิดอยู่ **ตอนนี้** ถ้าผู้ใช้สลับโหมดระหว่างโมดัลเปิดค้าง รอบสองจะไปอ่าน
+ * คิวของโหมดใหม่ (ว่าง) และ prompt ของโหมดใหม่ (ว่าง) → return เงียบสนิท ทั้งที่ผู้ใช้กดยืนยันจ่ายเงินไปแล้ว
+ *
+ * เลือกทาง "ยิงงานของโหมดต้นทางจริง" ไม่ใช่ "เตือนแล้วไม่ยิง": สิ่งที่ผู้ใช้อนุมัติคือ jobs ชุดนั้นของโหมดนั้น
+ * พร้อมยอดเงินที่โมดัลแสดง (snapshot ตอน gate เด้ง ไม่ live-bind ตามสัญญาของ SpendConfirmRequest) การยิง
+ * ตามสิ่งที่เขาเพิ่งกดอนุมัติจึงตรงเจตนาที่สุด — โหมดที่เปิดอยู่บนจอเป็นเรื่อง "จะเห็นผลที่แท็บไหน" ไม่ใช่
+ * "จะยิงอะไร" และ `item.mode` ทำให้ผลลัพธ์ลงแกลเลอรีถูกโหมดอยู่แล้วแม้ผู้ใช้จะค้างอยู่แท็บอื่น
+ *
+ * ส่ง jobs สำเร็จรูปเข้ามาเลย ไม่ใช่แค่ชื่อโหมด เพราะสาขา "ยิงจาก prompt" ประกอบ job ผ่าน `currentModel()` /
+ * `refsSupported()` / `refImageMissing()` ซึ่งอ่าน `state.mode` กันหมด — รอบ bypass จึงไม่มีทางประกอบ job
+ * ของโหมดอื่นได้ถูกต้อง และไม่ควรประกอบใหม่อยู่ดี (ผู้ใช้อาจแก้ prompt/count ระหว่างโมดัลเปิดอยู่)
+ */
+/**
+ * ทางเข้าสาธารณะ — **ต้องไม่รับพารามิเตอร์** เพราะ Sidebar/PromptComposer ผูกมันเป็น `onClick={generate}`
+ * ตรงๆ ถ้ารับ arg เมื่อไหร่ React จะส่ง MouseEvent เข้ามาเป็น payload เงียบๆ (tsc จับได้ในเคสนี้พอดี
+ * แต่กติกานี้สำคัญพอที่จะเขียนไว้ ไม่ใช่ให้จำเอง)
+ */
 export function generate() {
+  runGenerate();
+}
+
+function runGenerate(approved?: { mode: Mode; jobs: QueueJob[] }) {
+  // F4: อ่าน+เคลียร์ bypass เป็นบรรทัดแรกสุด **ก่อน early return ทุกจุด** — ถ้าเคลียร์ทีหลัง (เช่นตรงจุด gate)
+  // แล้ว generate() หลุดออกทาง `!state.apiKey` / `!prompt || !model` / `refImageMissing()` flag จะค้าง true
+  // ตลอดไป แล้ว batch ถัดไป "ยิงเงินโดยไม่ถาม" ซึ่งคือสิ่งที่ฟีเจอร์นี้มีไว้กันพอดี (แพร T18 จับได้)
+  const bypassed = bypassSpendGate;
+  bypassSpendGate = false;
+
+  // T24/#5: โมดัลยืนยันค่าใช้จ่ายเปิดค้างอยู่ = มี batch ชุดหนึ่งนอนรออยู่ใน `pendingSpendJobs` ซึ่งเป็นตัวแปร
+  // module-level **ตัวเดียว** ถ้าปล่อยให้ generate() รอบใหม่เดินต่อจนถึง gate มันจะเขียนทับ pendingSpendJobs
+  // แล้วคิวชุดแรก (ที่ถูก `ms.queue = []` ไปตั้งแต่รอบแรก) หายถาวร กู้ไม่ได้ ทั้งจากปุ่มยืนยันและปุ่มยกเลิก
+  //
+  // กันที่ gate ตรงนี้จุดเดียว ไม่ใช่ที่ caller: ทางเข้า generate() มีทั้งปุ่ม Generate ใน Sidebar,
+  // Ctrl+Enter ใน shortcuts.ts และ confirmSpend() เอง — กันที่นี่ครอบได้หมดโดยไม่ต้องหวังว่าทุก caller
+  // จะจำเช็คเอง (shortcuts.ts เพิ่ม guard ไว้อีกชั้นเพื่อไม่ให้ toast ซ้ำจากการกดรัวเท่านั้น)
+  // `bypassed` ต้องผ่านได้เสมอ — นั่นคือ confirmSpend() ที่เพิ่งปิดโมดัลไปเองแล้วกำลังยิงรอบสอง
+  if (!bypassed && state.spendConfirm) {
+    toast("มีรายการรอยืนยันค่าใช้จ่ายอยู่ค่ะ — ยืนยันหรือยกเลิกก่อนนะคะ");
+    return;
+  }
+
   if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  // T24/#4: รอบยืนยันผูกกับโหมดต้นทางของ batch เสมอ ไม่ใช่โหมดที่เปิดอยู่ตอนกดยืนยัน
+  const mode = approved ? approved.mode : state.mode;
   // ขอสิทธิ์ notification แบบ lazy เฉพาะครั้งแรกที่กด generate ในโหมด video/cinematic — ต้องมาจาก user gesture นี้เท่านั้น
-  if (isVideoMode(state.mode)) requestNotifyPermissionOnce();
-  const ms = cur();
+  if (isVideoMode(mode)) requestNotifyPermissionOnce();
+  const ms = state.modes[mode];
 
   // "Refine this" ผูก parentId ให้เฉพาะ batch ที่ยิงตรงจาก prompt (ไม่ใช่จากคิว) — ใช้ครั้งเดียวแล้วเคลียร์ทิ้งเสมอ
   // ไม่ว่าจะยิงจริงหรือไม่ เพื่อไม่ให้ค้างไปผูกกับ generate ครั้งถัดไปที่ไม่เกี่ยวข้องกันแล้ว
-  const parentId = !ms.queue.length ? ms.refiningParentId : null;
+  // รอบ bypass (มาจากปุ่มยืนยันใน F4 modal) ต้องใช้ parentId ที่ snapshot ไว้ตอน gate เด้ง —
+  // `refiningParentId` ถูกเคลียร์ไปแล้วตั้งแต่รอบแรก ถ้าอ่านใหม่จะได้ null แล้วสายพันธุ์ "Refine this" ขาด
+  const parentId = bypassed
+    ? (pendingSpendParentId ?? null)
+    : (!ms.queue.length ? ms.refiningParentId : null);
   if (ms.refiningParentId != null) mutate(() => { ms.refiningParentId = null; });
 
   let jobs: QueueJob[];
-  if (ms.queue.length) {
+  // จำไว้ว่า batch นี้มาจากคิวหรือจาก prompt ปัจจุบัน — F4 gate ใช้ตัดสินว่าตอนผู้ใช้ยกเลิกต้องคืนคิวไหม
+  const fromQueue = ms.queue.length > 0;
+  if (approved) {
+    // T24/#4: รอบยืนยัน — ใช้ snapshot ที่โมดัลคิดราคาไว้ตรงๆ ไม่ประกอบใหม่จาก state ที่อาจเปลี่ยนไปแล้ว
+    // ถ้า confirmSpend คืน jobs เข้าคิวไป (สาขา fromQueue) ต้องหยิบออกจากคิวด้วย ไม่งั้นคิวค้างซ้ำกับที่ยิง
+    jobs = approved.jobs;
+    if (fromQueue) mutate(() => { ms.queue = []; });
+  } else if (fromQueue) {
     jobs = ms.queue;
     mutate(() => { ms.queue = []; });
   } else {
@@ -840,7 +938,21 @@ export function generate() {
     }];
   }
 
-  const mode = state.mode;
+  // ---- F4 Spend Guard: จุดแรกที่ jobs[] ประกอบครบทั้งสองสาขา (คิว + prompt ปัจจุบัน) ----
+  // อยู่หลัง pre-flight ทั้งหมด (refImageMissing) และ **ก่อน** addToHistory/สร้าง item ทุกชิ้น
+  // เพื่อไม่ให้ batch ที่ผู้ใช้กดยกเลิกทิ้ง zombie card ค้างแกลเลอรีหรือไปโผล่ในประวัติ prompt
+  // bypass เป็น one-shot: อ่านแล้วเคลียร์ทันที ไม่ค้างไปข้าม gate ของครั้งถัดไป (ดู confirmSpend)
+  if (!bypassed) {
+    const gate = evaluateSpendGate(mode, jobs);
+    if (gate) {
+      // snapshot jobs ไว้เอง (ไม่เข้า state — refs เป็น data URL ก้อนใหญ่) พร้อมจำว่ามาจากคิวหรือไม่
+      // เพราะสาขาคิวทำ `ms.queue = []` ไปแล้วข้างบน ตอนยกเลิกต้องคืนกลับ ไม่ใช่ปล่อยให้คิวหายเงียบ
+      pendingSpendJobs = { mode, jobs, fromQueue, parentId };
+      mutate(s => { s.spendConfirm = gate; });
+      return; // ยังไม่สร้าง item ใดๆ — ปุ่มยืนยันในโมดัลจะเรียก generate() ซ้ำในโหมด bypass
+    }
+  }
+
   const seen = new Set<string>();
   for (const job of jobs) {
     if (!seen.has(job.prompt)) { seen.add(job.prompt); addToHistory(mode, job.prompt, job.negPrompt); }
@@ -869,7 +981,7 @@ export function generate() {
           parentId,
           ...(job.negPrompt ? { negPrompt: job.negPrompt } : {}),
         };
-        s.modes[mode].images.unshift(item);
+        addToGallery(s, mode, item);
         batch.push(item);
       }
     }
@@ -878,7 +990,8 @@ export function generate() {
   // เฉพาะโหมด video/cinematic/audio เท่านั้นที่ runRequest เรียก notifyJobSettled — โหมดอื่นไม่ต้องเปิด batch เลย (กัน batch ค้างไม่มีใคร resolve)
   const notifiable = isVideoMode(mode) || mode === "audio";
   const batchId = notifiable && batch.length > 1 ? beginNotifyBatch(batch.length) : null;
-  batch.forEach(item => runRequest(item, batchId));
+  // ผ่าน governor เสมอ — cap in-flight ระดับแอปที่ MAX_CONCURRENT_REQUESTS (ไม่ยิง 30 fetch พร้อมกันอีกแล้ว)
+  batch.forEach(item => void scheduleRequest(item, batchId));
 }
 
 // ---------- Bake-off: multi-model side-by-side (PHASE 14) ----------
@@ -975,11 +1088,12 @@ export function runBakeOff() {
         bakeOffGroupId: groupId,
         ...(negPromptSupportedFor(mode, model) && negPrompt ? { negPrompt } : {}),
       };
-      s.modes[mode].images.unshift(item);
+      addToGallery(s, mode, item);
       batch.push(item);
     }
   });
-  batch.forEach(item => runRequest(item));
+  // governor ตัวเดียวกับ generate() — เปิด Bake-off พร้อม batch ปกติก็ยังรวมกันไม่เกิน cap
+  batch.forEach(item => void scheduleRequest(item));
   toast(`กำลังสร้าง Bake-off ${models.length} โมเดลพร้อมกันค่ะ~`);
 }
 
@@ -999,40 +1113,257 @@ export function confirmBakeOff() {
   runBakeOff();
 }
 
+/* ============================================================================
+ * F1 — Request Governor: semaphore + AbortController registry
+ * ========================================================================== */
+
+/**
+ * error ที่โยนจากภายในเมื่อ request ถูกยกเลิก — ใช้แยก "ผู้ใช้ยกเลิก" ออกจาก error จริงตอน catch
+ * (fetch เองโยน DOMException name "AbortError" ซึ่งดักได้เหมือนกัน แต่ helper ที่เราเขียนเอง เช่น
+ * abortableSleep และ reader loop ของ audio ต้องมีตัวโยนของตัวเอง)
+ */
+class RequestAbortedError extends Error {
+  constructor() { super("request aborted"); this.name = "AbortError"; }
+}
+
+/** true ถ้า error ที่จับได้เกิดจากการ abort (ของเราเองหรือของ fetch/DOM) */
+function isAbortError(e: unknown): boolean {
+  return e instanceof RequestAbortedError
+    || (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError")
+    || (e instanceof Error && e.name === "AbortError");
+}
+
+/**
+ * sleep ที่ยกเลิกได้ทันทีเมื่อ signal abort — ใช้แทน sleep() เปล่าๆ ใน poll loop ของวิดีโอ
+ * ถ้าใช้ setTimeout เฉยๆ การยกเลิกจะช้าได้ถึง VIDEO_POLL_MS_MAX (~20s) กว่าจะวนถึงจุดเช็ค signal ถัดไป
+ * clear ทั้ง timer และ listener เสมอ กัน leak เมื่อ item เดียวถูก poll หลายสิบรอบ
+ */
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new RequestAbortedError());
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => { clearTimeout(timer); reject(new RequestAbortedError()); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** โยนทันทีถ้า signal ถูก abort ไปแล้ว — ใช้คั่นระหว่างขั้นตอนยาวๆ ที่ไม่ได้อยู่ใน fetch (เช่น loop อ่าน stream) */
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) throw new RequestAbortedError();
+}
+
+/**
+ * registry ของ AbortController ที่ยัง live อยู่ — key เป็น item.id (unique ทั้งแอปเพราะมาจาก ++state.seq)
+ * entry ถูกลบใน finally ของ runRequest เสมอ ไม่ว่าจะจบด้วย done/error/cancelled
+ */
+const inflightControllers = new Map<number, AbortController>();
+
+/** เหตุผลการยกเลิกที่ "ประกาศไว้ล่วงหน้า" ก่อน abort จริง — runRequest อ่านค่านี้ตอนแปลง abort → state */
+const cancelReasons = new Map<number, CancelReason>();
+
+/** งานที่รออยู่ในคิวของ governor (ยังไม่ได้ยิง fetch เลย) — key เป็น item.id เพื่อยกเลิกก่อนเสียเงินได้ */
+interface PendingSlot {
+  item: GenItem;
+  /** ปล่อยงานให้วิ่งจริง */
+  start: () => void;
+  /** ทิ้งงานทั้งที่ยังไม่เคยยิง — ไม่มี fetch เกิดขึ้นเลย */
+  drop: () => void;
+}
+const waitingQueue: PendingSlot[] = [];
+let activeCount = 0;
+
+/**
+ * scheduler ตัวเดียวของทั้งแอป — generate() และ runBakeOff() (และ retry/regenerate/resume) ผ่านทางนี้หมด
+ * cap เป็นระดับแอป ไม่ใช่ต่อ batch: เปิดสอง batch พร้อมกันก็ยัง in-flight รวมกันไม่เกิน MAX_CONCURRENT_REQUESTS
+ *
+ * งานที่ยังไม่ได้ slot จะนอนอยู่ใน waitingQueue โดยที่ item.status ยังเป็น "loading" ตามที่ผู้ใช้เห็น
+ * (ยังไม่มี fetch เกิดขึ้น = ยังไม่เสียเงิน) — ถ้าถูก cancel ตอนนี้ จะถูก drop ออกโดยไม่ยิงอะไรเลย
+ */
+function scheduleRequest(item: GenItem, batchId: number | null = null): Promise<void> {
+  return new Promise<void>(resolve => {
+    const run = () => {
+      activeCount++;
+      // F4: จุดเดียวของทั้งแอปที่ request "หลุดคิว governor เข้า in-flight" = เริ่มเสียเงินจริง
+      // บันทึกยอดตรงนี้ครอบทุก path ที่จ่ายเงิน (generate / runBakeOff / retry / regenerate / resume)
+      // โดยที่งานซึ่งถูกยกเลิกตอนยังรอคิวอยู่ไม่เคยมาถึงบรรทัดนี้ จึงไม่ถูกนับตามกติกาพอดี
+      recordSpend(item);
+      // controller ถูกสร้าง "ตอนได้ slot" ไม่ใช่ตอนเข้าคิว — งานที่ยังรออยู่ถูกยกเลิกผ่าน waitingQueue แทน
+      // (drop ทิ้งโดยไม่มี fetch เลย) ส่วนงานที่วิ่งแล้วถูกยกเลิกผ่าน controller ตัวนี้
+      const ctrl = new AbortController();
+      inflightControllers.set(item.id, ctrl);
+      void runRequest(item, batchId, ctrl.signal).finally(() => {
+        activeCount--;
+        resolve();
+        pumpQueue();
+      });
+    };
+    if (activeCount < MAX_CONCURRENT_REQUESTS) { run(); return; }
+    waitingQueue.push({
+      item,
+      start: run,
+      // งานที่ถูก drop ตอนยังรอคิวไม่เคยเข้า runRequest เลย จึงต้องหด batch ของ notify.ts เองตรงนี้ (T19)
+      // — ไม่งั้น batch ค้างเหมือนกันทุกประการกับเคสที่ถูก abort กลางทาง
+      drop: () => {
+        finalizeCancelled(item, cancelReasons.get(item.id) ?? "user");
+        dropFromNotifyBatch(batchId);
+        resolve();
+      },
+    });
+  });
+}
+
+/** ปล่อยงานที่รออยู่เข้ามาจนเต็ม slot — เรียกทุกครั้งที่มี slot ว่าง (งานจบ) หรือมีงานหลุดคิว */
+function pumpQueue() {
+  while (activeCount < MAX_CONCURRENT_REQUESTS && waitingQueue.length) {
+    const slot = waitingQueue.shift();
+    slot?.start();
+  }
+}
+
+/**
+ * เซ็ต state ของ item ที่ถูกยกเลิก — จุดเดียวที่เขียน status = "cancelled"
+ * ตั้งใจไม่เรียก recordModelStat / autoSaveItem / notifyJobSettled: งานที่ผู้ใช้ยกเลิกเองไม่ใช่ทั้ง
+ * ความสำเร็จและความล้มเหลวของโมเดล และห้ามเด้ง notification "งานล้มเหลว"
+ *
+ * INVARIANT: ไม่แตะ item.jobId และไม่เรียก removePendingJob() เด็ดขาด — job ฝั่ง OpenRouter ยัง live
+ * และจ่ายเงินไปแล้ว jobId ที่คงไว้คือสิ่งเดียวที่ทำให้กด "ลองใหม่" แล้ว resume ได้โดยไม่จ่ายซ้ำ
+ * (`let resumed = !!item.jobId` ที่ต้น requestVideo)
+ */
+function finalizeCancelled(item: GenItem, reason: CancelReason) {
+  item.status = "cancelled";
+  item.cancelReason = reason;
+  item.cancelledAt = Date.now();
+  item.jobStatus = "";
+  item.errMsg = "";
+  cancelReasons.delete(item.id);
+  mutate();
+}
+
+/**
+ * สถิติของ governor สำหรับโชว์ใน UI (T3) — UI แยก "กำลังยิงอยู่" กับ "รอคิว" จาก state ฝั่ง React ไม่ได้
+ * เพราะ item ทั้งสองกลุ่มมี status = "loading" เหมือนกันหมด ความจริงอยู่ที่ตัวแปร module-level สองตัวนี้เท่านั้น
+ *
+ * `waiting` คือจำนวนงานที่ยัง "ไม่เคยยิง fetch เลย" — ยกเลิกตอนนี้ = ไม่เสียเงิน ซึ่งเป็นจุดขายของปุ่มยกเลิก
+ * ตัวเลขไม่ได้อยู่ใน AppState (ไม่ trigger re-render เอง) — Header poll ทุก 1s ขณะมีงานค้างอยู่
+ */
+export function getSchedulerStats(): { active: number; waiting: number } {
+  return { active: activeCount, waiting: waitingQueue.length };
+}
+
+/** true ถ้า item ชิ้นนี้ยกเลิกได้ตอนนี้ — กำลังยิงอยู่จริง หรือยังนอนรอ slot อยู่ในคิวของ governor */
+export function isCancellable(item: GenItem): boolean {
+  return item.status === "loading"
+    && (inflightControllers.has(item.id) || waitingQueue.some(s => s.item.id === item.id));
+}
+
+/**
+ * ยกเลิกงานหนึ่งชิ้น — คืน true ถ้ามีอะไรให้ยกเลิกจริง
+ *
+ * สองเคส:
+ * 1. ยังรออยู่ในคิว governor → drop ออกจากคิวตรงๆ ไม่มี fetch เกิดขึ้นเลย ไม่เสียเงิน
+ * 2. กำลังยิงอยู่ → abort() controller ของมัน fetch/reader/abortableSleep ที่ค้างอยู่จะโยนทันที
+ *    แล้ว runRequest เป็นคนแปลงเป็น status = "cancelled" (ภายใน ~1s เพราะ sleep ก็ abort ได้)
+ */
+export function cancelItem(item: GenItem, reason: CancelReason = "user"): boolean {
+  if (item.status !== "loading") return false;
+  cancelReasons.set(item.id, reason);
+
+  const qi = waitingQueue.findIndex(s => s.item.id === item.id);
+  if (qi >= 0) {
+    const [slot] = waitingQueue.splice(qi, 1);
+    slot.drop();
+    pumpQueue();
+    return true;
+  }
+
+  const ctrl = inflightControllers.get(item.id);
+  if (ctrl) { ctrl.abort(); return true; }
+
+  // loading แต่ไม่มีทั้ง controller และคิว = งานที่ resume มาแล้วยังไม่เข้า governor (ไม่ควรเกิด) — ไม่แตะ state
+  cancelReasons.delete(item.id);
+  return false;
+}
+
+/**
+ * ยกเลิกทุกงานที่ยัง loading อยู่ — คืนจำนวนที่ยกเลิกได้จริง
+ * mode = undefined → ทุกโหมด (ใช้ตอน shutdown), ระบุโหมด → เฉพาะโหมดนั้น (ปุ่ม "ยกเลิกทั้งหมด" ของผู้ใช้)
+ * snapshot รายการก่อนวน เพราะ cancelItem แก้ waitingQueue ระหว่างทาง
+ */
+export function cancelAll(reason: CancelReason = "user-all", mode?: Mode): number {
+  const modes: Mode[] = mode ? [mode] : (Object.keys(state.modes) as Mode[]);
+  const targets: GenItem[] = [];
+  for (const m of modes) {
+    for (const item of state.modes[m].images) {
+      if (item.status === "loading") targets.push(item);
+    }
+  }
+  let n = 0;
+  for (const item of targets) if (cancelItem(item, reason)) n++;
+  return n;
+}
+
 /**
  * batchId: มาจาก beginNotifyBatch() เมื่อยิงหลายงานพร้อมกัน (generate() คิว/count > 1) — ใช้รวมแจ้งเตือนเป็นก้อนเดียว
  * ตอน queue เต็ม caller ที่ไม่ผ่าน batch (retry, regenerate, auto-extend, ฯลฯ) ปล่อย null ไว้ = แจ้งทันทีทีละงาน
  */
-async function runRequest(item: GenItem, batchId: number | null = null) {
+async function runRequest(item: GenItem, batchId: number | null = null, signal?: AbortSignal) {
+  // caller ที่ยิงงานเดี่ยว (retry, regenerate, auto-extend, resume จาก ledger) ไม่ส่ง signal มา —
+  // สร้าง controller ให้เองเพื่อให้ทุกงานที่ in-flight ยกเลิกได้เหมือนกันหมด ไม่มีงานที่ยกเลิกไม่ได้
+  // ถ้า caller ส่ง signal มา (มาจาก scheduleRequest) caller เป็นคนลงทะเบียน controller ใน registry เอง
+  // — ตรงนี้ห้ามลงทะเบียน controller ใหม่ทับ ไม่งั้น cancelItem จะไป abort ตัวที่ไม่มีใครฟัง
+  const ownController = signal ? null : new AbortController();
+  const sig = signal ?? ownController!.signal;
+  if (ownController) inflightControllers.set(item.id, ownController);
+
   try {
+    throwIfAborted(sig);
     if (isVideoMode(item.mode)) {
-      item.url = await requestVideo(item);
+      item.url = await requestVideo(item, sig);
     } else if (item.mode === "audio") {
-      item.url = await requestAudio(item);
+      item.url = await requestAudio(item, sig);
     } else {
       const m = state.models.find(x => x.id === item.model);
       const outs = m?.architecture?.output_modalities || [];
       // โมเดล image-only (เช่น Grok Imagine) เรียกผ่าน chat/completions ไม่ได้
       // ("No endpoints found that support the requested output modalities") ต้องใช้ Image API แทน
       if (outs.length && !outs.includes("text")) {
-        item.url = await requestViaImageAPI(item);
+        item.url = await requestViaImageAPI(item, sig);
       } else {
-        item.url = await requestViaChat(item);
+        item.url = await requestViaChat(item, sig);
       }
     }
     item.status = "done";
   } catch (e) {
+    // ผู้ใช้ยกเลิกเอง — ไม่ใช่ error: ห้ามนับสถิติโมเดล ห้าม autoSave ห้ามแจ้งเตือน "งานล้มเหลว"
+    // และ finalizeCancelled ไม่แตะ item.jobId เลย (INVARIANT: video job ที่จ่ายเงินแล้วต้อง resume ได้)
+    if (sig.aborted || isAbortError(e)) {
+      finalizeCancelled(item, cancelReasons.get(item.id) ?? "user");
+      // ตั้งใจไม่เรียก notifyJobSettled() ตามกฎข้อ 4 ของ contract (งานที่ยกเลิกเองไม่ใช่ทั้งสำเร็จและล้มเหลว)
+      // แต่ต้องหด total ของ batch ลง 1 แทน (T19) ไม่งั้น batch.settled ไม่มีวันถึง batch.total → entry ค้างใน
+      // `batches` ถาวรและงานที่เหลือเสร็จแล้วเงียบสนิท — dropFromNotifyBatch ยิงสรุปให้เองถ้าการหดครั้งนี้
+      // ทำให้ batch ครบพอดี เรียกได้ทุกโหมด (batchId เป็น null สำหรับโหมดที่ไม่ notifiable — ฟังก์ชัน no-op ให้)
+      dropFromNotifyBatch(batchId);
+      return;
+    }
     item.status = "error";
     item.errMsg = errMsg(e);
+  } finally {
+    inflightControllers.delete(item.id);
   }
   recordModelStat(item.model, item.status === "done");
   // ลบออกจาก pending-job ledger เมื่อไม่มีอะไรให้ resume ต่อแล้วเท่านั้น: done เสมอ, หรือ error ที่ item.jobId
   // ถูกเคลียร์ไปแล้ว (fail ถาวร/ต้อง submit ใหม่) — ส่วน error ที่ยังมี jobId ค้างอยู่ (เช่น timeout, โหลดไฟล์พลาด)
   // ต้องคง entry ไว้ เพราะ "ลองใหม่" ยัง resume งานเดิมได้โดยไม่จ่ายซ้ำ (ดู addPendingJob ใน requestVideo/requestAudio)
   if (item.status === "done" || (item.status === "error" && !item.jobId)) removePendingJob(item.id);
+  // ติดดาวคืนเมื่อ item เพิ่งกลายเป็น done — คีย์โปรดผูกกับ status จึงตรงเฉพาะตอนนี้ ไม่ใช่ตอน addToGallery
+  restoreFavoriteOnSettle(item);
   // item ถูก mutate ตรงๆ ใน array ของโหมดต้นทาง — broadcast ทีเดียวพอ ทุกโหมดได้ state ถูกต้อง
   mutate();
   if (item.status === "done") autoSaveItem(item); // fire-and-forget — ไม่บล็อก UI, error แค่ toast เตือน
+  // F2: เก็บลง IndexedDB ต่อจาก Auto Save — ต้องอยู่ "หลัง" autoSaveItem เสมอ เพราะ Auto Save เป็นสิ่งที่ผู้ใช้
+  // ตั้งใจเปิดไว้เพื่อเอาไฟล์ลงเครื่องจริง ห้ามให้ storage layer ที่เป็น cache แย่งคิว I/O ไปก่อน
+  // fire-and-forget เหมือนกัน: เขียนพลาด/quota เต็ม ต้องไม่ทำให้ item ที่ done แล้วกลายเป็น error
+  if (item.status === "done") persistItemToGallery(item);
   // แจ้งเตือน desktop/title flicker เฉพาะงานที่ใช้เวลานาน (video/cinematic/audio) — ภาพนิ่งเร็วพอไม่ต้องรบกวน
   if (isVideoMode(item.mode) || item.mode === "audio") notifyJobSettled(item, batchId);
 }
@@ -1042,6 +1373,220 @@ async function runRequest(item: GenItem, batchId: number | null = null) {
 function recordModelStat(modelId: string, ok: boolean) {
   const stat = state.modelStats[modelId] ?? (state.modelStats[modelId] = { ok: 0, fail: 0 });
   if (ok) stat.ok++; else stat.fail++;
+}
+
+// ---------- F2: gallery persistence wiring (IndexedDB) ----------
+/**
+ * ชั้นต่อสายระหว่าง generation flow กับ storage layer ใน galleryStore.ts (T6/T7)
+ * galleryStore ไม่แตะ AppState/mutate() เลยโดยตั้งใจ — ทุกอย่างที่ต้องคุยกับ state อยู่ตรงนี้ที่เดียว
+ *
+ * PRIVACY: ทุก path ผ่าน saveItem/loadItems ซึ่งเช็ค isGalleryPersistEnabled() ให้แล้ว (default = ปิด)
+ * ที่นี่ **ห้ามเปิด opt-in ให้เอง** — ไม่มีการเรียก setGalleryPersistEnabled() ในไฟล์นี้แม้แต่ที่เดียว
+ *
+ * key ของ record เก็บไว้ใน map ข้างนอก GenItem (ไม่เพิ่มฟิลด์ใน types.ts) เพราะมันเป็น handle ของ storage
+ * ล้วนๆ ไม่ใช่ข้อมูลของ item: ไม่ต้อง export, ไม่ต้องเข้า session snapshot, ไม่ต้องให้ UI เห็น
+ * และ item ที่ยังไม่เคยถูกเซฟก็ไม่มี entry — ความหมายเดียวกับ persistKey === undefined
+ */
+const persistKeys = new Map<number, string>();
+
+/**
+ * T24/#3: ผู้ใช้ปิด opt-in → `setGalleryPersistEnabled(false)` ลบ record ทุกชิ้นจาก IndexedDB ไปแล้ว
+ * แต่ `persistKeys` ยังถือ key ของ record ที่ไม่มีอยู่จริงค้างไว้ทั้งหมด ไม่ใช่ข้อมูลรั่ว (in-memory ล้วน
+ * ไม่มี PII — key เป็นแค่ `mode:timestamp:random`) แต่ทำให้ `syncFavoriteToGallery` เดินเข้า branch
+ * "เคยเซฟแล้ว" ไปเรียก setFavorite() กับ key ที่ตายแล้วหนึ่งรอบก่อนจะ self-heal (setFavorite คืน false
+ * แล้ว map ถึงจะถูกลบ) — ล้างทิ้งตรงนี้เลยชัดกว่ารอ self-heal
+ *
+ * ล้าง high-water mark ด้วย: record หายหมดแล้ว ไม่มี id ไหนบนดิสก์ให้ต้องกันชนอีก ถ้าปล่อยค้างไว้
+ * เซสชันหน้าจะยกพื้น s.seq ขึ้นไปโดยไม่มีเหตุผล
+ *
+ * ลงทะเบียนที่ module scope — เกิดครั้งเดียวตอน actions.ts ถูกโหลด ไม่ต้อง unsubscribe
+ * (ทำผ่าน registry ใน galleryStore.ts เพราะ KeyModal.tsx เป็นจุดเรียก setGalleryPersistEnabled จุดเดียว
+ * และไฟล์นั้นอยู่นอกขอบเขตงานนี้ — galleryStore ก็ import actions.ts ไม่ได้ จะเป็น cycle)
+ */
+onGalleryPersistDisabled(() => {
+  persistKeys.clear();
+  clearGalleryMaxId();
+});
+
+/**
+ * คิว serialize การเขียนลง IndexedDB ทีละชิ้น — เหตุผลเดียวกับ autoSaveChain แต่คนละคิว
+ * (write ลงดิสก์ผู้ใช้กับ write ลง IndexedDB ไม่ควรบล็อกกันเอง)
+ *
+ * ที่สำคัญกว่านั้น: saveItem() รัน evictIfNeeded() ให้ในตัวอยู่แล้ว และ evictIfNeeded ทำ getAll() ทั้ง store
+ * ถ้าปล่อยให้ batch 30 ชิ้นยิง saveItem พร้อมกันหมด จะได้ full-scan 30 รอบซ้อนกันบน blob หลายสิบ MB
+ * การต่อคิวทำให้ eviction เกิดทีละรอบตามลำดับ = ไม่ต้องมี throttle/debounce แยกอีกชั้น
+ * (ห้ามเรียก evictIfNeeded() ซ้ำหลัง saveItem — จะกลายเป็น full-scan สองรอบต่อชิ้น)
+ */
+let galleryPersistChain: Promise<void> = Promise.resolve();
+
+/**
+ * เซฟผลลัพธ์หนึ่งชิ้นลง IndexedDB — fire-and-forget โดยเจตนา ห้าม await ใน path ที่ผู้ใช้รออยู่
+ * saveItem() ไม่ throw และคืน null เมื่อไม่ได้เซฟ (opt-in ปิด / MIME ไม่ใช่ media / เกินโควตา) ซึ่งเป็นเคสปกติ
+ * ทั้งหมด — ห้าม toast error และห้ามแตะ item.status เด็ดขาด ไม่งั้น storage เต็มจะทำให้ผลงานที่สำเร็จแล้ว
+ * กลายเป็น error ในสายตาผู้ใช้ (item ที่จ่ายเงินไปแล้วต้องแสดงผลได้เสมอ)
+ */
+function persistItemToGallery(item: GenItem) {
+  galleryPersistChain = galleryPersistChain.then(async () => {
+    const key = await saveItem(item);
+    if (key) {
+      persistKeys.set(item.id, key);
+      // T24/#1: high-water mark ของ id ที่ลงดิสก์แล้ว — เซสชันหน้าอ่านค่านี้แบบ sync ตอนบูตเพื่อยกพื้น
+      // s.seq ให้พ้น id ที่กำลังจะกู้ ก่อนที่ผู้ใช้จะกด Generate ทัน (ดู reconcilePendingJobs)
+      bumpGalleryMaxId(item.id);
+    }
+  }, () => {});
+}
+
+/**
+ * ซิงก์ค่าดาวลงดิสก์หลังผู้ใช้กดใน UI
+ *
+ * toggleFavorite() ไม่ได้แก้ item เดียว — มันเซ็ตค่าเดียวกันให้ **ทุก item ที่ favoriteKeyOf ตรงกัน**
+ * ในโหมดนั้น (ลายนิ้วมือของ prompt/model/ratio/duration/audio ไม่ใช่ id) ดังนั้นต้องวนตาม item ที่ถูกแตะจริง
+ * ยิง setFavorite ตัวเดียวจะเหลือ record พี่น้องในดิสก์ที่ favorite ไม่ตรงกับ UI แล้วโดน evict คนละจังหวะ
+ * (eviction เรียงลำดับตัดจาก favorite **ในดิสก์** ไม่ใช่ใน state)
+ *
+ * item ที่ไม่มี key = ยังไม่เคยถูกเซฟ (opt-in เพิ่งเปิดหลัง item เกิด) → เซฟตอนนี้เลย saveItem อ่าน
+ * item.favorite ที่ mutate() เพิ่งอัปเดตไปแล้วเอง ค่าที่ลงดิสก์จึงถูกต้องตั้งแต่แรกเขียน
+ * ต่อท้ายคิวเดียวกับ save เพื่อไม่ให้ setFavorite แซงหน้า saveItem ของ item เดียวกันที่ยังเขียนไม่เสร็จ
+ */
+function syncFavoriteToGallery(touched: GenItem[]) {
+  if (!isGalleryPersistEnabled()) return;
+  const snapshot = touched.map(it => ({ item: it, favorite: !!it.favorite }));
+  galleryPersistChain = galleryPersistChain.then(async () => {
+    for (const { item, favorite } of snapshot) {
+      const key = persistKeys.get(item.id);
+      if (key) {
+        // false = record ถูก evict ไปแล้ว — ไม่ rollback state ดาวใน UI ยังเป็นความจริงของเซสชันนี้
+        const ok = await setFavorite(key, favorite);
+        if (!ok) persistKeys.delete(item.id);
+      } else if (item.status === "done") {
+        const fresh = await saveItem(item);
+        if (fresh) {
+          persistKeys.set(item.id, fresh);
+          bumpGalleryMaxId(item.id); // เพิ่งลงดิสก์ครั้งแรกที่นี่ — ต้องยกพื้นเหมือน persistItemToGallery
+        }
+      }
+    }
+  }, () => {});
+}
+
+/**
+ * ลบ record ของ item ที่หลุดออกจากแกลเลอรีไปแล้วออกจาก IndexedDB ด้วย (T22)
+ *
+ * ปัญหาที่แก้: F2 เขียน record ลงดิสก์ตอน item เสร็จ แต่ตอนผู้ใช้ล้างแกลเลอรี record ยังค้างอยู่จนกว่าจะโดน
+ * eviction ตัดทิ้งเอง = กินพื้นที่เครื่องต่อ และ rehydrateGallery() ตอน reload จะดึงของที่ผู้ใช้ลบไปแล้วกลับมา
+ *
+ * === ทำไมไม่ใช้ clearMode(mode) ทั้งที่มีให้ ===
+ * clearMode() ลบ record **ทั้งโหมด** แต่ resetModeGallery() ข้าม item ที่ favorite ไว้โดยเจตนา
+ * (ผู้ใช้กดดาว = ตั้งใจเก็บ) ถ้าเรียก clearMode ตรงๆ ของที่ปักหมุดจะหายจากดิสก์ทั้งที่การ์ดยังอยู่บนจอ
+ * แล้ว reload ครั้งถัดไปมันก็หายไปจริงๆ — ขัดทั้ง UI และ EVICTION POLICY ที่ให้ favorite รอดก่อนเสมอ
+ * จึงวน deleteItem() เฉพาะ id ที่ถูกลบจริงแทน ซึ่งได้ผลลัพธ์ตรงกับ in-memory เป๊ะโดยนิยาม
+ * (clearMode ยังมีที่ใช้อยู่ — เคสที่ต้องล้างยกโหมดจริงๆ ไม่มีข้อยกเว้น ซึ่งตอนนี้ยังไม่มี call site)
+ *
+ * KEY MAPPING: record ไม่ได้ key ด้วย GenItem.id (id มาจาก ++s.seq ที่รีเซ็ตทุก reload) — ใช้ persistKeys
+ * ซึ่ง persistItemToGallery/rehydrateGallery เติมไว้ให้แล้ว item ที่ไม่มี entry = ยังไม่เคยลงดิสก์
+ * (opt-in ปิดตอนมันเกิด / ยังเซฟไม่เสร็จ / เกินโควตา) → ไม่มีอะไรให้ลบ ข้ามไป
+ *
+ * ต่อท้าย galleryPersistChain คิวเดียวกับ save/setFavorite เพื่อไม่ให้ลบแซงหน้า saveItem ของ item เดียวกัน
+ * ที่ยังเขียนไม่เสร็จ (ไม่งั้นจะลบก่อนแล้ว record โผล่กลับมาทีหลัง) — และเพราะเป็นการ "อ่าน persistKeys ทีหลัง"
+ * จึงเก็บ id ไว้เฉยๆ ไม่ snapshot key ตรงนี้ เผื่อ saveItem ที่ยังค้างคิวอยู่เพิ่ง set key ให้
+ *
+ * fire-and-forget + ไม่ throw: deleteItem() กลืน error ให้อยู่แล้ว และผู้ใช้ลบการ์ดไปแล้วในสายตาเขา
+ * การเด้ง toast error เพราะ storage layer ที่เป็นแค่ cache ลบไม่ผ่านไม่ช่วยอะไร
+ */
+function forgetPersistedItems(ids: number[]) {
+  // opt-in ปิด = ไม่เคยมี record ให้ลบ และ persistKeys ก็ว่าง — ออกเงียบๆ ไม่แตะ IndexedDB เลย
+  if (!ids.length || !isGalleryPersistEnabled()) return;
+  galleryPersistChain = galleryPersistChain.then(async () => {
+    for (const id of ids) {
+      const key = persistKeys.get(id);
+      if (!key) continue;
+      await deleteItem(key);
+      persistKeys.delete(id);
+    }
+  }, () => {});
+}
+
+/**
+ * โหลดผลลัพธ์ที่เก็บไว้กลับเข้าแกลเลอรีตอนบูต — เรียกครั้งเดียวจาก reconcilePendingJobs()
+ * (จุดบูตเดียวใน actions.ts ที่ StudioApp เรียกให้อยู่แล้ว)
+ *
+ * ORDER: loadItems() คืนของเรียงเก่า→ใหม่ แต่ addToGallery() ใช้ unshift = แกลเลอรีเรียงใหม่→เก่า
+ * ของที่กู้มาทั้งหมดเก่ากว่าทุกอย่างในเซสชันนี้ จึงต้อง **push ต่อท้าย** และ push แบบใหม่→เก่า (reverse)
+ * ไม่ใช้ addToGallery เพราะมัน unshift และจะไปเขียนทับ favorite จากลายนิ้วมือ ทั้งที่ค่าที่ถูกต้อง
+ * ของ record คือค่าที่ผู้ใช้เคยกดไว้จริง (r.favorite) ซึ่งแม่นกว่า
+ *
+ * DEDUPE: ตอนที่ฟังก์ชันนี้ทำงาน อาจมี item อยู่ใน state แล้วจาก reconcilePendingJobs (job ที่ resume ต่อ)
+ * และผู้ใช้อาจกดสร้างงานใหม่ทันได้แล้ว — กันซ้ำสองชั้น
+ *  1. ข้าม record ที่ id ตรงกับ item ที่มีอยู่แล้ว (job เดิมที่ resume มา = ตัวเดียวกัน ของสดกว่า)
+ *  2. ข้าม record ที่ลายนิ้วมือ (favoriteKeyOf) ซ้ำกับ item ที่มีอยู่แล้วในโหมดนั้น — กันเคสผู้ใช้กด
+ *     "สร้างใหม่" ด้วยพารามิเตอร์เดิมทันทีตอนบูต แล้วเห็นการ์ดหน้าตาเหมือนกันเป๊ะสองใบ
+ * (session snapshot ไม่กู้ media กลับมา — ดู CLAUDE.md — จึงไม่มีทางชนกันจากทางนั้น)
+ *
+ * URL: loadItems() สร้าง object URL ให้แล้ว ต้อง registerBlobUrl() ทุกชิ้น ไม่งั้นไม่มีใคร revoke
+ * (releaseAllBlobUrls ตอนปิดแท็บ / releaseBlobUrls ตอน resetModeGallery ทำงานจาก registry ล้วน)
+ *
+ * SEQ: r.id มาจาก s.seq ของเซสชันก่อน แต่ s.seq รีเซ็ตเป็น 0 ทุก reload — ต้อง bump ให้พ้น id สูงสุด
+ * ที่กู้มา **ก่อน** item ใหม่ชิ้นแรกของเซสชันจะเกิด ไม่งั้น id ชนกันแล้ว toggleFavorite/releaseBlobUrls/
+ * cancelItem ซึ่งค้นด้วย id จะไปโดน item ผิดตัว (pattern เดียวกับ resumable ใน reconcilePendingJobs)
+ */
+/**
+ * promise ที่ resolve เมื่อ rehydrateGallery() รอบบูตทำงานจบ (สำเร็จหรือไม่ก็ตาม) — pruneOrphanFavorites()
+ * ต้องรอตัวนี้ก่อน ไม่งั้นจะ prune ตอนแกลเลอรียังว่างแล้วลบดาวทิ้งหมด (ดู pruneOrphanFavorites)
+ * ตั้งเป็น resolved ไว้ก่อน: ถ้า opt-in ปิด rehydrateGallery() return ทันทีและไม่มีอะไรให้รอ
+ */
+let galleryRehydrated: Promise<void> = Promise.resolve();
+
+export async function rehydrateGallery() {
+  if (!isGalleryPersistEnabled()) return;
+  const modes = Object.keys(state.modes) as Mode[];
+  const loaded = await Promise.all(modes.map(m => loadItems(m)));
+
+  let restoredCount = 0;
+  mutate(s => {
+    for (const rows of loaded) {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const r = rows[i];
+        const ms = s.modes[r.mode];
+        // T24/#2: dedupe ด้วย id อย่างเดียว — id เชื่อถือได้แล้วหลัง #1 (s.seq ถูกยกพื้นก่อนยิง rehydrate)
+        // ชั้น favoriteKeyOf ถูกถอดทิ้ง: record ไม่มีฟิลด์ `status` (allowlist ของ PersistedGenItem ตัดออก)
+        // favoriteKeyOf(record) จึงคืน "x" เสมอ ส่วน item ที่ done คืน "d" = ไม่มีวันตรงกัน (dead code)
+        // และ **ห้ามแก้ให้มันทำงาน**: ลายนิ้วมือไม่มี id อยู่ในนั้น batch ที่ prompt/model/ratio เดียวกัน
+        // (count=3) จึงมีลายนิ้วมือเหมือนกันทั้งชุด — ถ้าเทียบจริงจะกู้ขึ้นมาได้ใบเดียวจากสามใบ
+        const dupe = ms.images.some(x => x.id === r.id);
+        if (dupe) { URL.revokeObjectURL(r.url); continue; }
+
+        registerBlobUrl(r.id, r.url);
+        if (r.id > s.seq) s.seq = r.id;
+        bumpGalleryMaxId(r.id); // ซิงก์ high-water mark กับสิ่งที่อยู่บนดิสก์จริง เผื่อคีย์หาย/ถูกลบ
+        persistKeys.set(r.id, r.key);
+        ms.images.push({
+          id: r.id,
+          status: "done",
+          url: r.url,
+          prompt: r.prompt,
+          model: r.model,
+          modelName: r.modelName,
+          ratio: r.ratio,
+          duration: r.duration,
+          audio: r.audio,
+          jobStatus: "",
+          jobId: null,
+          startedAt: r.savedAt,
+          errMsg: "",
+          mode: r.mode,
+          refs: [], // โดยเจตนา: ref ที่ผู้ใช้อัปโหลดเองไม่เคยลงดิสก์ (ดูหัว galleryStore.ts)
+          parentId: r.parentId,
+          negPrompt: r.negPrompt,
+          bakeOffGroupId: r.bakeOffGroupId || undefined,
+          favorite: r.favorite,
+        });
+        restoredCount++;
+      }
+    }
+  });
+
+  if (restoredCount > 0) toast(`กู้ผลงานที่เก็บไว้กลับมาแล้ว ${restoredCount} ชิ้นค่ะ`);
 }
 
 // ---------- auto save ----------
@@ -1174,7 +1719,7 @@ function videoPollIntervalMs(elapsedMs: number): number {
 
 // Video API เป็น async job: submit ได้ job id แล้ว poll จน completed ค่อยได้ URL
 // โหลดไฟล์เป็น blob ทันทีกัน unsigned URL หมดอายุระหว่างหน้ายังเปิดอยู่
-async function requestVideo(item: GenItem): Promise<string> {
+async function requestVideo(item: GenItem, signal: AbortSignal): Promise<string> {
   item.startedAt = Date.now();
   item.jobStatus = "pending";
   mutate();
@@ -1203,6 +1748,7 @@ async function requestVideo(item: GenItem): Promise<string> {
       method: "POST",
       headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
@@ -1217,7 +1763,8 @@ async function requestVideo(item: GenItem): Promise<string> {
   const pollStartedAt = Date.now();
   while (true) {
     // งานที่ resume มา งานอาจเสร็จอยู่แล้ว — เช็คเร็วๆ รอบแรกไม่ต้องรอเต็ม interval ปกติ
-    await sleep(resumed ? 1500 : videoPollIntervalMs(Date.now() - pollStartedAt));
+    // abortableSleep ไม่ใช่ sleep() เปล่าๆ — ไม่งั้นการยกเลิกจะช้าได้ถึง VIDEO_POLL_MS_MAX (~20s)
+    await abortableSleep(resumed ? 1500 : videoPollIntervalMs(Date.now() - pollStartedAt), signal);
     resumed = false;
     if (Date.now() > deadline) {
       const timeoutMin = Math.round(timeoutMs / 60000);
@@ -1225,6 +1772,7 @@ async function requestVideo(item: GenItem): Promise<string> {
     }
     const pr = await fetch("https://openrouter.ai/api/v1/videos/" + item.jobId, {
       headers: { "Authorization": "Bearer " + state.apiKey },
+      signal,
     });
     const pd = await pr.json().catch(() => ({}));
     if (!pr.ok) {
@@ -1240,7 +1788,7 @@ async function requestVideo(item: GenItem): Promise<string> {
       const vurl = pd.unsigned_urls?.[0];
       if (!vurl) { item.jobId = null; throw new Error("ไม่พบไฟล์วิดีโอใน response"); }
       // ไฟล์อยู่หลัง endpoint ของ OpenRouter — ต้องแนบ key ด้วย ไม่งั้น 401
-      const vres = await fetch(vurl, { headers: { "Authorization": "Bearer " + state.apiKey } });
+      const vres = await fetch(vurl, { headers: { "Authorization": "Bearer " + state.apiKey }, signal });
       // โหลดพลาด: คง jobId ไว้ ให้ "ลองใหม่" มาโหลดซ้ำได้โดยไม่ต้อง gen ใหม่
       if (!vres.ok) throw new Error('โหลดไฟล์วิดีโอไม่สำเร็จ (HTTP ' + vres.status + ') — กด "ลองใหม่" เพื่อโหลดซ้ำได้ค่ะ (ไม่เสียเงินเพิ่ม)');
       item.jobId = null;
@@ -1258,7 +1806,7 @@ async function requestVideo(item: GenItem): Promise<string> {
 // Lyria สร้างเพลงผ่าน chat/completions แต่บังคับ stream:true — เสียงทยอยมาเป็น
 // base64 chunk ใน delta.audio.data ต้อง decode ทีละ chunk (ต่อ base64 string ตรงๆ ไม่ได้
 // เพราะ padding) แล้วค่อยรวม bytes เป็น blob MP3 ตอนจบ
-async function requestAudio(item: GenItem): Promise<string> {
+async function requestAudio(item: GenItem, signal: AbortSignal): Promise<string> {
   item.startedAt = Date.now();
   mutate();
   // เสียงไม่มี job id ให้ resume (stream ตรงๆ ผ่าน chat/completions) — ยัง track ไว้ใน ledger เพื่อ "เห็นเป็นงานที่หายไป"
@@ -1274,6 +1822,7 @@ async function requestAudio(item: GenItem): Promise<string> {
       audio: { format: "mp3" },
       stream: true,
     }),
+    signal,
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -1296,24 +1845,32 @@ async function requestAudio(item: GenItem): Promise<string> {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? ""; // บรรทัดสุดท้ายอาจยังมาไม่ครบ — เก็บไว้รอ chunk ถัดไป
-    for (const line of lines) {
-      const t = line.trim();
-      if (!t.startsWith("data:")) continue;
-      const payload = t.slice(5).trim();
-      if (payload === "[DONE]") continue;
-      let j: AudioChunk;
-      try { j = JSON.parse(payload); } catch { continue; }
-      if (j.error) throw new Error(j.error.message || "การสร้างเพลงล้มเหลว");
-      const c = j.choices?.[0];
-      const b64 = c?.delta?.audio?.data ?? c?.message?.audio?.data;
-      if (b64) pushB64(b64);
+  // abort ระหว่างสตรีม: signal ที่ส่งให้ fetch ทำให้ reader.read() reject เองอยู่แล้ว แต่เช็คซ้ำต้นลูปด้วย
+  // เผื่อ abort มาถึงจังหวะที่ chunk เพิ่ง resolve พอดี — จะได้ไม่ decode/สะสม chunk ต่อโดยเปล่าประโยชน์
+  try {
+    for (;;) {
+      throwIfAborted(signal);
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? ""; // บรรทัดสุดท้ายอาจยังมาไม่ครบ — เก็บไว้รอ chunk ถัดไป
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const payload = t.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        let j: AudioChunk;
+        try { j = JSON.parse(payload); } catch { continue; }
+        if (j.error) throw new Error(j.error.message || "การสร้างเพลงล้มเหลว");
+        const c = j.choices?.[0];
+        const b64 = c?.delta?.audio?.data ?? c?.message?.audio?.data;
+        if (b64) pushB64(b64);
+      }
     }
+  } finally {
+    // ปล่อย lock ของ reader เสมอ ไม่ให้ค้างเมื่อออกจากลูปด้วย abort/error กลางคัน
+    reader.cancel().catch(() => {});
   }
   if (!chunks.length) throw new Error("ไม่พบเสียงใน response");
   const blobUrl = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "audio/mpeg" }));
@@ -1321,11 +1878,12 @@ async function requestAudio(item: GenItem): Promise<string> {
   return blobUrl;
 }
 
-async function requestViaImageAPI(item: GenItem): Promise<string> {
+async function requestViaImageAPI(item: GenItem, signal: AbortSignal): Promise<string> {
   const res = await fetch("https://openrouter.ai/api/v1/images", {
     method: "POST",
     headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
     body: JSON.stringify({ model: item.model, prompt: item.prompt, n: 1, aspect_ratio: item.ratio }),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
@@ -1366,7 +1924,7 @@ function buildChatContent(item: GenItem, promptText: string): string | ChatPart[
   return parts;
 }
 
-async function requestViaChat(item: GenItem): Promise<string> {
+async function requestViaChat(item: GenItem, signal: AbortSignal): Promise<string> {
   // aspect ratio ผ่าน image_config (โมเดลที่ไม่รองรับจะ ignore หรือใช้ hint ใน prompt แทน)
   let promptText = item.ratio !== "1:1" ? item.prompt + "\n\nAspect ratio: " + item.ratio : item.prompt;
   // negative prompt (PHASE 14) — best-effort hint ต่อท้ายด้วย block ที่คั่นชัดเจน ไม่มี param แยกให้ใช้ใน chat/completions
@@ -1381,6 +1939,7 @@ async function requestViaChat(item: GenItem): Promise<string> {
     method: "POST",
     headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error?.message || ("HTTP " + res.status));
@@ -1393,10 +1952,18 @@ async function requestViaChat(item: GenItem): Promise<string> {
 }
 
 export function retry(item: GenItem) {
+  // T24/#6: เส้นแบ่ง "ยิงใหม่" vs "resume" อยู่ที่ jobId ตัวเดียว
+  //  - มี jobId → requestVideo จะ poll งานเดิมต่อ ไม่ submit ใหม่ ไม่จ่ายเพิ่ม → **ห้าม** นับซ้ำ
+  //    (นี่คือ label "ทำต่อ (ไม่เสียเงินเพิ่ม)" ที่การ์ดโชว์อยู่ — ดู cardPropsEqual ใน Gallery.tsx)
+  //  - ไม่มี jobId → submit request ใหม่ทั้งใบ จ่ายเต็มราคาอีกรอบ → ต้องนับเพิ่ม
+  if (!item.jobId) markNewPaidAttempt(item);
   item.status = "loading";
   item.errMsg = "";
+  // เคลียร์ร่องรอยการยกเลิกรอบก่อน — item ที่ cancelled แล้วกดสร้างใหม่ต้องไม่เหลือ cancelReason/cancelledAt ค้าง
+  delete item.cancelReason;
+  delete item.cancelledAt;
   mutate();
-  runRequest(item);
+  void scheduleRequest(item);
 }
 
 /**
@@ -1415,6 +1982,9 @@ export function retryWithOverride(item: GenItem, modelId: string, ratio: string)
   // โมเดล/ratio เปลี่ยนไป — jobId เดิม (ถ้ามี) ผูกกับ request เก่า resume ต่อไม่ได้แล้ว ลบออกจาก ledger ทิ้งไปเลย
   // (จะได้ entry ใหม่จาก addPendingJob ตอน submit งานใหม่สำเร็จ)
   removePendingJob(item.id);
+  // T24/#6: นี่คือ request ใหม่ที่จ่ายเงินเพิ่มจริง (โมเดล/ratio เปลี่ยน จึง submit ใหม่ ไม่ใช่ resume ของเดิม)
+  // ต้อง bump ก่อน scheduleRequest ไม่งั้น recordSpend จะเห็นคีย์เดิมแล้วข้าม = ยอดต่ำกว่าความจริง
+  markNewPaidAttempt(item);
   mutate(() => {
     item.jobId = null;
     item.model = model.id;
@@ -1424,8 +1994,11 @@ export function retryWithOverride(item: GenItem, modelId: string, ratio: string)
     item.errMsg = "";
     item.jobStatus = "";
     item.startedAt = null;
+    // item ที่เคยถูกยกเลิกแล้วยิงใหม่ ต้องไม่เหลือ cancelReason/cancelledAt ค้าง (คู่กับ status เสมอ)
+    delete item.cancelReason;
+    delete item.cancelledAt;
   });
-  runRequest(item);
+  void scheduleRequest(item);
 }
 
 // คัดลอก prompt ของ card กลับไปที่ช่อง prompt ของโหมดเดียวกับ item (สลับโหมดให้ถ้าจำเป็น)
@@ -1463,9 +2036,9 @@ export function regenerateFromItem(item: GenItem) {
       refs: item.refs,
       ...(item.negPrompt ? { negPrompt: item.negPrompt } : {}),
     };
-    s.modes[item.mode].images.unshift(newItem);
+    addToGallery(s, item.mode, newItem);
   });
-  runRequest(newItem);
+  void scheduleRequest(newItem);
   toast("กำลังสร้างซ้ำค่ะ~");
 }
 
@@ -1544,9 +2117,9 @@ export async function autoExtendFromLastFrame(item: GenItem) {
         refs: [ref],
         parentId: item.id,
       };
-      s.modes.cinematic.images.unshift(newItem);
+      addToGallery(s, "cinematic", newItem);
     });
-    runRequest(newItem);
+    void scheduleRequest(newItem);
     toast("จับเฟรมสุดท้ายแล้ว กำลังสร้าง scene ถัดไปให้ค่ะ~");
   } catch (e) {
     toast("จับเฟรมสุดท้ายไม่สำเร็จ: " + errMsg(e) + " — ลองใช้ TimeFrame & Extend เลือกเฟรมเองแทนนะคะ");
@@ -1678,15 +2251,211 @@ export async function downloadSelected() {
   toast("ดาวน์โหลด " + items.length + " รูปแล้วค่ะ");
 }
 
+// ---------- favorites (F3) ----------
+// cache ของคีย์โปรดต่อโหมด อ่านจาก localStorage ครั้งเดียวตอนถูกใช้ครั้งแรก แล้วถือไว้ใน memory
+// (localStorage เป็น synchronous — ไม่ควรอ่านซ้ำทุกครั้งที่มี item ใหม่โผล่)
+const favoriteKeyCache = new Map<Mode, Set<string>>();
+
+function favoriteKeysFor(mode: Mode): Set<string> {
+  let set = favoriteKeyCache.get(mode);
+  if (!set) { set = new Set(loadFavorites(mode)); favoriteKeyCache.set(mode, set); }
+  return set;
+}
+
+/**
+ * item ที่เพิ่งเกิด/เพิ่งกู้กลับมา ตรงกับลายนิ้วมือที่ผู้ใช้เคยกดดาวไว้หรือเปล่า
+ * เรียกจากจุดที่ item ได้ค่า prompt/model/ratio ครบแล้วเท่านั้น (ดู favoriteKeyOf ใน store.ts ว่าคีย์ประกอบจากอะไร)
+ *
+ * item ที่ยังไม่ done รับดาวคืนอัตโนมัติไม่ได้เลย: คีย์ของมันมี status = "x" ซึ่งไม่มีทางตรงกับคีย์ที่
+ * toggleFavorite เขียนลง localStorage (เขียนเฉพาะคีย์ของ item ที่ done — ดู toggleFavorite) จึงกัน
+ * การ์ด cancelled/error ไม่ให้รับดาวข้ามมาจาก twin ที่ done แล้วไปรอด "ล้างแกลเลอรี" (P2)
+ */
+export function isRememberedFavorite(item: GenItem): boolean {
+  return item.status === "done" && favoriteKeysFor(item.mode).has(favoriteKeyOf(item));
+}
+
+/**
+ * ทางเข้าเดียวของ item ใหม่สู่แกลเลอรี — ติดดาวคืนให้อัตโนมัติถ้าลายนิ้วมือของมันตรงกับที่ผู้ใช้เคยกดไว้
+ * (นี่คือกลไกที่ทำให้ดาว "รอด reload" ได้โดยไม่ต้องพึ่ง F2/IndexedDB ซึ่งเป็น opt-in ที่ default ปิด)
+ * ต้องเรียกภายใน mutate() เสมอ เพราะแก้ s.modes[...].images ตรงๆ
+ *
+ * item ส่วนใหญ่เข้ามาที่นี่ตอน status = "loading" จึงยังไม่เข้าเงื่อนไข — การติดดาวคืนจริงเกิดที่
+ * restoreFavoriteOnSettle() ตอน runRequest ปิดงานเป็น done แทน (ดูเหตุผลใน isRememberedFavorite)
+ * ที่ยังเช็คตรงนี้ด้วยเพราะมี path ที่ยัด item ซึ่ง done มาแล้วเข้าตรงๆ (scene เริ่มต้นของ cinematic)
+ */
+function addToGallery(s: AppState, mode: Mode, item: GenItem) {
+  if (isRememberedFavorite(item)) item.favorite = true;
+  s.modes[mode].images.unshift(item);
+}
+
+/**
+ * ติดดาวคืนตอน item เพิ่งกลายเป็น done — เรียกจาก runRequest จุดเดียว (ภายใน mutate())
+ * ต้องอยู่ตรงนี้ไม่ใช่ที่ addToGallery เพราะคีย์โปรดผูกกับ status = done (ดู favoriteKeyOf ใน store.ts)
+ * ตอน addToGallery ถูกเรียก item ยังเป็น loading อยู่เสมอ คีย์จึงยังไม่ตรง
+ */
+function restoreFavoriteOnSettle(item: GenItem) {
+  if (item.status === "done" && !item.favorite && isRememberedFavorite(item)) item.favorite = true;
+}
+
+/**
+ * เคยเตือนผู้ใช้เรื่อง "ดาวเป็นของกลุ่ม" ไปแล้วหรือยังในเซสชันนี้ — เตือนครั้งเดียวพอ ไม่รบกวนซ้ำทุกคลิก
+ * ตั้งใจไม่ persist: เป็นเรื่องความเข้าใจของผู้ใช้ ณ ตอนใช้งาน ไม่ใช่ข้อมูลที่ต้องรอด reload
+ */
+let groupFavoriteHintShown = false;
+
+/**
+ * ลบคีย์โปรดที่ไม่มี item ตัวจริงรองรับแล้ว ("คีย์กำพร้า") — เรียกครั้งเดียวตอนบูตจาก reconcilePendingJobs()
+ *
+ * ปัญหาที่แก้: ผู้ใช้กดดาว "a cat" แล้วใบนั้นหลุดจากแกลเลอรี (reload/สลับโหมด) โดยที่คีย์ยังค้างใน
+ * localStorage → generate "a cat" ด้วย model/ratio เดิมอีกครั้ง ใบใหม่ติดดาวเองทั้งที่ผู้ใช้ไม่ได้กด
+ *
+ * === กับดัก "แกลเลอรีว่างตอนบูต" ===
+ * แกลเลอรีเป็น memory-only ตอน prune ทำงานมันจึงว่างเสมอ ถ้า prune ตามสิ่งที่อยู่ในแกลเลอรีตรงๆ
+ * ดาวจะถูกลบเกลี้ยงทุกครั้งที่เปิดแอป = พังหนักกว่าบั๊กเดิม จึงต้องรอ "แหล่งความจริง" ที่ถูกต้องก่อน:
+ *
+ *  - F2 เปิด → IndexedDB คือความจริง: await rehydrateGallery() ให้เสร็จก่อน แล้วคีย์ที่ไม่มี item
+ *    ตัวจริงในแกลเลอรีหลังกู้เสร็จ = กำพร้าแน่นอน ลบได้เต็มปาก (แม่นที่สุด)
+ *  - F2 ปิด → ไม่มีแหล่งความจริงใดๆ พิสูจน์ไม่ได้ว่าคีย์กำพร้าจริงไหม จึงตัดตามอายุแทน:
+ *    คีย์ที่เก่ากว่า FAVORITE_TTL_MS ถือว่าหมดอายุ เพราะผลงานที่มันชี้ไปไม่มีทางยังอยู่ใน memory
+ *    ของเซสชันไหนแล้ว (ไม่มี persist = ตายตอนปิดแท็บ) — เป็น upper bound ไม่ใช่การพิสูจน์ แต่ทำให้
+ *    คีย์กำพร้าไม่สะสมไม่มีที่สิ้นสุด และผู้ใช้ที่กดดาวแล้ว reload ทันทีก็ยังได้ดาวคืนตามเจตนาเดิม
+ */
+const FAVORITE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 วัน
+
+export async function pruneOrphanFavorites() {
+  const modes = Object.keys(state.modes) as Mode[];
+
+  if (isGalleryPersistEnabled()) {
+    // ต้องรอ rehydrate ให้จบก่อน ไม่งั้นจะ prune ตอนแกลเลอรียังว่าง = ลบดาวทิ้งหมด (ดูกับดักด้านบน)
+    await galleryRehydrated;
+    for (const mode of modes) {
+      const live = new Set(state.modes[mode].images.filter(x => x.status === "done").map(x => favoriteKeyOf(x)));
+      const keys = favoriteKeysFor(mode);
+      const kept = [...keys].filter(k => live.has(k));
+      if (kept.length === keys.size) continue;
+      keys.clear();
+      for (const k of kept) keys.add(k);
+      saveFavorites(mode, kept);
+    }
+    return;
+  }
+
+  // F2 ปิด — ตัดตามอายุอย่างเดียว (ดูเหตุผลด้านบน) timestamp เก็บแยกคีย์ ไม่ปนกับตัวคีย์เอง
+  const now = Date.now();
+  const stamps = loadFavoriteStamps();
+  let changed = false;
+  for (const mode of modes) {
+    const keys = favoriteKeysFor(mode);
+    const kept = [...keys].filter(k => {
+      const t = stamps[k];
+      // ไม่มี timestamp = คีย์จากเวอร์ชันก่อนหน้าที่ยังไม่เคยประทับเวลา — ให้โอกาสรอบนี้ ประทับเวลาให้แล้วรอบหน้าค่อยตัด
+      if (t === undefined) { stamps[k] = now; changed = true; return true; }
+      return now - t < FAVORITE_TTL_MS;
+    });
+    if (kept.length === keys.size) continue;
+    for (const k of [...keys]) if (!kept.includes(k)) { delete stamps[k]; }
+    keys.clear();
+    for (const k of kept) keys.add(k);
+    saveFavorites(mode, kept);
+    changed = true;
+  }
+  if (changed) saveFavoriteStamps(stamps);
+}
+
+/**
+ * สลับสถานะ favorite ของ item หนึ่งชิ้น แล้ว persist ลง localStorage ทันที (ไม่รอ autosave 30s
+ * เพราะผู้ใช้ที่กดดาวแล้วปิดแท็บทันทีต้องได้ดาวนั้นกลับมา)
+ *
+ * item ถูก tag ด้วยโหมดที่มันถูกสร้าง (item.mode) และผู้ใช้สลับโหมดระหว่างที่ยังมีงานค้างได้ จึงต้องไล่หา
+ * ข้ามทุกโหมด ไม่ใช่แค่ cur() — เหมือนที่ retry/autoSave ทำ
+ *
+ * ทุก item ที่มีลายนิ้วมือเดียวกันในโหมดนั้นจะถูกสลับพร้อมกัน เพราะ persist layer แยกกันไม่ได้อยู่แล้ว
+ * (คีย์เดียวกัน = ตอน reload จะติดดาวเหมือนกันหมด) — ให้ UI ตรงกับสิ่งที่จะเกิดหลัง reload ตั้งแต่ตอนกด
+ * ผู้ใช้ไม่มีทางเดาพฤติกรรมนี้เองได้ จึง toast บอกจำนวนใบที่โดนจริงในครั้งแรกที่มันเกิด (ดู groupFavoriteHintShown)
+ *
+ * เขียนคีย์ลง localStorage เฉพาะ item ที่ status = done เท่านั้น (คีย์มี status อยู่ในตัว — ดู favoriteKeyOf)
+ * ผู้ใช้ยังกดดาวใบ cancelled/error ได้ตามปกติ ดาวจะติดใน UI ของเซสชันนี้จริง แต่ไม่ถูกจำข้าม reload
+ * ซึ่งถูกต้องตามความหมาย: ใบที่ไม่มีผลงานจริงไม่มีอะไรให้ "เก็บไว้" และการจำมันไว้คือต้นเหตุของ P2
+ */
+export function toggleFavorite(id: number) {
+  // item ทุกชิ้นที่ถูกสลับค่าจริงในรอบนี้ — เก็บไว้ซิงก์ลง IndexedDB หลัง mutate() จบ (ดู syncFavoriteToGallery)
+  const touched: GenItem[] = [];
+  let hintCount = 0;
+  mutate(s => {
+    for (const mode of Object.keys(s.modes) as Mode[]) {
+      const ms = s.modes[mode];
+      const target = ms.images.find(x => x.id === id);
+      if (!target) continue;
+
+      const key = favoriteKeyOf(target);
+      const next = !target.favorite;
+      for (const it of ms.images) {
+        if (favoriteKeyOf(it) === key) { it.favorite = next; touched.push(it); }
+      }
+      if (touched.length > 1 && !groupFavoriteHintShown) hintCount = touched.length;
+
+      // ใบที่ยังไม่ done ไม่ต้องแตะ localStorage เลย — ดาวของมันเป็นเรื่องของเซสชันนี้เท่านั้น
+      if (target.status !== "done") return;
+
+      // ของที่เพิ่งกดต้องไปอยู่หน้าสุดเสมอ เพราะ saveFavorites ตัด cap จากท้าย = ตัดของเก่าสุดออกก่อน
+      const keys = favoriteKeysFor(mode);
+      keys.delete(key);
+      // ตัด cap ที่นี่ด้วย ไม่ปล่อยให้ saveFavorites ตัดฝ่ายเดียว — ไม่งั้น cache ใน memory จะมีคีย์
+      // ที่ไม่ได้อยู่บนดิสก์จริง แล้ว isRememberedFavorite จะตอบ true ให้คีย์ที่ reload แล้วหายไป (cache หลุดจากดิสก์)
+      const ordered = (next ? [key, ...keys] : [...keys]).slice(0, MAX_FAVORITES_PER_MODE);
+      keys.clear();
+      for (const k of ordered) keys.add(k);
+      saveFavorites(mode, ordered);
+
+      // ประทับ/ลบเวลาให้ตรงกับลิสต์ที่เพิ่งเขียน — pruneOrphanFavorites() ตอน F2 ปิด ใช้ค่านี้ตัดคีย์หมดอายุ
+      const stamps = loadFavoriteStamps();
+      if (next) stamps[key] = Date.now(); else delete stamps[key];
+      // คีย์ที่หลุด cap 300 ไปแล้วไม่มีใครอ้างถึงอีก — เก็บ stamps ให้ตรงกับคีย์ที่มีจริงทุกโหมด ไม่ให้บวมค้าง
+      const alive = new Set((Object.keys(s.modes) as Mode[]).flatMap(m => [...favoriteKeysFor(m)]));
+      for (const k of Object.keys(stamps)) if (!alive.has(k)) delete stamps[k];
+      saveFavoriteStamps(stamps);
+      return;
+    }
+  });
+  if (hintCount > 1) {
+    groupFavoriteHintShown = true;
+    toast(`ดาวผูกกับ prompt + โมเดล + สัดส่วน ไม่ใช่รูปเดี่ยว — รอบนี้จึงติดพร้อมกัน ${hintCount} ใบค่ะ`);
+  }
+  // fire-and-forget หลัง mutate() สำเร็จ — ห้ามเปลี่ยน toggleFavorite เป็น async (Gallery เรียกใน onClick)
+  syncFavoriteToGallery(touched);
+}
+
 // ---------- lightbox ----------
+/**
+ * ชุด id ที่ "มองเห็นอยู่จริง" บนกริดตอนนี้ (หลังผ่านตัวกรอง F3) — Gallery เป็นคนประกาศเข้ามา
+ * null = ไม่มีตัวกรองทำงานอยู่ ให้ทุกอย่างทำงานกับ cur().images เต็มชุดเหมือนเดิม
+ *
+ * เก็บนอก AppState โดยตั้งใจ: เป็น derived view ของ Gallery ล้วน ไม่ใช่ข้อมูลที่ต้อง persist/export
+ * และการเขียนมันไม่ควร trigger re-render (ผู้เขียนคือ Gallery ที่กำลัง render อยู่พอดี)
+ */
+let lightboxVisibleIds: Set<number> | null = null;
+
+/** เรียกจาก Gallery ทุกครั้งที่ชุดผลลัพธ์ที่กรองแล้วเปลี่ยน — ส่ง null เพื่อกลับไปใช้ทั้งแกลเลอรี */
+export function setLightboxScope(ids: Set<number> | null) {
+  lightboxVisibleIds = ids;
+}
+
 export function openLightbox(index: number) {
   mutate(() => { cur().lbIndex = index; });
 }
 export function closeLightbox() {
   mutate(() => { cur().lbIndex = -1; });
 }
+/**
+ * index (อ้าง cur().images) ของทุกชิ้นที่ done แล้ว **และยังอยู่ในชุดที่กรองไว้** — เป็นตัวกำหนดว่าปุ่ม
+ * ถัดไป/ก่อนหน้าใน Lightbox เดินไปไหนได้บ้าง (ดู lbStep) พอมีตัวกรอง ผู้ใช้คาดหวังว่าจะเดินอยู่ในชุดที่เห็น
+ * ไม่ใช่โผล่ไปรูปที่ตัวกรองซ่อนไว้
+ */
 export function doneIndices(): number[] {
-  return cur().images.map((x, i) => (x.status === "done" ? i : -1)).filter(i => i >= 0);
+  const scope = lightboxVisibleIds;
+  return cur().images
+    .map((x, i) => (x.status === "done" && (!scope || scope.has(x.id)) ? i : -1))
+    .filter(i => i >= 0);
 }
 export function lbStep(dir: 1 | -1) {
   const ds = doneIndices();
@@ -1741,6 +2510,250 @@ export function computeItemCost(item: GenItem): number | null {
 export function computeQueueJobCost(mode: Mode, job: QueueJob): number | null {
   const unit = computeCost(mode, job.model, job.audio, job.duration);
   return unit != null ? unit * job.count : null;
+}
+
+/* ============================================================================
+ * F4 — Spend Guard: ledger สะสมข้ามโหมด + gate ก่อนยิง batch
+ * contract เต็มอยู่ที่ types.ts (SpendLedger / SpendConfirmRequest / จุดแทรก gate)
+ * ========================================================================== */
+
+/**
+ * คีย์ของ "รอบการยิงที่จ่ายเงิน" ที่ถูกบวกเข้า `totalUsd` ไปแล้ว — กันนับซ้ำ
+ *
+ * เดิมเป็น `Set<number>` ของ item.id ล้วน (กติกา "หนึ่ง GenItem.id บวกได้ครั้งเดียว") แต่ T24/#6 พบว่า
+ * `retryWithOverride` ใช้ id เดิมทั้งที่ submit request ใหม่และจ่ายเงินจริง จึงเปลี่ยนเป็น `id:attempt`
+ * (ดู spendAttempts) — กติกาที่ถูกต้องคือ "หนึ่ง **รอบการยิงที่จ่ายเงิน** บวกได้ครั้งเดียว"
+ *
+ * ทำไมเป็น Set ระดับ module ไม่ใช่ re-scan gallery: item เดินทาง loading → done และอาจถูก evict/ลบทิ้ง
+ * ระหว่างทาง การ sum ใหม่จาก gallery ทุกครั้งจะทำให้ยอดหดลงเองตอน eviction ทั้งที่เงินจ่ายไปแล้ว
+ * ledger ต้อง monotonic — ตัวนับที่ถูกต้องคือ "เคยบวก id นี้หรือยัง" ไม่ใช่ "ตอนนี้ยังเห็น item อยู่ไหม"
+ *
+ * Set นี้เป็น session-scoped โดยตั้งใจ (ไม่ persist): `totalUsd` ที่ persist ไว้แล้วรวมยอดของ session ก่อนไว้ครบ
+ * การนับของ session ใหม่จึงเริ่มจากศูนย์แล้วบวกทับยอดเดิมต่อ ไม่ใช่นับซ้ำของเก่า
+ */
+const spendCountedIds = new Set<string>();
+
+/**
+ * T24/#6: รอบการยิงที่ "จ่ายเงินใหม่จริง" ของแต่ละ item — key เป็น item.id, ค่าเริ่มต้น 0 (รอบแรก)
+ *
+ * ปัญหาที่แก้: `retryWithOverride` เปลี่ยนโมเดล/ratio แล้ว submit request ใหม่ทั้งใบ (มันลบ jobId ทิ้งด้วย
+ * ตัวเอง เพราะ job เดิม resume ต่อกับโมเดลใหม่ไม่ได้) = จ่ายเงินอีกรอบเต็มราคาของโมเดลใหม่ แต่ item.id
+ * ยังเป็นตัวเดิม — guard ที่เช็คแค่ id จึงมองว่า "นับไปแล้ว" แล้วข้ามทิ้ง ledger เลยต่ำกว่าความจริงเรื่อยๆ
+ * ($0.01 → retry ไปโมเดล $0.50 ledger ยังคง $0.01 ทั้งที่จ่าย $0.51) แล้ว gate ก็ปล่อยผ่านทั้งที่เลยเพดาน
+ * = ตรงข้ามกับเจตนาของฟีเจอร์
+ *
+ * === เส้นแบ่ง "ยิงใหม่" กับ "resume" ===
+ * ตัวนับนี้ถูก bump **เฉพาะจุดที่รู้แน่ว่าเป็น request ใหม่ที่ต้องจ่ายเพิ่ม** — เกณฑ์ตัดสินคือ jobId:
+ *  - `retryWithOverride` เปลี่ยนโมเดล/ratio แล้วลบ jobId ทิ้งเอง = submit ใหม่เสมอ → bump เสมอ
+ *  - `retry()` ธรรมดา bump **ต่อเมื่อไม่มี jobId** เท่านั้น — item ที่ยังมี jobId ค้างจะถูก requestVideo
+ *    resume ต่อของเดิม ไม่ submit ใหม่ ไม่จ่ายเพิ่ม (label "ทำต่อ (ไม่เสียเงินเพิ่ม)" บนการ์ด) การ bump
+ *    ตรงนั้นจะกลายเป็นนับซ้ำทันที
+ *  - `generate()`/`runBakeOff()`/`regenerateFromItem()` สร้าง item ใหม่พร้อม id ใหม่จาก `++s.seq` อยู่แล้ว
+ *    รอบแรกของ id ใหม่จึงเป็น attempt 0 ที่ยังไม่เคยถูกนับ ไม่ต้อง bump
+ *
+ * เก็บนอก GenItem โดยตั้งใจ (เหตุผลเดียวกับ persistKeys): เป็นบัญชีของ ledger ล้วนๆ ไม่ใช่ข้อมูลของ item
+ * ไม่ต้อง export / ไม่ต้องเข้า session snapshot / UI ไม่ต้องเห็น — และ types.ts อยู่นอกขอบเขตงานนี้
+ */
+const spendAttempts = new Map<number, number>();
+
+/** คีย์ของ ledger สำหรับ item ณ รอบการยิงปัจจุบัน */
+function spendKeyOf(item: GenItem): string {
+  return item.id + ":" + (spendAttempts.get(item.id) ?? 0);
+}
+
+/**
+ * ประกาศว่า item นี้กำลังจะถูกยิงเป็น request ใหม่ที่ต้องจ่ายเงินเพิ่ม — เรียก **ก่อน** scheduleRequest() เสมอ
+ * (recordSpend อ่านตัวนับตอนได้ slot ของ governor ซึ่งเกิดทีหลัง จึงต้อง bump ให้เสร็จก่อนเข้าคิว)
+ */
+function markNewPaidAttempt(item: GenItem) {
+  spendAttempts.set(item.id, (spendAttempts.get(item.id) ?? 0) + 1);
+}
+
+/** ledger ปัจจุบันแบบรับประกันว่ามีค่า — `spendLedger` เป็น optional ใน AppState (build ที่ยังไม่ wire F4) */
+function ledger(): SpendLedger {
+  if (!state.spendLedger) state.spendLedger = freshSpendLedger();
+  return state.spendLedger;
+}
+
+/** ledger สำหรับฝั่งอ่าน (UI) — ไม่สร้างใหม่/ไม่ mutate state ตอนอ่านเฉยๆ */
+export function getSpendLedger(): SpendLedger | undefined {
+  return state.spendLedger;
+}
+
+/**
+ * บันทึกยอดของ item หนึ่งชิ้นเข้า ledger — เรียก ณ จุดที่ request "ถูกยิงออกไปจริง" เท่านั้น
+ * (`scheduleRequest.run()` ตอนได้ slot ของ governor) ไม่ใช่ตอนสร้าง item และไม่ใช่ตอน done
+ *
+ * เหตุผลของจุดนี้ตามสัญญา: item ที่ยังนอนรอ slot อยู่ยังไม่มี fetch เกิดขึ้น = ยังไม่เสียเงิน แต่ถ้ารอ done
+ * ค่อยนับ ผู้ใช้ยิง 30 ชิ้นรวดเดียวจะผ่าน gate ทั้งชุดเพราะยอดยังเป็น 0 — บั๊กที่ฟีเจอร์นี้มีไว้แก้พอดี
+ *
+ * ครอบทุก path ที่เสียเงินโดยอัตโนมัติ เพราะ generate / runBakeOff / retry / regenerate / resume
+ * เดินผ่าน scheduleRequest หมด — รวมถึง Bake-off ที่ไม่ถูก gate ("ไม่ gate ≠ ไม่นับ")
+ *
+ * เกณฑ์ตามสัญญาถูกครอบด้วยจุดเรียกนี้ทั้งหมด: done/loading-ที่ยิงแล้ว นับตอนได้ slot, cancelled/error ที่มี
+ * jobId ก็เคยผ่านจุดนี้มาแล้วจึงนับไปแล้ว ส่วน cancelled ที่ไม่มี jobId (ถูก drop ตอนยังรอคิว) ไม่เคยถึงจุดนี้
+ * จึงไม่ถูกนับ — ตรงตามกติกาโดยไม่ต้องแยกเช็ค status ที่ไหนเลย
+ *
+ * `computeItemCost()` คืน null = คำนวณราคาไม่ได้ → เข้า `unknownCostCount` **ห้ามบวก 0 เข้า totalUsd**
+ * ไม่งั้นยอดจะต่ำกว่าความจริงเงียบๆ แล้ว gate จะปล่อยผ่านทั้งที่เลยเพดานไปแล้ว
+ */
+function recordSpend(item: GenItem) {
+  // T24/#6: คีย์เป็น "id + รอบการยิง" ไม่ใช่ id เปล่า — ดู spendAttempts/markNewPaidAttempt
+  const key = spendKeyOf(item);
+  if (spendCountedIds.has(key)) return; // บวกไปแล้ว (retry ที่ resume job เดิมก็ไม่นับซ้ำ)
+  spendCountedIds.add(key);
+  const cost = computeItemCost(item);
+  const l = ledger();
+  if (cost == null) l.unknownCostCount++;
+  else l.totalUsd += cost;
+  saveSpendLedger(l);
+  mutate();
+}
+
+/**
+ * ยอดประเมินของ batch ที่กำลังจะยิง — คืน `unknown` แยกจาก `usd` เสมอ ห้ามยุบ null เป็น 0
+ * ใช้ `computeQueueJobCost()` เดิม (ซึ่งเรียก `computeCost()` ตัวเดียวกับ usage bar) ไม่เขียนสูตรราคาใหม่
+ */
+function estimateJobsCost(mode: Mode, jobs: QueueJob[]): { usd: number; unknown: number; items: number } {
+  let usd = 0, unknown = 0, items = 0;
+  for (const job of jobs) {
+    items += job.count;
+    const c = computeQueueJobCost(mode, job);
+    if (c == null) unknown += job.count;
+    else usd += c;
+  }
+  return { usd, unknown, items };
+}
+
+/**
+ * ตัดสินว่า batch นี้ต้องให้ผู้ใช้ยืนยันก่อนหรือไม่ — คืน `SpendConfirmRequest` เมื่อต้องถาม, `null` เมื่อผ่านเลย
+ * แยกออกมาเป็นฟังก์ชันที่ไม่ mutate อะไร เพื่อให้อ่านซ้ำ/ทดสอบได้โดยไม่มี side effect
+ *
+ * `capUsd === undefined` = ยังไม่ได้ตั้งเพดาน = ปิดฟีเจอร์ → คืน null ทันที
+ * เช็คด้วย `=== undefined` ตรงๆ **ห้าม `!capUsd` หรือ `capUsd || DEFAULT`** เพราะ `capUsd === 0` คือ
+ * "ถามฉันทุกครั้ง" ซึ่งเป็นเคสเข้มที่สุด ถ้าใช้ truthiness จะถูกกลืนเป็นเคสปิดฟีเจอร์พอดี (ตรงข้ามกันสุดขั้ว)
+ */
+export function evaluateSpendGate(mode: Mode, jobs: QueueJob[]): SpendConfirmRequest | null {
+  const l = ledger();
+  const cap = l.capUsd;
+  if (cap === undefined) return null; // ปิดฟีเจอร์ — ผู้ใช้ใหม่ต้องไม่เจอโมดัลโผล่มากวน
+  const est = estimateJobsCost(mode, jobs);
+  const base = {
+    itemCount: est.items,
+    batchUsd: est.usd,
+    batchUnknownCount: est.unknown,
+    ledgerUsd: l.totalUsd,
+    capUsd: cap,
+  };
+  // ยอดสะสมเดิมเลยเพดานไปก่อนหน้านี้แล้ว — เหตุผลนี้มาก่อน over-cap เพราะข้อความในโมดัลคนละแบบ
+  if (l.totalUsd > cap) return { ...base, reason: "already-over" };
+  if (l.totalUsd + est.usd > cap) return { ...base, reason: "over-cap" };
+  // ยังไม่เกินเพดาน "เท่าที่คำนวณได้" แต่มี item ที่ไม่ทราบราคาปนอยู่ → ยืนยันยอดไม่ได้ ต้องถาม
+  // ห้ามตีความว่า "ไม่ทราบราคา = ฟรีจึงผ่าน" เด็ดขาด
+  if (est.unknown > 0) return { ...base, reason: "unknown-cost" };
+  return null;
+}
+
+/**
+ * `jobs[]` ที่ถูก gate กันไว้ รอผู้ใช้ตัดสินใจ — เก็บนอก AppState เพราะ `SpendConfirmRequest` เก็บแค่ตัวเลข
+ * สำหรับแสดงผล (snapshot ที่ serialize ได้) ส่วน jobs จริงมี `refs` เป็น data URL ก้อนใหญ่ ไม่ควรไหลเข้า
+ * state ที่ถูก autosave ลง localStorage ทุก 30 วินาที
+ *
+ * `fromQueue` จำไว้ว่า batch นี้มาจากคิวหรือมาจาก prompt ปัจจุบัน — ตัวตัดสินว่าตอนยกเลิกต้องคืนคิวไหม
+ */
+let pendingSpendJobs: { mode: Mode; jobs: QueueJob[]; fromQueue: boolean; parentId: number | null } | null = null;
+
+/**
+ * flag bypass ของรอบยืนยัน — pattern เดียวกับ Bake-off: ปุ่มยืนยันเรียก `generate()` **ซ้ำ** โดยข้าม gate
+ * แทนที่จะทำให้ `generate()` เป็น async แล้ว await โมดัล (จะได้ floating promise ที่ caller ทั้งสองไม่ handle)
+ *
+ * เป็น one-shot: `generate()` เคลียร์ทิ้งทันทีที่อ่าน จึงไม่มีทางค้างไปข้าม gate ของครั้งถัดไป
+ */
+let bypassSpendGate = false;
+
+/**
+ * parentId ของ "Refine this" ที่ค้างมาจากรอบที่ถูก gate — `generate()` เคลียร์ `refiningParentId` ทิ้งตั้งแต่
+ * รอบแรกไปแล้ว (โดยตั้งใจ กันค้างไปผูกกับ generate ครั้งถัดไป) รอบ bypass จึงต้องอ่านค่าจากที่นี่แทน
+ * one-shot เหมือนกัน: `confirmSpend` เคลียร์ทิ้งทันทีหลัง `generate()` คืนค่า
+ */
+let pendingSpendParentId: number | null = null;
+
+/**
+ * ปุ่ม "ยืนยัน" ในโมดัล — ปิดโมดัลแล้วยิง generate() รอบสองในโหมด bypass (ไม่ถามซ้ำ)
+ *
+ * คืน `jobs[]` ที่ snapshot ไว้กลับเข้าคิวก่อนเรียก generate() **เฉพาะเคสที่ batch มาจากคิวจริง** เพื่อให้
+ * generate() รอบสองเดินสาขาเดิมกับรอบแรกเป๊ะๆ และยิง jobs ชุดเดียวกับที่คำนวณราคาไว้ ไม่ใช่ชุดใหม่ที่ผู้ใช้
+ * อาจแก้ prompt/count ไประหว่างโมดัลเปิดอยู่ (snapshot ไม่ live-bind ตามสัญญาของ SpendConfirmRequest)
+ *
+ * เคสที่มาจาก prompt **ห้าม** ยัดเข้าคิว: generate() รอบสองจะเห็นคิวไม่ว่างแล้วเดินสาขาคิวแทน ซึ่งทำให้
+ * `parentId` ของ "Refine this" กลายเป็น null (บรรทัด `!ms.queue.length ? ms.refiningParentId : null`)
+ * = สายพันธุ์ที่ผู้ใช้ตั้งใจต่อยอดขาดหายไปเงียบๆ — เคสนี้ปล่อยให้ generate() ประกอบ job จาก prompt เองตามเดิม
+ * โดยมี `pendingSpendParentId` พา parentId เดิมข้ามมาให้
+ */
+export function confirmSpend() {
+  if (!state.spendConfirm) return;
+  const pending = pendingSpendJobs;
+  pendingSpendJobs = null;
+  mutate(s => { s.spendConfirm = null; });
+  if (!pending) return;
+  pendingSpendParentId = pending.parentId;
+  bypassSpendGate = true;
+  // T24/#4: ส่ง snapshot (โหมดต้นทาง + jobs ที่โมดัลคิดราคาไว้) เข้าไปตรงๆ แทนการคืนคิวแล้วหวังว่า
+  // generate() จะอ่านเจอผ่าน cur() — ซึ่งพังทันทีถ้าผู้ใช้สลับโหมดขณะโมดัลเปิดค้าง (ยิง 0 งาน เงียบสนิท)
+  runGenerate({ mode: pending.mode, jobs: pending.jobs });
+  pendingSpendParentId = null;
+}
+
+/**
+ * ปุ่ม "ยกเลิก"/ปิดโมดัล — เคลียร์ทิ้งโดยไม่ยิงอะไร
+ *
+ * **ต้องคืนคิวกลับ**: สาขา "ยิงจากคิว" ใน generate() ทำ `ms.queue = []` ไปก่อนถึง gate แล้ว ถ้าไม่คืน
+ * ผู้ใช้ที่กดยกเลิกจะเสียคิวทั้งชุดไปเงียบๆ โดยไม่มีอะไรบอก — คืนจาก jobs[] ที่ snapshot ไว้ตอน gate เด้ง
+ * (เฉพาะ fromQueue เท่านั้น — batch ที่ยิงตรงจาก prompt ไม่เคยอยู่ในคิว การใส่เข้าไปจะเป็นการเพิ่มของใหม่)
+ */
+export function cancelSpend() {
+  const pending = pendingSpendJobs;
+  pendingSpendJobs = null;
+  mutate(s => {
+    s.spendConfirm = null;
+    if (pending?.fromQueue) s.modes[pending.mode].queue = pending.jobs;
+  });
+  if (pending?.fromQueue) toast("ยกเลิกแล้วค่ะ คิวถูกคืนกลับให้เรียบร้อย");
+}
+
+/** ตั้งเพดานใหม่ — `null` = ล้างเพดานทิ้ง (ปิดฟีเจอร์) ส่วน `0` = โหมดถามทุกครั้ง ค่าเสีย/ติดลบถูกปฏิเสธ */
+export function setSpendCap(cap: number | null) {
+  const l = ledger();
+  if (cap === null) {
+    delete l.capUsd;
+  } else {
+    if (!Number.isFinite(cap) || cap < 0) { toast("เพดานต้องเป็นตัวเลขไม่ติดลบค่ะ"); return; }
+    l.capUsd = cap;
+  }
+  saveSpendLedger(l);
+  mutate();
+  toast(cap === null ? "ปิดการเตือนค่าใช้จ่ายแล้วค่ะ" : `ตั้งเพดานไว้ที่ $${cap.toFixed(2)} แล้วค่ะ`);
+}
+
+/**
+ * ล้างยอดสะสม — ต้อง reset `totalUsd`/`unknownCostCount`/`startedAt` **พร้อมกันทั้งสามค่า**
+ * (reset ยอดแต่ไม่ reset เวลา = ยอดที่อ่านผิดความหมาย) ส่วนเพดานที่ตั้งไว้คงเดิม ไม่ใช่สิ่งที่ผู้ใช้สั่งล้าง
+ *
+ * `spendCountedIds` ต้องล้างด้วย ไม่งั้น item ที่ยิงไปแล้วในรอบก่อนจะกันไม่ให้ id เดิมถูกนับซ้ำอีกตลอดไป
+ * ซึ่งไม่เป็นปัญหาในทางปฏิบัติ (id ไม่ถูกใช้ซ้ำ) แต่ปล่อยให้ Set โตไปเรื่อยๆ โดยไม่มีเหตุผล
+ */
+export function resetSpendLedger() {
+  const cap = ledger().capUsd;
+  spendCountedIds.clear();
+  // คู่กับ spendCountedIds เสมอ — ล้างอันเดียวแล้วเหลืออีกอันจะทำให้ item ที่เคย retry ไปแล้วเริ่มนับ
+  // จากรอบที่ค้างอยู่ ซึ่งไม่ผิดผลลัพธ์ (Set ว่างแล้ว) แต่ปล่อย Map โตทิ้งไว้โดยไม่มีเหตุผล
+  spendAttempts.clear();
+  const next = freshSpendLedger();
+  if (cap !== undefined) next.capUsd = cap;
+  state.spendLedger = next;
+  saveSpendLedger(next);
+  mutate();
+  toast("ล้างยอดสะสมแล้วค่ะ");
 }
 
 // ---------- export / import session ----------

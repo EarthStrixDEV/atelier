@@ -12,6 +12,7 @@ import RestoreBanner from "../components/RestoreBanner";
 import ShortcutsModal from "../components/ShortcutsModal";
 import CompareModal from "../components/CompareModal";
 import BakeOffConfirmModal from "../components/BakeOffConfirmModal";
+import SpendGuardModal from "../components/SpendGuardModal";
 import Toast from "../components/Toast";
 import { autosaveSessionSnapshot, checkSavedAutoSaveDir, loadModels, loadVideoModels, reconcilePendingJobs } from "../lib/actions";
 import { releaseAllBlobUrls } from "../lib/blobUrls";
@@ -70,6 +71,7 @@ export default function StudioApp() {
       <ShortcutsModal />
       <CompareModal />
       <BakeOffConfirmModal />
+      <SpendGuardModal />
       <Toast />
     </div>
   );

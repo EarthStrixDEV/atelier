@@ -1,17 +1,18 @@
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from "react-window";
 import {
-  Check, ChevronDown, CircleAlert, Clapperboard, Clock, Columns2, Copy, Crosshair, Download, FastForward, HardDriveDownload,
-  ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Sparkles, Video, Wand2, X,
+  ArrowDownWideNarrow, Ban, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Columns2, Copy, Crosshair, Download, FastForward,
+  HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Search, Sparkles, Star, Trash2, Video,
+  Wand2, X,
 } from "lucide-react";
 import { MODE_META, RATIOS, isVideoMode } from "../lib/constants";
 import {
   autoExtendFromLastFrame, canCompareItem, canRefineItem, canStartFrom, cinematicChains, clearSelection,
   copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, modelsForMode, openCompare,
-  openExtendTool, openLightbox, refineItem, regenerateFromItem, retry, retryWithOverride, startFromItem,
-  toggleSelect, useAsVideoFirstFrame,
+  openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryWithOverride,
+  setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
 } from "../lib/actions";
-import { state, useApp } from "../lib/store";
+import { state, toast, useApp } from "../lib/store";
 import type { GenItem, Mode } from "../lib/types";
 import { isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
 import PromptComposer from "./PromptComposer";
@@ -170,7 +171,12 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
 
   const columnCount = columnCountForWidth(width);
   const rowCount = Math.max(1, Math.ceil(items.length / columnCount));
-  const { focusedId, onFocusCard, onArrowKey, onEnterKey } = useGalleryFocus(items, columnCount, listRef, mode);
+  // onEnterKey ของ useGalleryFocus เรียก openLightbox(index) ตรงๆ ด้วย index ของ `items` ที่ hook ถืออยู่ ซึ่งตอนนี้
+  // เป็น "ลิสต์ที่ผ่านตัวกรองแล้ว" ไม่ใช่ cur().images — กด Enter ตอนเปิดตัวกรองจึงเปิดรูปผิดใบ
+  // hook เป็นเขตของ roving tabindex (branch a11y) ห้ามแก้ข้างใน จึงทับที่ call site นี้ด้วย onOpen เดิมที่
+  // Gallery ส่งลงมาอยู่แล้ว (openFiltered — map visibleIndex → id → realIndex) ให้ Enter กับคลิกเดินทางเดียวกันเป๊ะ
+  const { focusedId, onFocusCard, onArrowKey } = useGalleryFocus(items, columnCount, listRef, mode);
+  const onEnterKey = onOpen;
 
   const onResize = useCallback((size: { width: number; height: number }) => {
     setWidth(size.width);
@@ -388,6 +394,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
   const isVid = isVideoMode(item.mode) && !isImageDataUrl(item.url);
   const isAud = item.mode === "audio";
   const done = item.status === "done";
+  const favorite = !!item.favorite;
   // Extend/Extend-จากเฟรมสุดท้าย ต้องมีวิดีโอจริงให้จับเฟรม — ซ่อนทั้งคู่บน synthetic root ที่ยังไม่มีวิดีโอ (url เป็นภาพนิ่ง/ไม่มี)
   const isCinematicVideoScene = item.mode === "cinematic" && !!item.url && !isImageDataUrl(item.url);
   const [retryPanelOpen, setRetryPanelOpen] = useState(false);
@@ -489,6 +496,22 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
             >
               <Check size={14} />
             </button>
+            <button
+              className={
+                "grid h-6 w-6 cursor-pointer place-items-center rounded-md border transition-all " +
+                // on/off ต่างกันที่ "สี border+พื้น+ตัวไอคอน" และ fill ของดาว (โปร่ง vs ทึบ) ไม่ใช่แค่ opacity
+                // ปุ่มที่ favorite แล้วต้องเห็นตลอดแม้ไม่ hover ไม่งั้นผู้ใช้ไล่หาของที่ mark ไว้บนกริดไม่เจอ
+                (favorite
+                  ? "border-accent bg-accent text-accent-ink opacity-100"
+                  : "border-white/15 bg-[rgba(10,10,10,.72)] text-white opacity-0 backdrop-blur-sm group-hover:opacity-100")
+              }
+              title={favorite ? "เอาออกจากรายการโปรด" : "เพิ่มเข้ารายการโปรด"}
+              aria-pressed={favorite}
+              aria-label={(favorite ? "เอาออกจากรายการโปรด: " : "เพิ่มเข้ารายการโปรด: ") + item.prompt}
+              onClick={e => { e.stopPropagation(); toggleFavorite(item.id); }}
+            >
+              <Star size={13} fill={favorite ? "currentColor" : "none"} />
+            </button>
           </div>
         )}
 
@@ -554,6 +577,40 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
 
         {item.status === "error" && retryPanelOpen && (
           <RetryOverridePanel item={item} onClose={() => setRetryPanelOpen(false)} />
+        )}
+
+        {/*
+          F1 — การ์ด "ยกเลิกแล้ว" (contract จาก types.ts:15 สั่งให้ Gallery Card เพิ่ม branch นี้เอง)
+          โทนกลางๆ ตั้งใจ **ไม่ใช้ text-danger/border-danger** เพราะผู้ใช้กดยกเลิกเอง = เจตนา ไม่ใช่ความล้มเหลว
+          (เหตุผลเต็มอยู่ที่ types.ts:12-14) จึงใช้ text-text-dim + ไอคอน Ban แทนสีแดงเตือนภัย
+          เงินที่จ่ายไปแล้ว: งานวิดีโอจ่ายตั้งแต่ POST /videos ถ้า item ยังถือ jobId อยู่ (finalizeCancelled
+          ไม่แตะ jobId — INVARIANT ที่ actions.ts:1132-1134) การกด "ทำต่อ" จะ resume job เดิม ไม่จ่ายซ้ำ
+        */}
+        {item.status === "cancelled" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-[18px] text-center">
+            <Ban size={20} strokeWidth={1.6} className="text-text-faint" />
+            <div className="text-[11.5px] leading-normal text-text-dim">
+              {item.cancelReason === "shutdown"
+                ? "งานถูกยกเลิกตอนปิดหน้าเว็บ"
+                : item.cancelReason === "user-all"
+                ? "ยกเลิกแล้ว (ยกเลิกทั้งหมด)"
+                : "ยกเลิกแล้ว"}
+            </div>
+            {/* ข้อความเรื่องเงิน — โทนเดียวกับ timeout path ที่ actions.ts:1596 โชว์เฉพาะตอนยัง resume ได้จริง */}
+            {item.jobId && (
+              <div className="text-[10.5px] leading-normal text-text-faint">
+                กด "ทำต่อ" เพื่อเช็คงานเดิมต่อได้ค่ะ (ไม่เสียเงินเพิ่ม)
+              </div>
+            )}
+            <button
+              className="mt-0.5 flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
+              title={item.jobId ? "ทำงานเดิมต่อจาก job ที่จ่ายเงินไปแล้ว" : "เริ่มงานนี้ใหม่"}
+              aria-label={(item.jobId ? "ทำงานเดิมต่อ: " : "สร้างใหม่: ") + item.prompt}
+              onClick={e => { e.stopPropagation(); retry(item); }}
+            >
+              <RotateCcw size={11} /> {item.jobId ? "ทำต่อ" : "สร้างใหม่"}
+            </button>
+          </div>
         )}
 
         {done && startFromOpen && (
@@ -676,7 +733,14 @@ function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): b
     a.autoSaveStatus === b.autoSaveStatus &&
     a.autoSaveErrMsg === b.autoSaveErrMsg &&
     a.duration === b.duration &&
-    a.audio === b.audio
+    a.audio === b.audio &&
+    // การ์ด cancelled สลับ label ปุ่ม ("ทำต่อ" vs "สร้างใหม่") และ gate ข้อความ "ไม่เสียเงินเพิ่ม" จาก jobId
+    // ส่วนข้อความสถานะเลือกจาก cancelReason — ทั้งคู่จึงต้องอยู่ใน comparator ไม่งั้นการ์ดค้าง label เดิม
+    // แล้วผู้ใช้เห็นไม่ตรงกับสิ่งที่ retry() จะทำจริง (ทางลงเอยคือจ่ายเงินซ้ำ)
+    a.jobId === b.jobId &&
+    a.cancelReason === b.cancelReason &&
+    // ไม่มีบรรทัดนี้ = กดดาวแล้วการ์ดไม่ repaint เพราะ item ถูก mutate in-place (reference เดิม) — ดู comment ด้านบน
+    !!a.favorite === !!b.favorite
   );
 }
 
@@ -746,6 +810,29 @@ function StoryboardStrip() {
   );
 }
 
+/** ตัวกรองสถานะของ F3 — "all" = ไม่กรอง, ค่าที่เหลือ map ตรงกับ GenItem.status */
+type StatusFilter = "all" | "done" | "error" | "loading" | "cancelled";
+type SortOrder = "newest" | "oldest";
+
+const STATUS_CHIPS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "ทั้งหมด" },
+  { value: "done", label: "สำเร็จ" },
+  { value: "loading", label: "กำลังสร้าง" },
+  { value: "error", label: "ล้มเหลว" },
+  // F5 — ถ้าไม่มี chip นี้ item ที่ cancelled จะหาเจอได้แค่ใน "ทั้งหมด" เท่านั้น (ตัวกรองที่ :845 เทียบ status ตรงๆ)
+  { value: "cancelled", label: "ยกเลิกแล้ว" },
+];
+
+/** สไตล์ chip ร่วมของแถบ filter — on/off ต่างกันที่สีพื้น+เส้นขอบ+สีตัวอักษร ไม่ใช่แค่ opacity */
+function chipClass(on: boolean): string {
+  return (
+    "flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors " +
+    (on
+      ? "border-accent bg-accent text-accent-ink"
+      : "border-border-strong bg-surface text-text-dim hover:border-accent hover:text-text")
+  );
+}
+
 export default function Gallery() {
   const s = useApp();
   const ms = s.modes[s.mode];
@@ -773,6 +860,79 @@ export default function Gallery() {
     if (newestId != null) listRef.current?.scrollToRow({ index: 0, align: "start", behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newestId]);
+
+  // ---- F3: Gallery filter (T12 = local state ล้วน ยังไม่ persist — T13 จะย้ายไป store + wire index mapping ต่อ) ----
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [favOnly, setFavOnly] = useState(false);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+
+  // สลับโหมดแล้วตัวกรองเดิมไม่มีความหมายกับกริดชุดใหม่ (คนละ item คนละ prompt) — รีเซ็ตทิ้งเหมือนที่ optimizer ทำ
+  useEffect(() => {
+    setQuery("");
+    setStatusFilter("all");
+    setFavOnly(false);
+    setSortOrder("newest");
+  }, [s.mode]);
+
+  const filterActive = query.trim() !== "" || statusFilter !== "all" || favOnly || sortOrder !== "newest";
+
+  // ms.images เรียงใหม่→เก่าอยู่แล้ว (item ใหม่ถูก unshift ขึ้นหัว) — "newest" จึงคงลำดับเดิม, "oldest" แค่กลับด้าน
+  // toSorted/reverse บน copy เสมอ ห้าม mutate ms.images ตรงๆ เพราะเป็น state จริงใน store
+  const visibleItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let out = ms.images.filter(x => {
+      if (favOnly && !x.favorite) return false;
+      if (statusFilter !== "all" && x.status !== statusFilter) return false;
+      if (q && !x.prompt.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    if (sortOrder === "oldest") out = [...out].reverse();
+    return out;
+  }, [ms.images, query, statusFilter, favOnly, sortOrder]);
+
+  const favCount = ms.images.filter(x => !!x.favorite).length;
+
+  // Lightbox เดินหน้า/ถอยหลังผ่าน doneIndices() ใน actions.ts ซึ่งเดิมไล่ cur().images ทั้งชุด — ผู้ใช้ที่กรองอยู่
+  // จะกดลูกศรแล้วหลุดไปรูปที่ตัวกรองซ่อนไว้ ประกาศชุด id ที่มองเห็นจริงให้ actions รู้ แทนที่จะไปแก้ Lightbox.tsx
+  // (อยู่คนละ branch) — ส่ง null ตอนไม่มีตัวกรองทำงาน เพื่อให้พฤติกรรมเดิมไม่เปลี่ยนเลยแม้แต่นิดเดียว
+  useEffect(() => {
+    setLightboxScope(filterActive ? new Set(visibleItems.map(x => x.id)) : null);
+    return () => setLightboxScope(null);
+  }, [filterActive, visibleItems]);
+
+  // VirtualGrid ส่ง index ของ "ลิสต์ที่มองเห็น" กลับมา แต่ openLightbox เก็บ lbIndex ที่อ้าง cur().images ตรงๆ
+  // (ดู doneIndices/lbStep ใน actions.ts) — พอมีตัวกรองสองอันนี้ไม่ตรงกันแล้ว ต้อง map กลับก่อนเสมอ
+  const openFiltered = useCallback((visibleIndex: number) => {
+    const target = visibleItems[visibleIndex];
+    if (!target) return;
+    const realIndex = ms.images.findIndex(x => x.id === target.id);
+    if (realIndex >= 0) openLightbox(realIndex);
+  }, [visibleItems, ms.images]);
+
+  const resetFilters = () => {
+    setQuery("");
+    setStatusFilter("all");
+    setFavOnly(false);
+    setSortOrder("newest");
+  };
+
+  // ล้างแกลเลอรี = destructive และกู้คืนไม่ได้ (media เป็น memory-only ทั้งหมด) — ต้องยืนยันก่อนเสมอ
+  // ข้าม item ที่ติดดาวไว้: ผู้ใช้กดดาว = ตั้งใจเก็บ การล้างทั้งกระดานไม่ควรลบของที่เพิ่งบอกว่าอยากเก็บ
+  // resetModeGallery เป็นคน revoke blob URL ให้เฉพาะชิ้นที่ถูกลบจริง (ดู actions.ts) การ์ดที่ติดดาวจึงยังเล่นต่อได้
+  const clearableCount = ms.images.filter(x => !x.favorite).length;
+
+  const clearGallery = () => {
+    if (!clearableCount) return;
+    const question = favCount
+      ? `ลบผลงาน ${clearableCount} ชิ้นในโหมดนี้ออกจากแกลเลอรีใช่ไหมคะ?
+(${favCount} ชิ้นที่ติดดาวไว้จะถูกเก็บไว้ ส่วนที่เหลือกู้คืนไม่ได้)`
+      : `ลบผลงานทั้ง ${clearableCount} ชิ้นในโหมดนี้ออกจากแกลเลอรีใช่ไหมคะ? กู้คืนไม่ได้นะคะ`;
+    if (!window.confirm(question)) return;
+    const removed = resetModeGallery(s.mode);
+    resetFilters();
+    toast(favCount ? `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ (เก็บรายการโปรดไว้ ${favCount} ชิ้น)` : `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ`);
+  };
 
   return (
     <main aria-label={meta.title} className="relative flex min-w-0 flex-1 overflow-hidden">
@@ -820,6 +980,88 @@ export default function Gallery() {
         </div>
       </div>
 
+      {/*
+        แถบ filter — `shrink-0` ทำให้ไม่หดและไม่ scroll หายไปกับกริด: scroll container จริงเป็นของ react-window List
+        ที่อยู่ข้างใน VirtualGrid (overflow-y-auto ของตัวเอง) ส่วนกล่องนี้เป็น flex child พี่น้องกันในคอลัมน์เดียวกัน
+        จึงอยู่นิ่งตลอดโดยไม่ต้องใช้ position: sticky เลย
+      */}
+      {!!ms.images.length && (
+        <div className="mb-3.5 flex shrink-0 flex-wrap items-center gap-2" role="search" aria-label="กรองผลงานในแกลเลอรี">
+          <label className="relative flex min-w-[180px] flex-1 items-center">
+            <Search size={13} className="pointer-events-none absolute left-2.5 text-text-faint" />
+            <input
+              type="search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="ค้นหาจาก prompt…"
+              aria-label="ค้นหาผลงานจากข้อความใน prompt"
+              className="w-full rounded-full border border-border-strong bg-surface py-1.5 pl-8 pr-3 text-[11.5px] text-text placeholder:text-text-faint transition-colors hover:border-accent"
+            />
+          </label>
+
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="กรองตามสถานะ">
+            {STATUS_CHIPS.map(c => (
+              <button
+                key={c.value}
+                className={chipClass(statusFilter === c.value)}
+                aria-pressed={statusFilter === c.value}
+                onClick={() => setStatusFilter(c.value)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            className={chipClass(favOnly)}
+            aria-pressed={favOnly}
+            title={favCount ? `แสดงเฉพาะรายการโปรด (${favCount} ชิ้น)` : "ยังไม่มีรายการโปรด — กดดาวบนการ์ดเพื่อเพิ่ม"}
+            aria-label="แสดงเฉพาะรายการโปรด"
+            onClick={() => setFavOnly(v => !v)}
+          >
+            <Star size={11} fill={favOnly ? "currentColor" : "none"} /> โปรด{favCount ? ` (${favCount})` : ""}
+          </button>
+
+          <button
+            className={chipClass(sortOrder === "oldest")}
+            title="สลับลำดับการเรียงการ์ดในแกลเลอรี"
+            aria-label={sortOrder === "newest" ? "เรียงใหม่สุดก่อน — กดเพื่อสลับเป็นเก่าสุดก่อน" : "เรียงเก่าสุดก่อน — กดเพื่อสลับเป็นใหม่สุดก่อน"}
+            onClick={() => setSortOrder(v => (v === "newest" ? "oldest" : "newest"))}
+          >
+            <ArrowDownWideNarrow size={11} /> {sortOrder === "newest" ? "ใหม่สุดก่อน" : "เก่าสุดก่อน"}
+          </button>
+
+          <button
+            className="ml-auto flex cursor-pointer items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-danger hover:text-danger"
+            title={
+              favCount
+                ? `ลบผลงานในโหมดนี้ที่ไม่ได้ติดดาว (${clearableCount} ชิ้น) — ${favCount} ชิ้นที่ติดดาวจะถูกเก็บไว้`
+                : "ลบผลงานทั้งหมดในโหมดนี้ออกจากแกลเลอรี"
+            }
+            aria-label="ล้างแกลเลอรีของโหมดนี้"
+            disabled={!clearableCount}
+            onClick={clearGallery}
+          >
+            <Trash2 size={11} /> ล้างแกลเลอรี
+          </button>
+
+          {filterActive && (
+            <>
+              <span className="font-mono text-[10.5px] text-text-faint" aria-live="polite">
+                {visibleItems.length}/{ms.images.length}
+              </span>
+              <button
+                className="flex cursor-pointer items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
+                aria-label="ล้างตัวกรองทั้งหมด"
+                onClick={resetFilters}
+              >
+                <X size={11} /> ล้างตัวกรอง
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {s.mode === "cinematic" && <div className="shrink-0"><StoryboardStrip /></div>}
 
       {!ms.images.length ? (
@@ -831,12 +1073,23 @@ export default function Gallery() {
             : <ImageIcon size={44} className="opacity-40" strokeWidth={1.4} />}
           <p className="text-[13px]">{meta.empty}</p>
         </div>
+      ) : !visibleItems.length ? (
+        <div className="flex min-h-[240px] shrink-0 flex-col items-center justify-center gap-3 rounded-[14px] border border-dashed border-border text-text-faint">
+          <Search size={32} className="opacity-40" strokeWidth={1.4} />
+          <p className="text-[13px]">ไม่มีผลงานที่ตรงกับตัวกรองนี้</p>
+          <button
+            className="flex cursor-pointer items-center gap-1 rounded-full border border-border-strong px-3 py-1 text-[11px] text-text-dim transition-colors hover:border-accent hover:text-text"
+            onClick={resetFilters}
+          >
+            <X size={11} /> ล้างตัวกรอง
+          </button>
+        </div>
       ) : (
         <VirtualGrid
-          items={ms.images}
+          items={visibleItems}
           selected={ms.selected}
           onToggleSelect={toggleSelect}
-          onOpen={openLightbox}
+          onOpen={openFiltered}
           mode={s.mode}
           listRef={listRef}
         />

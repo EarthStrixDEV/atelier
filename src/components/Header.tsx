@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Clapperboard, Download, FolderCheck, FolderInput, FolderX, History, Image,
-  KeyRound, Layers, Music, PanelLeftClose, PanelLeftOpen, Send, Upload, Video,
+  KeyRound, Layers, Loader2, Music, PanelLeftClose, PanelLeftOpen, RotateCcw, Send, Upload, Video, Wallet, X,
 } from "lucide-react";
 import { MODES, modeLabel } from "../lib/constants";
 import type { Mode } from "../lib/types";
@@ -14,10 +14,11 @@ const MODE_ICONS: Record<Mode, typeof Image> = {
   audio: Music,
 };
 import {
-  connectAutoSaveDir, disconnectAutoSaveDir, exportSession, importSession,
-  isAutoSaveSupported, reconnectSavedAutoSaveDir, switchMode, toggleAutoSaveEnabled,
+  cancelAll, connectAutoSaveDir, disconnectAutoSaveDir, exportSession, getSchedulerStats, getSpendLedger,
+  importSession, isAutoSaveSupported, reconnectSavedAutoSaveDir, resetSpendLedger, setSpendCap, switchMode,
+  toggleAutoSaveEnabled,
 } from "../lib/actions";
-import { loadExportLog, mutate, useApp } from "../lib/store";
+import { loadExportLog, mutate, toast, useApp } from "../lib/store";
 
 /** โชว์เวลาแบบสั้นๆ อ่านง่าย — ไม่ต้องเป๊ะระดับวินาที แค่พอให้แยกออกว่า export ไหนเป็นไหน */
 function fmtExportedAt(at: number): string {
@@ -196,6 +197,233 @@ function AutoSaveControl() {
   );
 }
 
+/** "ตั้งแต่ <วันที่>" ของ ledger — ยอดสะสมข้าม session ตัวเลขลอยๆ ไม่มีความหมายถ้าไม่บอกว่านับมาตั้งแต่เมื่อไหร่ */
+function fmtSince(at: number): string {
+  return new Date(at).toLocaleDateString("th-TH", { day: "2-digit", month: "short", year: "2-digit" });
+}
+
+/**
+ * F4 Spend Guard — badge ยอดสะสมข้ามโหมด + popover ตั้งเพดาน/ล้างยอด (T17)
+ *
+ * **โชว์ตลอด ไม่ซ่อนตอนยอดเป็น 0** — ต่างจาก RunningJobsControl ที่โผล่เฉพาะตอนมีงาน เพราะ badge นี้เป็น
+ * ทางเข้าเดียวของ UI ตั้งเพดาน (AC4) ถ้าซ่อนตอนยอด 0 ผู้ใช้ใหม่จะหาที่ตั้งเพดานไม่เจอเลย กลายเป็น
+ * ฟีเจอร์ที่เปิดได้เฉพาะคนที่รู้อยู่แล้วว่ามี ซึ่งคือคนที่ไม่ต้องการมันที่สุด
+ *
+ * อ่าน ledger ผ่าน `getSpendLedger()` ที่คืน `undefined` ได้ (optional ใน AppState ตาม contract ของ T15)
+ * แต่เรียกในขณะ render ของ component ที่ subscribe `useApp()` อยู่ จึง re-render ตามทุก mutate() ที่ recordSpend ยิง
+ */
+function SpendGuardControl() {
+  useApp(); // subscribe — ledger อยู่นอก snapshot ของ useApp() ต้องพึ่ง version counter ตัวเดียวกันให้ re-render
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const ledger = getSpendLedger();
+
+  // เปิด popover เมื่อไหร่ ให้ draft สะท้อนเพดานจริงที่ตั้งไว้ — `capUsd === undefined` = ไม่ได้ตั้ง จึงเป็นช่องว่าง
+  // เช็ค `=== undefined` ตรงๆ ห้ามใช้ truthiness เพราะ `0` = "ถามทุกครั้ง" จะถูกกลืนเป็น "ไม่ได้ตั้ง" ทันที
+  useEffect(() => {
+    if (!open) { setConfirmingReset(false); return; }
+    const cap = getSpendLedger()?.capUsd;
+    setDraft(cap === undefined ? "" : String(cap));
+  }, [open]);
+
+  // กดยืนยันล้างยอดค้างไว้แล้วไม่กดต่อ — คืนปุ่มกลับสภาพเดิม (pattern เดียวกับ RunningJobsControl)
+  useEffect(() => {
+    if (!confirmingReset) return;
+    const id = window.setTimeout(() => setConfirmingReset(false), 4000);
+    return () => window.clearTimeout(id);
+  }, [confirmingReset]);
+
+  const total = ledger?.totalUsd ?? 0;
+  const unknown = ledger?.unknownCostCount ?? 0;
+  const cap = ledger?.capUsd;
+  const startedAt = ledger?.startedAt;
+  const over = cap !== undefined && total > cap;
+
+  // ช่องว่าง = ล้างเพดานทิ้ง — ต้องส่ง `null` ไม่ใช่ `0` เพราะ `0` คือโหมดถามทุกครั้ง ไม่ใช่ปิดฟีเจอร์
+  // ไม่ validate ซ้ำที่นี่ — `setSpendCap` ดักค่าเสีย/ติดลบพร้อม toast ให้เองแล้ว
+  const applyCap = () => {
+    const raw = draft.trim();
+    setSpendCap(raw === "" ? null : Number(raw));
+    setOpen(false);
+  };
+
+  const doReset = () => {
+    if (!confirmingReset) { setConfirmingReset(true); return; }
+    setConfirmingReset(false);
+    resetSpendLedger();
+  };
+
+  return (
+    <div className="relative">
+      <button
+        className={
+          "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors "
+          + (over
+            ? "border-danger text-danger hover:opacity-80"
+            : "border-border text-text-dim hover:border-border-strong hover:text-text")
+        }
+        title={cap === undefined
+          ? "ยอดใช้จ่ายประเมินสะสมทุกโหมด — กดเพื่อตั้งเพดานเตือน"
+          : "ยอดใช้จ่ายประเมินสะสมทุกโหมด — เพดาน $" + cap.toFixed(2)}
+        aria-label={"ยอดใช้จ่ายประเมินสะสม " + total.toFixed(4) + " ดอลลาร์ — กดเพื่อตั้งเพดานค่าใช้จ่าย"}
+        aria-expanded={open}
+        onClick={() => setOpen(v => !v)}
+      >
+        <Wallet size={12} />
+        <span className="font-mono">~${total.toFixed(2)}</span>
+        {unknown > 0 && <span className="font-normal text-text-faint">+{unknown}?</span>}
+        {cap !== undefined && <span className="font-normal text-text-faint">/ ${cap.toFixed(2)}</span>}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[300px] rounded-[10px] border border-border-strong bg-surface p-3 shadow-[0_12px_40px_rgba(0,0,0,.16)]">
+            <div className="mb-2 rounded-md border border-border bg-surface-2 px-2.5 py-2">
+              <div className="font-mono text-[15px] font-semibold text-text">~${total.toFixed(4)}</div>
+              <div className="mt-0.5 text-[10.5px] leading-relaxed text-text-faint">
+                {startedAt ? "ยอดสะสมตั้งแต่ " + fmtSince(startedAt) : "ยังไม่เริ่มนับ"} · ทุกโหมดรวมกัน
+                {unknown > 0 && <span className="text-danger"> · +{unknown} ชิ้นไม่ทราบราคา</span>}
+              </div>
+              <div className="mt-1 text-[10.5px] leading-relaxed text-text-faint">
+                เป็น<strong className="font-semibold">ยอดประเมิน</strong>จาก pricing ของโมเดล ไม่ใช่บิลจริงจาก OpenRouter ค่ะ
+              </div>
+            </div>
+
+            <label htmlFor="spend-cap-input" className="text-[11px] text-text-dim">เพดานค่าใช้จ่าย (USD) — เว้นว่างคือปิดการเตือน</label>
+            <div className="mt-1.5 flex gap-1.5">
+              <input
+                id="spend-cap-input"
+                type="number"
+                min="0"
+                step="0.5"
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") applyCap(); }}
+                placeholder="เช่น 5"
+                aria-label="เพดานค่าใช้จ่ายเป็นดอลลาร์ เว้นว่างเพื่อปิดการเตือน"
+                className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2.5 py-1.5 text-[12.5px] text-text outline-none transition-colors focus:border-accent"
+              />
+              <button
+                className="shrink-0 cursor-pointer rounded-md bg-accent px-3 py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90"
+                onClick={applyCap}
+              >
+                บันทึก
+              </button>
+            </div>
+            <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
+              ตั้ง <span className="font-mono">0</span> = ถามยืนยันทุกครั้งที่มีค่าใช้จ่าย · เกินเพดานแล้วจะมีโมดัลขึ้นมาถามก่อนยิงค่ะ
+            </p>
+
+            <div className="mt-3 border-t border-border pt-2.5">
+              <button
+                className={
+                  "flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md py-1.5 text-[11.5px] font-semibold transition-colors "
+                  + (confirmingReset
+                    ? "bg-danger text-accent-ink"
+                    : "border border-border text-text-dim hover:border-danger hover:text-danger")
+                }
+                title="ล้างยอดสะสมให้เป็น 0 แล้วเริ่มนับใหม่ เพดานที่ตั้งไว้คงเดิม"
+                onClick={doReset}
+              >
+                <RotateCcw size={11} />
+                {confirmingReset ? "กดอีกครั้งเพื่อยืนยันล้างยอด" : "ล้างยอดสะสม เริ่มนับใหม่"}
+              </button>
+              <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
+                ล้างแค่ตัวเลข ไม่กระทบผลงานใน gallery และเพดานที่ตั้งไว้ยังอยู่ค่ะ
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ตัวบ่งชี้งานที่กำลังรัน + ปุ่มยกเลิกทั้งหมด (T3) — โผล่เฉพาะตอนมีงาน loading อยู่จริง ไม่งั้นซ่อนหายไป
+ * ไม่กิน space ใน header ตอนว่าง
+ *
+ * ทำไมต้อง poll: จำนวน "กำลังยิง" กับ "รอคิว" อยู่ในตัวแปร module-level ของ governor (activeCount /
+ * waitingQueue) ไม่ได้อยู่ใน AppState — mutate() ไม่ถูกเรียกตอนงานขยับจากคิวเข้า slot จึงไม่มี re-render
+ * ให้เกาะ ต้องถามผ่าน getSchedulerStats() เป็นระยะเอง (1s พอสำหรับตัวเลขระดับนี้) และ poll เฉพาะตอนที่
+ * มีงานค้างอยู่จริงเท่านั้น — ว่างเมื่อไหร่ interval ถูก clear ทิ้ง ไม่มี timer วิ่งเปล่าตลอดอายุแอป
+ *
+ * ยืนยันก่อนยกเลิก: "ยกเลิกทั้งหมด" ทีเดียวหลายชิ้นและกู้คืนไม่ได้ (งานที่ยิงไปแล้วเสียเงินไปแล้ว) —
+ * ใช้ two-step ในปุ่มเดิม (กดครั้งแรกเปลี่ยนเป็น "ยืนยันยกเลิก?") แทน window.confirm/modal เพราะเบากว่า
+ * และผู้ใช้กดพลาดแล้วแค่ปล่อยให้หมดเวลา 4 วินาทีก็คืนสภาพเดิมเอง ส่วนการยกเลิก "ทีละชิ้น" ในการ์ด
+ * ไม่ต้องยืนยัน (ผลกระทบชิ้นเดียว เห็นตัวงานอยู่ตรงหน้า และมีปุ่มสร้างใหม่ให้กดกลับได้ทันที)
+ */
+function RunningJobsControl() {
+  const s = useApp();
+  const [stats, setStats] = useState(() => getSchedulerStats());
+  const [confirming, setConfirming] = useState(false);
+
+  // นับจาก state (ทุกโหมด) เพื่อ "ตัดสินใจว่าจะโชว์ไหม" — governor นับได้เฉพาะงานที่ผ่านมันอยู่ตอนนี้
+  const loadingCount = Object.values(s.modes).reduce(
+    (n, m) => n + m.images.filter(x => x.status === "loading").length, 0,
+  );
+
+  useEffect(() => {
+    if (loadingCount === 0) return;
+    setStats(getSchedulerStats());
+    const id = window.setInterval(() => setStats(getSchedulerStats()), 1000);
+    return () => window.clearInterval(id);
+  }, [loadingCount]);
+
+  // กดยืนยันค้างไว้แล้วไม่กดต่อ — คืนปุ่มกลับสภาพเดิม กัน "ยืนยันยกเลิก?" ค้างจนกดโดนทีหลังโดยไม่ตั้งใจ
+  useEffect(() => {
+    if (!confirming) return;
+    const id = window.setTimeout(() => setConfirming(false), 4000);
+    return () => window.clearTimeout(id);
+  }, [confirming]);
+
+  useEffect(() => { if (loadingCount === 0) setConfirming(false); }, [loadingCount]);
+
+  if (loadingCount === 0) return null;
+
+  const running = Math.min(stats.active, loadingCount);
+  const waiting = stats.waiting;
+
+  const doCancelAll = () => {
+    if (!confirming) { setConfirming(true); return; }
+    setConfirming(false);
+    // ยกเลิกทุกโหมด ไม่ใช่แค่โหมดปัจจุบัน — ตัวเลขที่โชว์ก็นับรวมทุกโหมด ปุ่มต้องทำตามที่เห็น
+    const n = cancelAll("user-all");
+    setStats(getSchedulerStats());
+    toast(n > 0 ? `ยกเลิกแล้ว ${n} งานค่ะ` : "ไม่มีงานที่ยกเลิกได้ตอนนี้ค่ะ");
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-2 py-1 pl-2.5 pr-1">
+      <span
+        className="flex items-center gap-1.5 text-[11.5px] font-semibold text-text-dim"
+        aria-live="polite"
+        aria-label={`กำลังสร้าง ${running} งาน รอคิวอีก ${waiting} งาน`}
+      >
+        <Loader2 size={12} className="animate-spin text-accent" />
+        กำลังสร้าง {running}
+        {waiting > 0 && <span className="font-normal text-text-faint">· รอคิว {waiting}</span>}
+      </span>
+      <button
+        className={
+          "cursor-pointer rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors " +
+          (confirming
+            ? "bg-danger text-accent-ink"
+            : "border border-border text-text-dim hover:border-danger hover:text-danger")
+        }
+        title={waiting > 0
+          ? `ยกเลิกทุกงานที่ค้างอยู่ — ${waiting} งานที่ยังรอคิวยังไม่ถูกยิงเลย ยกเลิกตอนนี้ไม่เสียเงิน`
+          : "ยกเลิกทุกงานที่กำลังสร้างอยู่"}
+        aria-label={confirming ? "กดอีกครั้งเพื่อยืนยันยกเลิกงานทั้งหมด" : "ยกเลิกงานทั้งหมดที่กำลังสร้างอยู่"}
+        onClick={doCancelAll}
+      >
+        {confirming ? "ยืนยันยกเลิก?" : <span className="flex items-center gap-1"><X size={11} /> ยกเลิกทั้งหมด</span>}
+      </button>
+    </div>
+  );
+}
+
 export default function Header() {
   const s = useApp();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -239,6 +467,8 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-2 justify-self-end">
+        <SpendGuardControl />
+        <RunningJobsControl />
         <button
           className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
           title="Import session (.json)"
