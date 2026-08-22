@@ -18,23 +18,23 @@ function StartFromThisPopover({ item, onDone }: { item: GenItem; onDone: () => v
   const [target, setTarget] = useState<"video" | "cinematic">(item.mode === "cinematic" ? "video" : "cinematic");
   return (
     <div
-      className="absolute right-6 top-[calc(100%+6px)] z-10 flex w-[240px] flex-col gap-2 rounded-xl border border-white/15 bg-[rgba(20,20,20,.96)] p-3 text-left shadow-[0_16px_50px_rgba(0,0,0,.5)] backdrop-blur-xl"
+      className="absolute right-6 top-[calc(100%+6px)] z-10 flex w-[240px] flex-col gap-2 rounded-xl border border-on-media-dim bg-media-scrim p-3 text-left shadow-[0_16px_50px_rgba(0,0,0,.5)] backdrop-blur-xl"
       onClick={e => e.stopPropagation()}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10.5px] font-semibold uppercase tracking-[.5px] text-white/50">Start from this</span>
-        <button className="cursor-pointer text-white/50 hover:text-white" onClick={onDone} title="ปิด">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[.5px] text-on-media-dim">Start from this</span>
+        <button className="cursor-pointer text-on-media-dim hover:text-on-media" onClick={onDone} title="ปิด">
           <X size={12} />
         </button>
       </div>
-      <p className="text-[11px] leading-relaxed text-white/70">จะสลับไปโหมดที่เลือก แล้วใช้ผลลัพธ์นี้เป็นจุดเริ่มต้น scene ใหม่ค่ะ</p>
+      <p className="text-[11px] leading-relaxed text-on-media-dim">จะสลับไปโหมดที่เลือก แล้วใช้ผลลัพธ์นี้เป็นจุดเริ่มต้น scene ใหม่ค่ะ</p>
       <div className="grid grid-cols-2 gap-1.5">
         {(["cinematic", "video"] as const).map(m => (
           <button
             key={m}
             className={
               "cursor-pointer rounded-md border py-1.5 text-[11px] font-medium capitalize transition-all " +
-              (target === m ? "border-accent bg-accent font-semibold text-accent-ink" : "border-white/20 bg-white/5 text-white/70 hover:border-white/40")
+              (target === m ? "border-accent bg-accent font-semibold text-accent-ink" : "border-on-media-dim bg-on-media/5 text-on-media-dim hover:border-on-media")
             }
             onClick={() => setTarget(m)}
           >
@@ -95,9 +95,9 @@ export default function Lightbox() {
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="ดูภาพขยาย" className="fixed inset-0 z-100 flex flex-col bg-[rgba(5,5,5,.94)] backdrop-blur-lg">
+    <div role="dialog" aria-modal="true" aria-label="ดูภาพขยาย" className="fixed inset-0 z-100 flex flex-col bg-media-scrim backdrop-blur-lg">
       <div className="flex shrink-0 items-center justify-between px-6 py-4">
-        <div className="font-mono text-xs text-white/60">
+        <div className="font-mono text-xs text-on-media-dim">
           {item.modelName}
           {!isAud && <>&nbsp;&nbsp;·&nbsp;&nbsp;{item.ratio}</>}
           {isVid && <>&nbsp;&nbsp;·&nbsp;&nbsp;{item.duration}s</>}
@@ -105,7 +105,7 @@ export default function Lightbox() {
         <div className="flex gap-2.5">
           {!isVid && !isAud && (
             <select
-              className="cursor-pointer appearance-none rounded-lg border border-white/25 bg-transparent px-2 py-2 text-xs text-white outline-none focus:border-accent"
+              className="cursor-pointer appearance-none rounded-lg border border-on-media-dim bg-transparent px-2 py-2 text-xs text-on-media outline-none focus:border-accent"
               title="รูปแบบไฟล์ที่จะดาวน์โหลด"
               aria-label="รูปแบบไฟล์ที่จะดาวน์โหลด"
               value={s.lbFormat}
@@ -115,12 +115,12 @@ export default function Lightbox() {
               <option value="jpg">JPG</option>
             </select>
           )}
-          <button className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/25 px-4 py-2 text-[12.5px] text-white transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink" aria-label="ดาวน์โหลดไฟล์นี้" onClick={downloadCurrent}>
+          <button className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink" aria-label="ดาวน์โหลดไฟล์นี้" onClick={downloadCurrent}>
             <Download size={13} /> Download
           </button>
           {!isAud && !!item.url && (
             <button
-              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/25 px-4 py-2 text-[12.5px] text-white transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:opacity-50"
               title="สร้างการ์ดสวยๆ พร้อม prompt/model ไว้แชร์"
               aria-label={sharingCard ? "กำลังสร้าง share card" : "สร้าง share card พร้อม prompt/model"}
               disabled={sharingCard}
@@ -131,7 +131,7 @@ export default function Lightbox() {
           )}
           {isChainableItem(item) && (
             <button
-              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/25 px-4 py-2 text-[12.5px] text-white transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
               title="ส่งภาพนี้ไปเป็นเฟรมแรกของ Video mode"
               aria-label="ส่งภาพนี้ไปเป็นเฟรมแรกของ Video mode"
               onClick={() => useAsVideoFirstFrame(item)}
@@ -141,7 +141,7 @@ export default function Lightbox() {
           )}
           {canRefineItem(item) && (
             <button
-              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-accent/70 px-4 py-2 text-[12.5px] text-white transition-colors hover:bg-accent hover:text-accent-ink"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-accent/70 px-4 py-2 text-[12.5px] text-on-media transition-colors hover:bg-accent hover:text-accent-ink"
               title="แนบภาพนี้เป็น reference แล้วพิมพ์สิ่งที่อยากแก้ต่อ"
               aria-label="Refine ภาพนี้ต่อ — แนบเป็น reference แล้วพิมพ์สิ่งที่อยากแก้"
               onClick={() => { refineItem(item); closeLightbox(); }}
@@ -153,8 +153,8 @@ export default function Lightbox() {
             <div className="relative">
               <button
                 className={
-                  "flex cursor-pointer items-center gap-1.5 rounded-lg border px-4 py-2 text-[12.5px] text-white transition-colors " +
-                  (startFromOpen ? "border-accent bg-accent text-accent-ink" : "border-white/25 hover:border-accent hover:bg-accent hover:text-accent-ink")
+                  "flex cursor-pointer items-center gap-1.5 rounded-lg border px-4 py-2 text-[12.5px] text-on-media transition-colors " +
+                  (startFromOpen ? "border-accent bg-accent text-accent-ink" : "border-on-media-dim hover:border-accent hover:bg-accent hover:text-accent-ink")
                 }
                 title="ใช้ผลลัพธ์นี้เป็นจุดเริ่มต้นของ Video/Cinematic mode"
                 aria-label="Start from this — ใช้ผลลัพธ์นี้เป็นจุดเริ่มต้นของ Video/Cinematic mode"
@@ -166,7 +166,7 @@ export default function Lightbox() {
               {startFromOpen && <StartFromThisPopover item={item} onDone={() => setStartFromOpen(false)} />}
             </div>
           )}
-          <button className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/25 px-4 py-2 text-[12.5px] text-white transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink" aria-label="ปิด Lightbox" onClick={closeLightbox}>
+          <button className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink" aria-label="ปิด Lightbox" onClick={closeLightbox}>
             Close <X size={13} />
           </button>
         </div>
@@ -178,7 +178,7 @@ export default function Lightbox() {
       >
         {pos > 0 && (
           <button
-            className="absolute left-[18px] top-1/2 grid h-[42px] w-[42px] -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-white/25 bg-[rgba(10,10,10,.7)] text-white transition-colors hover:bg-accent hover:text-accent-ink"
+            className="absolute left-[18px] top-1/2 grid h-[42px] w-[42px] -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-on-media-dim bg-media-scrim/70 text-on-media transition-colors hover:bg-accent hover:text-accent-ink"
             aria-label="ภาพก่อนหน้า"
             onClick={() => lbStep(-1)}
           >
@@ -187,7 +187,7 @@ export default function Lightbox() {
         )}
         {!item.url ? (
           // synthetic root ที่ startFromItem สร้างจาก item ต้นทางที่เป็นเสียง (ไม่มีเฟรมให้ใช้)
-          <div className="flex flex-col items-center gap-3 text-white/50">
+          <div className="flex flex-col items-center gap-3 text-on-media-dim">
             <Video size={40} strokeWidth={1.3} />
             <p className="text-[13px]">ยังไม่มีภาพเริ่มต้น — แนบภาพก่อน generate ได้เลยค่ะ</p>
           </div>
@@ -200,7 +200,7 @@ export default function Lightbox() {
         )}
         {pos < ds.length - 1 && (
           <button
-            className="absolute right-[18px] top-1/2 grid h-[42px] w-[42px] -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-white/25 bg-[rgba(10,10,10,.7)] text-white transition-colors hover:bg-accent hover:text-accent-ink"
+            className="absolute right-[18px] top-1/2 grid h-[42px] w-[42px] -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-on-media-dim bg-media-scrim/70 text-on-media transition-colors hover:bg-accent hover:text-accent-ink"
             aria-label="ภาพถัดไป"
             onClick={() => lbStep(1)}
           >
@@ -209,7 +209,7 @@ export default function Lightbox() {
         )}
       </div>
 
-      <div className="max-h-[70px] shrink-0 overflow-y-auto px-6 pb-5 text-center text-[13px] leading-normal text-white/60">
+      <div className="max-h-[70px] shrink-0 overflow-y-auto px-6 pb-5 text-center text-[13px] leading-normal text-on-media-dim">
         {item.prompt}
       </div>
     </div>

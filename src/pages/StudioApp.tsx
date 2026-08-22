@@ -14,7 +14,7 @@ import CompareModal from "../components/CompareModal";
 import BakeOffConfirmModal from "../components/BakeOffConfirmModal";
 import SpendGuardModal from "../components/SpendGuardModal";
 import Toast from "../components/Toast";
-import { autosaveSessionSnapshot, checkSavedAutoSaveDir, loadModels, loadVideoModels, reconcilePendingJobs } from "../lib/actions";
+import { applyTheme, autosaveSessionSnapshot, checkSavedAutoSaveDir, loadModels, loadVideoModels, reconcilePendingJobs, subscribeSystemTheme } from "../lib/actions";
 import { releaseAllBlobUrls } from "../lib/blobUrls";
 import { SESSION_SNAPSHOT_INTERVAL_MS } from "../lib/constants";
 import { useKeyboardShortcuts } from "../lib/shortcuts";
@@ -52,6 +52,23 @@ export default function StudioApp() {
       clearInterval(snapshotTimer);
       window.removeEventListener("beforeunload", handleUnload);
     };
+  }, []);
+
+  /**
+   * ธีม (F2 · T6 ฝากมา) — effect แยกจากก้อน bootstrap ข้างบนเพราะอันนั้นไม่มี cleanup ของตัวเอง
+   * ส่วนอันนี้ต้อง return cleanup ของ subscribeSystemTheme ตรงๆ
+   *
+   * `applyTheme(state.theme)` หนึ่งครั้งตอน mount เป็น backstop ให้ DOM ตรงกับ state เสมอ —
+   * inline script ใน index.html อาจไม่ได้เซ็ต data-theme เลย (localStorage ถูกปิด/ค่าในคีย์มั่ว)
+   * แล้วแอปจะตกไปใช้ค่า @theme (= paper) ทั้งที่ state บอกว่าเป็นธีมอื่น
+   *
+   * deps ว่างโดยตั้งใจ **ห้ามใส่ state.theme** — listener ข้างใน subscribeSystemTheme เช็ค
+   * `state.theme` เองตอน event ยิงอยู่แล้ว ถ้าใส่ deps จะกลายเป็น unsubscribe/resubscribe ทุกครั้ง
+   * ที่ผู้ใช้เปลี่ยนธีม ซึ่งไม่ได้ประโยชน์อะไรเพิ่มเลยนอกจากโอกาส leak
+   */
+  useEffect(() => {
+    applyTheme(state.theme);
+    return subscribeSystemTheme();
   }, []);
 
   return (

@@ -75,7 +75,7 @@ export default function SpendGuardModal() {
 
   return (
     <div
-      className="fixed inset-0 z-200 grid place-items-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-200 grid place-items-center bg-overlay backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) cancelSpend(); }}
     >
       <div role="dialog" aria-modal="true" aria-label="ยืนยันค่าใช้จ่ายก่อนสร้าง" className="w-[min(440px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-6">

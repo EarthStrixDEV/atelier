@@ -51,7 +51,7 @@ export default function ExtendTool() {
 
   return (
     <div
-      className="fixed inset-0 z-200 grid place-items-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-200 grid place-items-center bg-overlay backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) closeExtendTool(); }}
     >
       <div role="dialog" aria-modal="true" aria-label="TimeFrame & Extend tool" className="w-[min(720px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-6">

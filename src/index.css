@@ -1,7 +1,18 @@
 @import "tailwindcss";
 
-/* Black · White · Mint accent — light theme, เขียวมิ้นท์เป็นสีเน้นเดียว */
+/* ═══════════════════════ Theme tokens (F1 · T4 CSS mirror) ═══════════════════════
+ *
+ * ค่าสี **source of truth อยู่ที่ src/lib/themes.ts** — ที่นี่คือ mirror ฝั่ง CSS ที่ต้องตรงกัน
+ * เขียนสองที่โดยตั้งใจ (ดูเหตุผลเต็มใน themes.ts): TS ใช้กับ picker UI ที่อ่านค่าจริงไป render
+ * swatch ส่วน CSS ต้องเป็น CSS จริงเพราะ Tailwind v4 gen utility (`bg-surface`, `text-on-media`)
+ * จาก custom property ที่ขึ้นต้น `--color-` เท่านั้น ไม่ใช่จาก object ใน TS
+ * แก้ค่าที่ไหนต้องแก้อีกที่ด้วยเสมอ — mapping field→var อยู่ที่ CSS_VAR_BY_TOKEN ใน themes.ts
+ *
+ * ค่าใน @theme ด้านล่าง = ธีม `paper` ซึ่งเป็น default ตอนที่ html ยังไม่มี data-theme
+ * (เคส FOUC ก่อน inline script ทำงาน และเคสที่ค่าใน localStorage ไม่ตรงรายชื่อธีม)
+ */
 @theme {
+  /* ── 11 ตัวเดิม: ห้ามแก้ค่า เป็น baseline ที่ผู้ใช้เดิมต้องเห็นเหมือนเดิมทุก pixel ── */
   --color-bg: #ffffff;
   --color-surface: #f7f8f7;
   --color-surface-2: #eef1ef;
@@ -13,6 +24,20 @@
   --color-accent: #10b981;
   --color-accent-ink: #ffffff;
   --color-danger: #dc2626;
+
+  /* ── 7 ตัวใหม่ (T1 contract) ──
+   * success/warning/info: สถานะที่ความหมายผูกกับสี ห้าม map ไป accent เพราะ accent เปลี่ยนตามธีม
+   * overlay: scrim ของ modal — alpha ต่างกันต่อธีม เพราะดำ 50% บนพื้นมืดแทบไม่เห็นผล
+   * media-scrim/on-media/on-media-dim: theme-invariant ค่าเท่ากันทั้ง 6 ธีม จึงไม่ถูก override
+   *   ใน block ไหนเลย — อยู่บน "ภาพของผู้ใช้" ที่เป็นสีอะไรก็ได้ ไม่เกี่ยวกับธีมที่เลือก */
+  --color-success: #059669;
+  --color-warning: #b45309;
+  --color-info: #0369a1;
+  --color-overlay: rgba(10, 10, 10, 0.50);
+  --color-media-scrim: rgba(8, 8, 8, 0.94);
+  --color-on-media: #ffffff;
+  --color-on-media-dim: rgba(255, 255, 255, 0.72);
+
   --font-sans: "Inter", "Noto Sans Thai", -apple-system, "Segoe UI", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
   --radius-card: 10px;
@@ -22,6 +47,152 @@
     from { background-position: 200% 0; }
     to { background-position: -200% 0; }
   }
+}
+
+/* โลโก้เป็นไฟล์ภาพขาวดำตัวเดียว จึงต้องพลิกด้วย filter ตามความสว่างของพื้น — เก็บเป็นตัวเลข
+ * ต่อธีมแทนที่จะให้ component เดา (T14 ใช้ต่อ) 1 = ธีมสว่าง, 0 = ธีมมืด
+ * อยู่นอก @theme เพราะไม่ใช่สี ไม่ต้องการให้ Tailwind gen utility ให้ */
+:root { --logo-invert: 1; }
+
+/* ═══════════════════════ Theme overrides ═══════════════════════
+ *
+ * ทำงานได้เพราะ Tailwind v4 emit ตัวแปรจาก @theme ลง `@layer theme{:root,:host{…}}` และ utility
+ * compile เป็น `var(--color-*)` ไม่ inline hex — selector ธรรมดาที่อยู่นอก layer จึงชนะ layer
+ * theme เสมอตาม cascade layer order โดยไม่ต้องรื้อเป็น @theme inline
+ *
+ * `paper` มี block ของตัวเองแม้ค่าจะเท่ากับ @theme เพราะผู้ใช้ที่เคยเลือกธีมมืดแล้วสลับกลับมา
+ * paper จะมี attribute `data-theme="paper"` ค้างอยู่ ไม่ได้กลับไปสู่สภาพ "ไม่มี attribute"
+ *
+ * แต่ละ block override เฉพาะตัวที่ต่างจาก paper — media-scrim/on-media/on-media-dim เป็น
+ * theme-invariant จึงไม่มีในนี้เลย (ตกทอดจาก @theme) การเผลอใส่คือการสร้างจุด drift เปล่าๆ
+ *
+ * `color-scheme` ตรงกับ field `colorScheme` ใน themes.ts — บอก browser ให้วาด native control
+ * (scrollbar, date picker, autofill) ให้เข้ากับธีม ซึ่ง CSS ของเราเข้าไปแตะไม่ได้
+ */
+
+[data-theme="paper"] {
+  color-scheme: light;
+  --logo-invert: 1;
+  --color-bg: #ffffff;
+  --color-surface: #f7f8f7;
+  --color-surface-2: #eef1ef;
+  --color-border: #e0e3e1;
+  --color-border-strong: #c7cbc8;
+  --color-text: #0a0a0a;
+  --color-text-dim: #5c6360;
+  --color-text-faint: #93998f;
+  --color-accent: #10b981;
+  --color-accent-ink: #ffffff;
+  --color-danger: #dc2626;
+  --color-success: #059669;
+  --color-warning: #b45309;
+  --color-info: #0369a1;
+  --color-overlay: rgba(10, 10, 10, 0.50);
+}
+
+/* Ink — dark หลัก ดำหมึกอมเขียวให้เข้าชุดกับ accent มิ้นท์ */
+[data-theme="ink"] {
+  color-scheme: dark;
+  --logo-invert: 0;
+  --color-bg: #0b0c0b;
+  --color-surface: #141614;
+  --color-surface-2: #1d201d;
+  --color-border: #2a2e2b;
+  --color-border-strong: #3d423e;
+  --color-text: #ededed;
+  --color-text-dim: #a2a9a5;
+  --color-text-faint: #767d79;
+  --color-accent: #34d399;
+  --color-accent-ink: #04231a;
+  --color-danger: #f87171;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-info: #60a5fa;
+  --color-overlay: rgba(0, 0, 0, 0.72);
+}
+
+/* High Contrast — ยกเกณฑ์ contrast ขึ้นหนึ่งขั้นทุกคู่ border จึงสว่างกว่าธีมมืดตัวอื่นมาก */
+[data-theme="contrast"] {
+  color-scheme: dark;
+  --logo-invert: 0;
+  --color-bg: #000000;
+  --color-surface: #0d0d0d;
+  --color-surface-2: #1a1a1a;
+  --color-border: #6b6b6b;
+  --color-border-strong: #a3a3a3;
+  --color-text: #ffffff;
+  --color-text-dim: #e0e0e0;
+  --color-text-faint: #b8b8b8;
+  --color-accent: #ffe600;
+  --color-accent-ink: #000000;
+  --color-danger: #ff6b6b;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-info: #7dd3fc;
+  --color-overlay: rgba(0, 0, 0, 0.85);
+}
+
+/* Sepia — light อุ่น scrim เป็นน้ำตาลเข้มไม่ใช่ดำ ให้กลมกลืนกับพื้นครีม */
+[data-theme="sepia"] {
+  color-scheme: light;
+  --logo-invert: 1;
+  --color-bg: #f6f0e4;
+  --color-surface: #efe7d7;
+  --color-surface-2: #e5dbc7;
+  --color-border: #d8cdb6;
+  --color-border-strong: #bfb094;
+  --color-text: #2b2115;
+  --color-text-dim: #6a5a44;
+  --color-text-faint: #8d7d66;
+  --color-accent: #b45309;
+  --color-accent-ink: #fff8ec;
+  --color-danger: #b91c1c;
+  --color-success: #4d7c0f;
+  --color-warning: #a16207;
+  --color-info: #0e7490;
+  --color-overlay: rgba(43, 33, 21, 0.55);
+}
+
+/* Midnight — dark เย็น น้ำเงินกรมท่าทั้งชุด ไม่ใช่ ink ที่เปลี่ยนแค่ hue ของ accent */
+[data-theme="midnight"] {
+  color-scheme: dark;
+  --logo-invert: 0;
+  --color-bg: #0a1020;
+  --color-surface: #111a2e;
+  --color-surface-2: #18243d;
+  --color-border: #243350;
+  --color-border-strong: #36486b;
+  --color-text: #e6edf7;
+  --color-text-dim: #9fb0c9;
+  --color-text-faint: #74849c;
+  --color-accent: #38bdf8;
+  --color-accent-ink: #04121f;
+  --color-danger: #fb7185;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-info: #7dd3fc;
+  --color-overlay: rgba(2, 6, 16, 0.74);
+}
+
+/* Nocturne — dark อุ่น อิ่มตัวต่ำ ตั้งใจให้พื้นไม่แย่งสายตาไปจากภาพผลงาน */
+[data-theme="nocturne"] {
+  color-scheme: dark;
+  --logo-invert: 0;
+  --color-bg: #15100f;
+  --color-surface: #1f1818;
+  --color-surface-2: #2a2120;
+  --color-border: #3a2e2c;
+  --color-border-strong: #544441;
+  --color-text: #f0e7df;
+  --color-text-dim: #b3a297;
+  --color-text-faint: #8a7a70;
+  --color-accent: #f0b429;
+  --color-accent-ink: #1c1205;
+  --color-danger: #f87171;
+  --color-success: #5cc98c;
+  --color-warning: #f0b429;
+  --color-info: #7fb8e8;
+  --color-overlay: rgba(8, 5, 4, 0.74);
 }
 
 html, body, #root { height: 100%; }
@@ -49,10 +220,15 @@ body {
   right: -8rem;
   top: -7rem;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(16,185,129,.14), transparent 68%);
+  /* เดิมเป็นค่ามิ้นท์ของธีม paper ที่ hardcode ไว้ — glow จึงยังเป็นมิ้นท์แม้ธีมจะเปลี่ยน accent
+   * ไปเป็นเหลือง/ฟ้า/ทอง ตอนนี้อิง --color-accent แล้ว color-mix in oklab ให้ผลผสมที่
+   * สม่ำเสมอกับ accent ทุก hue ต่างจาก sRGB ที่จะหม่นเมื่อผสมสีอิ่มตัวสูงกับความโปร่งใส */
+  background: radial-gradient(circle, color-mix(in oklab, var(--color-accent) 14%, transparent), transparent 68%);
   filter: blur(14px);
 }
-.hero-outline { color: transparent; -webkit-text-stroke: 1.5px rgba(10,10,10,.55); }
+/* เดิมเป็นค่าดำของธีม light ที่ hardcode ไว้ — เส้นขอบตัวอักษรจึงหายสนิทเมื่อพื้นเป็นสีมืด
+ * ผูกกับ --color-text แทน ธีมมืดจะได้เส้นสว่างบนพื้นมืดโดยอัตโนมัติ */
+.hero-outline { color: transparent; -webkit-text-stroke: 1.5px color-mix(in oklab, var(--color-text) 55%, transparent); }
 .hero-copy { animation: hero-rise .7s cubic-bezier(.2,.8,.2,1) both; }
 .hero-art { animation: hero-rise .8s .12s cubic-bezier(.2,.8,.2,1) both; }
 .hero-float { animation: hero-float 5s ease-in-out infinite; }

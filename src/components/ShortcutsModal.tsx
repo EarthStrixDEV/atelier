@@ -13,7 +13,7 @@ export default function ShortcutsModal() {
 
   return (
     <div
-      className="fixed inset-0 z-200 grid place-items-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-200 grid place-items-center bg-overlay backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) close(); }}
     >
       <div className="w-[min(420px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-7">

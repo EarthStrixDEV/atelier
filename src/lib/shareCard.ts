@@ -2,7 +2,17 @@ import type { GenItem } from "./types";
 import { captureVideoFrame, isImageDataUrl } from "./utils";
 import { isVideoMode } from "./constants";
 
-/** fallback สีตายตัว เผื่อธีมในอนาคตเปลี่ยนชื่อ CSS variable แล้วอ่านไม่เจอ — ให้การ์ดยังออกมาดูได้ ไม่ล้มเงียบๆ */
+/**
+ * fallback สีตายตัว ใช้เมื่ออ่าน computed style ไม่ได้ (เช่น CSS ยังไม่ถูก apply หรือมีคนเปลี่ยน
+ * ชื่อ CSS variable แล้ว read() คืน string ว่าง) — ให้การ์ดยังออกมาดูได้ ไม่ล้มเงียบๆ
+ *
+ * **ค่าที่นี่ต้องตรงกับธีม `paper` ใน themes.ts เป๊ะทุกตัว** (paper = DEFAULT_THEME) เพราะเคสที่
+ * fallback ทำงานคือเคสที่ธีมยังไม่ถูก apply ซึ่งสิ่งที่ผู้ใช้เห็นบนจอตอนนั้นก็คือ paper
+ * เอาสีธีมอื่นมาใส่จะได้การ์ดที่ไม่ตรงกับอะไรเลย
+ *
+ * ที่นี่มี 9 ตัวไม่ใช่ 18 ตัวเต็มของ `ThemeTokens` โดยตั้งใจ — การ์ดวาดด้วยสีแค่ 9 ตัวนี้
+ * ถ้าเพิ่มสีใหม่ในการ์ด ต้องเพิ่มทั้งที่นี่และใน readThemeColors() พร้อมกัน ไม่งั้น read() คืนค่าว่าง
+ */
 const FALLBACK_COLORS = {
   bg: "#ffffff",
   surface: "#f7f8f7",

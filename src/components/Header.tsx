@@ -19,6 +19,7 @@ import {
   toggleAutoSaveEnabled,
 } from "../lib/actions";
 import { loadExportLog, mutate, toast, useApp } from "../lib/store";
+import ThemePicker from "./ThemePicker";
 
 /** โชว์เวลาแบบสั้นๆ อ่านง่าย — ไม่ต้องเป๊ะระดับวินาที แค่พอให้แยกออกว่า export ไหนเป็นไหน */
 function fmtExportedAt(at: number): string {
@@ -123,7 +124,7 @@ function AutoSaveControl() {
         aria-expanded={open}
         onClick={() => setOpen(v => !v)}
       >
-        <span className={"h-[7px] w-[7px] rounded-full " + (connected && s.autoSaveEnabled ? "bg-green-400" : "bg-text-faint")} />
+        <span className={"h-[7px] w-[7px] rounded-full " + (connected && s.autoSaveEnabled ? "bg-success" : "bg-text-faint")} />
         {connected ? <FolderCheck size={12} /> : <FolderInput size={12} />}
         {label}
       </button>
@@ -439,7 +440,16 @@ export default function Header() {
         >
           {s.sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
-        <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[42px] w-[42px] object-contain invert" />
+        {/* ไฟล์โลโก้เป็นภาพขาวบนพื้นโปร่ง จึงต้อง invert เฉพาะตอนพื้นหลังสว่างเท่านั้น
+          * ใช้ var(--logo-invert) ที่ index.css ตั้งไว้ต่อธีม แทนที่จะเช็ค state.theme ใน JS
+          * เพราะถ้าเขียนเงื่อนไขที่นี่ ทุกครั้งที่เพิ่มธีมใหม่จะต้องกลับมาแก้ component นี้ด้วย
+          * (drift ทันที) — ปล่อยให้ CSS cascade ตัดสินจาก [data-theme] ที่เดียวจบ */}
+        <img
+          src="/atelier/assets/atelier-logo.png"
+          alt="Atelier"
+          className="h-[42px] w-[42px] object-contain"
+          style={{ filter: "invert(var(--logo-invert))" }}
+        />
         <h1 className="text-[15px] font-semibold tracking-[0.2px]">
           Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">AI media studio</span>
         </h1>
@@ -491,13 +501,14 @@ export default function Header() {
           }}
         />
         <AutoSaveControl />
+        <ThemePicker />
         <button
           className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-text-dim transition-colors hover:border-border-strong"
           title="ตั้งค่า OpenRouter API Key"
           aria-label="ตั้งค่า OpenRouter API Key"
           onClick={() => mutate(st => { st.keyModalOpen = true; })}
         >
-          <span className={"h-[7px] w-[7px] rounded-full " + (s.apiKey ? "bg-green-400" : "bg-text-faint")} />
+          <span className={"h-[7px] w-[7px] rounded-full " + (s.apiKey ? "bg-success" : "bg-text-faint")} />
           <KeyRound size={12} />
           {s.apiKey ? "API Key พร้อมใช้" : "ใส่ API Key"}
         </button>

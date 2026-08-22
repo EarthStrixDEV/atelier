@@ -1,202 +1,361 @@
 {
-  "sprint": "feat/agent-team-sprint-01",
-  "designedAt": "2026-08-20",
-  "designedBy": "พลอย (Ploy) — Lead Planner",
-  "gapAnalysis": {
-    "summary": "Atelier โตเร็วมาก (actions.ts 2460 บรรทัด, 15+ PHASE) จน feature layer อิ่มตัวแล้ว — Bake-off, Compare, Grill, Auto Save, session snapshot, storyboard chaining, virtualization มีครบ. ช่องว่างจริงที่เหลือไม่ได้อยู่ที่ feature ใหม่ที่ยังไม่มี แต่อยู่ที่ 4 เรื่อง: (1) request layer ไม่มีการควบคุมเลย ไม่มี concurrency cap ไม่มี AbortController ไม่มีทางยกเลิกงานที่ยิงไปแล้ว, (2) ผลลัพธ์ที่ผู้ใช้จ่ายเงินสร้างมาแล้วหายทั้งหมดตอน reload เพราะ gallery เป็น memory-only ทั้งที่ IndexedDB infra มีอยู่แล้วใน fsAccess.ts, (3) เมื่อ gallery ยาว 100+ ชิ้น ไม่มีทางหาของเจอเลย ไม่มี filter/search/favorite ใดๆ, (4) usage cost เป็น session-only per-mode ไม่มียอดสะสมและไม่มี guard ก่อนจ่ายเงินก้อนใหญ่. ทั้งหมดนี้เป็นคุณค่าที่ architecture ปัจจุบันเอื้ออยู่แล้ว (blobUrls registry, IndexedDB helper, computeItemCost, mutate/useApp) แต่ยังไม่ได้ถูกใช้",
-    "evidence": [
-      "src/lib/actions.ts:881 — generate(): batch.forEach(item => runRequest(item)) ยิงทุก item พร้อมกันหมดไม่มี cap เลย worst case = MAX_QUEUE 5 job x COUNTS สูงสุด 6 = 30 fetch พร้อมกัน (constants.ts:7 MAX_QUEUE=5, constants.ts:58 COUNTS=[1,2,4,6]) เสี่ยง 429 rate limit และเบราว์เซอร์ throttle",
-      "src/lib/actions.ts:986 — runBakeOff(): batch.forEach(item => runRequest(item)) เช่นเดียวกัน และ comment ที่บรรทัด 937 ระบุชัดว่า ไม่ผ่านคิว ไม่โดน MAX_QUEUE จำกัด โดยตั้งใจ",
-      "grep -rn AbortController src/ ไม่พบเลยแม้แต่ที่เดียว ทุก fetch ใน actions.ts (requestVideo:1204, requestViaChat:1369, requestViaImageAPI:1324, requestAudio:1261) ไม่มี signal ผู้ใช้กด generate ผิดแล้วยกเลิกไม่ได้ ต้องรอ timeout 10-15 นาที (constants.ts:66 VIDEO_TIMEOUT_MS)",
-      "src/lib/actions.ts:215 reconcilePendingJobs() กู้คืนได้แค่ job ที่ยังค้างจาก ledger เท่านั้น ผลลัพธ์ที่ done แล้ว (item.url) ไม่ถูก persist ที่ไหนเลย หายหมดทุก reload. src/lib/store.ts:6-23 คีย์ localStorage ทั้งหมดเป็น metadata (history/chat/templates/snapshot/export log) ไม่มี image data",
-      "src/lib/fsAccess.ts:37-72 มี IndexedDB helper (openDb/idbGet/idbSet/idbDelete) ครบพร้อมใช้อยู่แล้ว แต่ใช้เก็บแค่ directory handle ตัวเดียว infra สำหรับเก็บ blob ผลลัพธ์มีอยู่แล้วแต่ไม่ได้ใช้",
-      "src/components/Gallery.tsx:834 ส่ง ms.images ดิบทั้งก้อนเข้า VirtualGrid ไม่มี filter/search/sort layer คั่นเลย grep filter ใน Gallery.tsx เจอแต่ .filter() นับ done/loading (753,754,758) ไม่มี UI ค้นหา",
-      "grep -rni favorite starred rating tag ใน src/lib/types.ts src/lib/actions.ts ไม่พบ GenItem (types.ts:38-98) ไม่มีฟิลด์ favorite/tag/note ใดๆ ของดีที่สร้างได้แยกจากของทิ้งไม่ได้",
-      "src/lib/actions.ts:804 resetModeGallery() export ไว้แต่ grep -rn resetModeGallery src/ เจอแค่จุดประกาศจุดเดียว ไม่มี UI เรียกเลย (ยืนยันแล้วว่าเป็น dead code ทั้งบน main และบน feat/ux-a11y-improvements) ทั้งที่มัน revoke blob URL ถูกต้องครบ",
-      "src/components/Sidebar.tsx:105-123 usage bar คิดจาก ms.images ของโหมดปัจจุบันอย่างเดียว ไม่มียอดรวมข้ามโหมด ไม่มียอดสะสมข้าม session และไม่มี budget guard ก่อนยิงงานแพง มีแต่ BakeOffConfirmModal ที่ยืนยันเฉพาะ Bake-off path เท่านั้น"
-    ]
-  },
-  "avoidedOverlap": {
-    "branch": "feat/ux-a11y-improvements",
-    "status": "ยังไม่ merge — 25 ไฟล์, +1629/-420, 6 commits",
-    "alreadyCovers": [
-      "T1 อัปเดต CLAUDE.md ให้ตรงโค้ดจริง (CLAUDE.md +148 บรรทัด)",
-      "T2 API key opt-in จำไว้ในเครื่อง เพิ่ม loadRememberApiKey/saveApiKey(key, remember) ใน store.ts และลด beforeunload friction",
-      "T3 Error card แยกประเภท error เพิ่ม classifyGenError()/GenErrorKind/GenErrorInfo ใน utils.ts (+77) และ render ใน Gallery Card",
-      "T4 Bake-off โชว์ราคารวมตอนติ๊กเลือกโมเดล (แตะ BakeOffConfirmModal + Sidebar)",
-      "T5 Search/filter ใน model dropdown และ Bake-off list (แตะ Sidebar model select)",
-      "T6 รวม History สองอันเป็นอันเดียวมี filter chip (แตะ Sidebar history section)",
-      "T7 Sidebar collapsible groups และ sticky Generate bar (Sidebar +238 บรรทัด)",
-      "T8 เปลี่ยน auto-scroll เป็น pill ผลลัพธ์ใหม่ ใน Gallery (แตะ Gallery.tsx:766-773 useEffect scrollToRow)",
-      "T9/T10/T11 discoverability, polish modal, split-button Refine/Start-from ใน Gallery Card",
-      "SettingsModal.tsx ใหม่ (244 บรรทัด) ย้าย Advanced ของ KeyModal ออกมา และเพิ่ม state.settingsModalOpen",
-      "googleDrive.ts ใหม่ (162 บรรทัด) Save to Drive ต่อชิ้น เพิ่ม GenItem.driveSaveStatus/driveSaveErrMsg และ state.driveConnecting/driveConnected",
-      "a11y: roving tabindex ใน Gallery (useGalleryFocus), focus ring ใน index.css, aria label ทั่ว, FAB labels",
-      "Toast variants: ToastVariant type และ toast(msg, variant) signature ใหม่ (แตะ store.ts:543 toast())"
+  "sprint": "feat/theme-system",
+  "designedAt": "2026-08-22",
+  "designedBy": "Ploy - Lead Planner",
+  "requirement": "Add feature: Able user choose any UI Theme - preset 5-8 themes (no custom color picker) + sweep all hardcoded colors to tokens",
+  "hardConstraints": [
+    "client-only only, no backend",
+    "must not break: 5 modes (home/infographic/video/cinematic/audio), spend guard, request governor, gallery persistence (F2), favorites (F3)",
+    "no test runner / lint config - the only gate is npm run build (tsc --noEmit strict + vite build)"
+  ],
+  "factCheckOfLoopControllerBriefing": {
+    "note": "พลอยตรวจไฟล์จริงรอบนี้แล้ว มี 3 ข้อที่มินจูให้มาคลาดเคลื่อน ต้องแก้ความเข้าใจก่อนเริ่มงาน ไม่งั้น task graph จะผิดทั้งชุด",
+    "confirmed": [
+      "src/index.css:4-25 ใช้ @theme และค่าเป็น light theme จริง (--color-bg:#ffffff, --color-text:#0a0a0a) - CLAUDE.md บรรทัดสุดท้ายเขียนว่า Dark theme only ซึ่งล้าสมัยจริงตามที่มินจูบอก",
+      "token ปัจจุบันมี 11 สีจริง: bg, surface, surface-2, border, border-strong, text, text-dim, text-faint, accent, accent-ink, danger (index.css:5-15)",
+      "index.css มี CSS class ที่ hardcode สีตรงๆ จริง: .hero-glow rgba(16,185,129,.14) ที่ index.css:52 และ .hero-outline -webkit-text-stroke rgba(10,10,10,.55) ที่ index.css:55 แต่ .hero-grid::before (index.css:41) ใช้ var(--color-border) อยู่แล้ว ไม่ได้ hardcode",
+      "store.ts เป็น singleton + mutate() + useApp() จริง (store.ts:657,710,716) และ persistence ใช้ prefix atelier_ จริง (STORAGE_KEY_PREFIX ที่ store.ts:43)",
+      "AppState มี UI preference ระดับ global อยู่แล้วจริง: sidebarCollapsed/promptPlacement/lbFormat/autoSaveEnabled (types.ts:380-384) ธีมควรอยู่ระดับเดียวกัน",
+      "Header.tsx = 507 บรรทัดจริง มี Export/Import + API-key status จริง เป็นที่วางปุ่มธีมได้"
     ],
-    "howWeAvoid": [
-      "ไม่แตะ Sidebar.tsx เลยในรอบนี้ branch นั้นแก้ไป +238 บรรทัดและปรับโครงเป็น collapsible groups งานเราไปทับแน่นอน Budget guard (F4) จึงไปอยู่ใน modal ใหม่และ Header แทน ไม่ยัดลง Sidebar",
-      "ไม่แตะ KeyModal.tsx และ SettingsModal.tsx branch นั้นรื้อ KeyModal ทิ้ง 255 บรรทัดแล้วย้ายไป SettingsModal ใหม่",
-      "ไม่แตะ error card, classifyGenError, toast signature เป็นของ T3 และ Toast variants ตรงๆ",
-      "ไม่ทำ search ใน model dropdown หรือ history ชนกับ T5/T6 เต็มๆ Gallery filter ของเรา (F3) กรองผลลัพธ์ที่สร้างแล้ว คนละ dataset กับ prompt history และคนละไฟล์",
-      "Gallery.tsx เป็นไฟล์เดียวที่เลี่ยงไม่ได้ (F3 ต้องแทรก filter bar) จำกัด footprint ไว้ที่ Gallery() body บรรทัด 749-838 เท่านั้น แทรก toolbar เหนือ VirtualGrid และส่ง items ที่กรองแล้ว ห้ามแตะ useEffect scrollToRow บรรทัด 766-773 ซึ่งเป็นของ T8 และห้ามแตะ Card หรือ useGalleryFocus ที่เป็นของ T3 และ roving tabindex",
-      "ไม่แตะ toast() signature เรียก toast(msg) แบบ 1 argument เสมอ ซึ่ง compatible กับทั้งสอง branch เพราะ branch นั้นทำ variant เป็น optional param ที่มี default",
-      "ตรวจแล้วว่า resetModeGallery ยังเป็น dead code บน branch นั้นด้วย F3 wire มันเข้า UI ได้โดยไม่ชน"
+    "corrections": [
+      {
+        "claim": "@theme ของ Tailwind v4 compile เป็นค่าคงที่ตอน build สลับ runtime ไม่ได้ ต้องรื้อเป็น @theme inline",
+        "verdict": "ผิดบางส่วน และเป็นข้อที่สำคัญที่สุด",
+        "evidence": "ตรวจ dist/assets/index-CiieFF9q.css ที่ build ไว้แล้วจริง: @theme ปกติ emit ตัวแปรลง @layer theme{:root,:host{...--color-bg:#fff;--color-surface:#f7f8f7;...}} และ utility compile เป็น .bg-surface{background-color:var(--color-surface)} , .text-text-dim{color:var(--color-text-dim)} , .border-border-strong{border-color:var(--color-border-strong)} คือ อ้าง var ทั้งหมด ไม่ได้ inline hex",
+        "implication": "utility สีธรรมดา (bg-*/text-*/border-*) สลับ runtime ได้ทันทีแค่ override custom property บน [data-theme] ที่ specificity สูงกว่า :root โดยไม่ต้องรื้อเป็น @theme inline งาน infra เบากว่าที่ประเมินไว้มาก",
+        "whereInlineStillMatters": "@theme inline จำเป็นเฉพาะเมื่อต้องการให้ค่าใน @theme อ้าง var ตัวอื่นแล้ว resolve ตอน runtime แทน build ในแผนนี้เราเลือกไม่พึ่ง feature นั้น ใช้ @theme ปกติเป็นค่า default ของธีม light แล้ว override ด้วย [data-theme] แทน ซึ่ง robust กว่าและ diff เล็กกว่า"
+      },
+      {
+        "claim": "สแกนเจอ hardcoded color 148 จุด ใน 19 ไฟล์",
+        "verdict": "ตัวเลขสูงเกินจริงและรวมของที่ไม่ใช่ปัญหาเข้ามาด้วย",
+        "evidence": "สแกนซ้ำรอบนี้: hex/rgb/hsl literal = 59 จุด ใน 12 ไฟล์ (ในนั้น index.css 13 จุดคือ token definition เอง ไม่ใช่ปัญหา, shareCard.ts 9 จุดคือ FALLBACK_COLORS ที่ตั้งใจให้เป็น fallback อยู่แล้ว) บวก Tailwind palette class (white/black/green-400) = 91 จุด ใน 13 ไฟล์ รวมจุดที่ต้องแตะจริงประมาณ 120 จุด ใน 14 ไฟล์",
+        "implication": "ขอบเขต cleanup เล็กลง แต่ยังต้องแตกหลาย task อยู่ดี และไฟล์ที่มินจู list ไว้บางตัว (BakeOffConfirmModal, ImportPreviewModal, KeyModal, ShortcutsModal, SpendGuardModal, ExtendTool) มีจุดเดียวเหมือนกันหมดคือ bg-black/50 ของ modal overlay ซึ่งควรแก้เป็น token เดียวรวดเดียวใน task เดียว ไม่ต้องแยกไฟล์ละ task",
+        "extraNote": "Sidebar.tsx มี 8 จุด (มินจูไม่ได้ list ไว้ในกลุ่มเสี่ยง) ส่วน PromptComposer/ChatPanel/GrillPanel มีแต่ shadow rgba ไม่มีสี foreground hardcode"
+      },
+      {
+        "claim": "shareCard.ts วาดภาพลง canvas สีที่นั่นไปโผล่ในไฟล์ที่ผู้ใช้ export ต้องคิดแยกว่าจะตามธีมหรือ fix ไว้",
+        "verdict": "ประเด็นถูก แต่ข้อเท็จจริงเรื่อง implementation ผิด โค้ดปัจจุบันตามธีมอยู่แล้ว",
+        "evidence": "shareCard.ts:18-36 มี readThemeColors() ที่อ่านผ่าน getComputedStyle(document.documentElement).getPropertyValue('--color-bg') ตอน render จริง และ FALLBACK_COLORS (shareCard.ts:6-16) เป็นแค่ fallback เผื่ออ่านไม่เจอ พร้อม comment ระบุเจตนาไว้ชัด",
+        "implication": "shareCard.ts ไม่ต้องแก้ logic เลย มันจะตามธีมใหม่ได้ฟรีทันทีที่ custom property ถูก override เหลืองานเดียวคือ sync ค่า FALLBACK_COLORS ให้ตรง default theme และเพิ่ม fallback ของ token ใหม่ที่เพิ่มเข้ามา"
+      }
     ]
   },
-  "features": [
-    {
-      "id": "F1",
-      "name": "Request Governor — concurrency cap + cancel ได้จริง",
-      "why": "actions.ts:881 และ actions.ts:986 ยิง runRequest พร้อมกันทั้ง batch ไม่มี cap worst case 30 fetch พร้อมกันจาก MAX_QUEUE 5 คูณ count 6 และ grep AbortController ทั้ง src/ ไม่เจอเลย ผู้ใช้กด generate ผิดแล้วยกเลิกไม่ได้ ต้องรอ timeout 10-15 นาที ตาม constants.ts:66 แถมเสียเงินเต็ม เป็นงานที่ feat/ux-a11y-improvements ระบุเองใน workflow.json ว่า deferred",
+  "gapAnalysis": {
+    "summary": "ความยากของงานนี้ไม่ได้อยู่ที่ทำ theme switcher ตัว switcher เป็นงานครึ่งวัน เพราะ Tailwind v4 compile utility เป็น var() ให้แล้ว และ store/persistence pattern ก็มีของพร้อมใช้ ความยากจริงอยู่ที่ 3 เรื่องที่ซ่อนอยู่: (1) โค้ดเบสมีสมมติฐานว่าธีมเป็น light ฝังอยู่ในที่ที่ grep หาสีไม่เจอ โดยเฉพาะ invert บนโลโก้ (Header.tsx:442, Landing.tsx:97) ที่จะกลายเป็นโลโก้ผิดสีทันทีในธีมมืด (2) มี surface ที่จงใจเป็นสีมืดตายตัว ไม่ใช่ตามธีม (Lightbox/CompareModal overlay, Gallery card badge) ซึ่งถ้ากวาดเป็น token แบบไม่คิดจะทำให้ badge สีขาวไปอยู่บนพื้นขาวในธีม light (3) token 11 ตัวปัจจุบันไม่มี success/warning/info และไม่มี token สำหรับ overlay/scrim/on-media ถ้าไม่เพิ่ม token จะกวาดไม่หมดจริงตามที่พี่เอิร์ธสั่ง เพราะไม่มีที่ให้สีเหล่านั้นไปลง",
+    "hardParts": [
+      {
+        "id": "G1",
+        "title": "โลโก้ใช้ invert filter เป็น theme assumption ที่ grep สีไม่เจอ",
+        "detail": "Header.tsx:442 และ Landing.tsx:97 ใส่ class invert บน img โลโก้ แปลว่าไฟล์โลโก้ต้นฉบับเป็นสีอ่อน/ขาว แล้วถูก invert ให้เป็นสีเข้มเพื่อให้เห็นบนพื้นขาว พอสลับเป็นธีมมืด พื้นกลายเป็นดำ แต่ invert ยังทำงานอยู่ ได้โลโก้ดำบนพื้นดำ มองไม่เห็น นี่คือบั๊กที่ scan สีทั้ง 2 แบบ (hex + palette class) จับไม่ได้เลย และจะหลุดไปถึงมือผู้ใช้ถ้าไม่ระบุไว้ในแผน",
+        "resolution": "ต้องผูก invert เข้ากับธีม ทางที่สะอาดที่สุดคือทำ CSS var ระดับธีม เช่น --logo-invert: 1 หรือ 0 แล้วประกาศ .brand-logo ใน index.css ให้ theme override ได้"
+      },
+      {
+        "id": "G2",
+        "title": "surface มืดตายตัวที่ไม่ควรตามธีม ปนอยู่กับ surface ที่ควรตามธีม",
+        "detail": "Lightbox.tsx:98 และ CompareModal.tsx:79 ใช้ bg-[rgba(5,5,5,.94)] เป็นพื้น full-screen viewer โดยเจตนา (ดูรูปต้องพื้นมืด ไม่ว่าธีมอะไร) และภายในนั้นใช้ text-white/border-white/25 อีกราว 29 และ 23 จุดตามลำดับ Gallery.tsx ก็มี badge บนรูป bg-[rgba(10,10,10,.72)] บวก text-white อีกราว 13 จุด (badge ทับบนภาพ ต้องอ่านออกเสมอไม่ว่าภาพสีอะไร) ถ้าใครกวาด text-white เป็น text-text แบบมักง่าย จะได้ตัวหนังสือดำบนพื้นดำในธีม light ทันที regression ที่ build ไม่จับ",
+        "resolution": "ต้องมี token คนละชุดสำหรับบริบทบนสื่อ/บนฉากมืด (on-media / scrim) ที่ค่าเกือบคงที่ทุกธีม แยกจาก surface ปกติ แล้วสั่ง dev ให้ map ไปตัวนั้น ไม่ใช่ map ไป text/surface"
+      },
+      {
+        "id": "G3",
+        "title": "ไม่มี token สำหรับสถานะ success/warning/info และ overlay กวาดไม่หมดถ้าไม่เพิ่ม",
+        "detail": "Header.tsx:126 และ Header.tsx:500 ใช้ bg-green-400 เป็นจุดไฟสถานะ (Auto Save เปิด / API key พร้อม) ซึ่งเป็น semantic success ที่ไม่มี token รองรับ modal overlay ใช้ bg-black/50 ซ้ำกัน 6 ไฟล์ (BakeOffConfirmModal:21, ExtendTool:54, ImportPreviewModal:30, KeyModal:364, ShortcutsModal:16, SpendGuardModal:78) ก็ไม่มี token ในธีมมืด black/50 จะทำ contrast ระหว่าง modal กับพื้นหลังหายไปเกือบหมด",
+        "resolution": "เพิ่ม token ตัดสินใจแล้วที่ decisions.a"
+      },
+      {
+        "id": "G4",
+        "title": "ไม่มี gate อัตโนมัติที่จับสีผิดได้เลย",
+        "detail": "npm run build เป็น tsc --noEmit บวก vite build เท่านั้น className เป็น string ล้วน เปลี่ยน text-white เป็นอะไรก็ได้ build ก็ผ่าน แปลว่า 120 จุดที่แก้ ไม่มีอะไรจับ regression ให้เลยแม้แต่นิดเดียว",
+        "resolution": "ตัดสินใจแล้วที่ decisions.f ใช้ grep-based guard บวก QA matrix แทน test runner"
+      },
+      {
+        "id": "G5",
+        "title": "Landing.tsx มีการ์ดที่ตั้งใจให้มืดถาวรเป็น art direction",
+        "detail": "Landing.tsx:139 bg-[#0a0a0a] บวก text-white คือการ์ด hero art ที่ตั้งใจให้เป็นฟิล์มมืดโชว์โลโก้ ไม่ใช่ surface ของแอป เคสเดียวกับ G2 แต่คนละบริบท ต้องไม่ถูกกวาดผิด"
+      }
+    ],
+    "whatIsNOTHard": [
+      "ตัว persist ธีม store.ts มี pattern loadPromptPlacement/writeLocalStorage ครบ ก๊อปมาใช้ได้ตรงๆ (store.ts:202-208 และ 50-61)",
+      "opacity modifier (bg-accent/10, border-danger/40) build ปัจจุบัน emit เป็น color-mix(in oklab, var(--color-accent) 40%, transparent) ภายใต้ @supports guard แปลว่าตามธีมอัตโนมัติอยู่แล้ว ไม่ต้องแตะ",
+      "shareCard.ts อ่าน getComputedStyle อยู่แล้ว ตามธีมฟรี",
+      ".hero-grid::before ใช้ var(--color-border) อยู่แล้ว"
+    ]
+  },
+  "decisions": {
+    "a_newSemanticTokens": {
+      "decision": "เพิ่ม token จาก 11 เป็น 18 ตัว แบ่งเป็น 3 กลุ่ม (สถานะ / overlay / on-media)",
+      "rationale": "พี่เอิร์ธสั่งว่าทุกสีต้องมาจาก token ถ้าไม่เพิ่ม จะมีสีที่ไม่มีบ้านให้ไปลง (green-400 ของ status dot, black/50 ของ overlay, white ของ badge บนภาพ) แล้ว dev จะถูกบังคับให้ map มั่วไปที่ token ที่ความหมายไม่ตรง เท่ากับกวาดไม่หมดจริง หรือแย่กว่าคือกวาดแล้วพัง",
+      "tokensToAdd": [
+        {
+          "name": "--color-success",
+          "purpose": "จุดไฟสถานะเขียว/ยืนยันสำเร็จ แทน bg-green-400 ที่ Header.tsx:126 และ Header.tsx:500",
+          "themeVaries": true
+        },
+        {
+          "name": "--color-warning",
+          "purpose": "เตือนแต่ไม่ใช่ error ยังไม่มีที่ใช้ตอนนี้ แต่เปิดทางให้ spend guard/quota warning เลิกยืม danger",
+          "themeVaries": true
+        },
+        {
+          "name": "--color-info",
+          "purpose": "ข้อมูล/neutral highlight",
+          "themeVaries": true
+        },
+        {
+          "name": "--color-overlay",
+          "purpose": "scrim ของ modal แทน bg-black/50 ทั้ง 6 ไฟล์ ต้องเข้มขึ้นในธีมมืดเพื่อคง separation",
+          "themeVaries": true
+        },
+        {
+          "name": "--color-media-scrim",
+          "purpose": "พื้น full-screen viewer (Lightbox/CompareModal) เกือบคงที่ทุกธีม เพราะดูรูปต้องพื้นมืดเสมอ",
+          "themeVaries": false
+        },
+        {
+          "name": "--color-on-media",
+          "purpose": "ตัวหนังสือ/ไอคอนบนภาพหรือบน media-scrim ขาวเสมอทุกธีม แทน text-white ราว 60 จุดใน Lightbox/CompareModal/Gallery/Sidebar",
+          "themeVaries": false
+        },
+        {
+          "name": "--color-on-media-dim",
+          "purpose": "ตัวหนังสือรองบนสื่อ แทน text-white/50 text-white/70 border-white/15|20|25 ที่เป็นชั้นรอง",
+          "themeVaries": false
+        }
+      ],
+      "explicitlyNotAdding": "ไม่เพิ่ม token ต่อ component และไม่ทำ token 3 ชั้น (primitive semantic component) โปรเจกต์นี้มี 18 utility color ก็พอ การทำ 3 ชั้นจะเพิ่ม indirection ที่ไม่มีใครได้ประโยชน์ในแอปขนาดนี้",
+      "namingConstraint": "ชื่อต้องขึ้นต้น --color-* เพื่อให้ Tailwind v4 gen utility ให้อัตโนมัติ (bg-success, text-on-media) ยืนยันจาก dist แล้วว่ากลไกนี้ทำงานจริงกับ 11 ตัวเดิม"
+    },
+    "b_fouc": {
+      "decision": "inline blocking script ใน index.html head อ่าน localStorage แล้วเซ็ต document.documentElement.dataset.theme ก่อน CSS/React โหลด",
+      "rationale": "index.html มี inline script อยู่แล้วที่บรรทัด 11-18 (redirect handler) เพิ่มอีกราว 8 บรรทัดในรูปแบบเดียวกันได้เลย ไม่ต้องมี backend ไม่ต้องมี SSR ตัว script sync ใน head รันก่อน first paint เสมอ จึงไม่มีเฟรมที่ธีมผิด",
+      "criticalDetail": "script นี้ต้องอยู่ก่อน script module ของ /src/main.tsx และควรอยู่ใน head ไม่ใช่ท้าย body ตัว script ที่มีอยู่ตอนนี้อยู่ใน body ก่อน main.tsx ซึ่งใช้ได้ แต่ theme script ควรขึ้นไป head เพื่อให้ชนะ CSS parse",
+      "duplicationRisk": "ค่า key name และ list ชื่อธีมจะถูกเขียน 2 ที่ (index.html กับ TS) เลี่ยง import ไม่ได้เพราะ index.html ไม่ผ่าน bundler รับ duplication นี้โดยตั้งใจ แต่ต้องมี comment ทั้งสองฝั่งชี้หากันและ AC ของ task บังคับให้ตรวจ",
+      "extraGuard": "ตั้ง CSS color-scheme property ต่อธีมด้วย เพื่อให้ native control (scrollbar, form control, autofill) ไม่ขาวโพลนในธีมมืด ตอนนี้โปรเจกต์ไม่มี color-scheme เลย ยืนยันด้วย grep แล้วว่าไม่มีทั้ง prefers-color-scheme และ color-scheme ทั้งใน src และ index.html"
+    },
+    "c_prefersColorScheme": {
+      "decision": "มี System option แต่เป็น System ตัวเดียวที่ resolve เป็น Paper (light) หรือ Ink (dark) เท่านั้น ไม่ใช่ System ต่อทุกธีม",
+      "rationale": "ถ้าให้ทุกธีมมีคู่ light/dark จะกลายเป็นสิบกว่า combination ที่ต้องออกแบบและ QA เกิน scope 5-8 preset ที่พี่เอิร์ธยืนยัน ทำเป็น System เท่ากับตัวเลือกลำดับที่ 1 ในลิสต์ ที่ตาม prefers-color-scheme ไปที่ Paper หรือ Ink เท่านั้น ส่วนอีก 5 ธีมเป็น explicit choice",
+      "storageModel": "เก็บค่า system ลง localStorage ตรงๆ ไม่ resolve แล้วเก็บ เพื่อให้ผู้ใช้ที่เลือก System แล้วเปลี่ยน OS theme ทีหลังยังตามได้",
+      "liveUpdate": "ต้อง subscribe matchMedia ของ prefers-color-scheme dark ด้วย addEventListener change เมื่อ mode เป็น system เพื่อสลับสดโดยไม่ต้อง reload และต้อง cleanup listener ให้ครบ",
+      "foucInteraction": "inline script ที่ index.html ต้อง resolve system เองด้วย window.matchMedia ก่อน paint ไม่งั้นผู้ใช้ System บวก OS dark จะเห็น flash ขาว"
+    },
+    "d_shareCard": {
+      "decision": "ตามธีมปัจจุบัน ไม่ต้องแก้ logic แต่บังคับ media-scrim/on-media ไม่ให้ตามธีม และ sync FALLBACK_COLORS",
+      "rationale": "โค้ดปัจจุบัน shareCard.ts:18-36 readThemeColors อ่าน CSS var ตอน render อยู่แล้วโดยตั้งใจ พร้อม comment ว่า auto-match ธีมไหนก็ตามที่ active อยู่ การไป fix เป็นธีมเดียวคือการถอย feature ที่มีอยู่ ไม่ใช่การเพิ่ม และในเชิงผู้ใช้ share card คือของที่ผู้ใช้สร้างเพื่อแชร์ผลงานตัวเอง ให้มันสะท้อนธีมที่เขาเลือก เท่ากับผู้ใช้เป็นเจ้าของผลลัพธ์ ตรงกับเจตนาของฟีเจอร์เลือกธีมพอดี",
+      "workRequired": [
+        "sync FALLBACK_COLORS (shareCard.ts:6-16) ให้ตรงกับค่าธีม default ตัวใหม่ ตอนนี้ hardcode ค่า light เดิมไว้ ถ้า default เปลี่ยนต้องตามด้วย",
+        "ตรวจ contrast การ์ดใช้ colors.text บน colors.bg และ colors.textFaint บน colors.bg ทุกธีมต้องผ่านเกณฑ์เดียวกัน ไม่งั้น share card ของบางธีมจะอ่านไม่ออก ซึ่งหลุดออกไปนอกแอป แก้ทีหลังไม่ได้"
+      ],
+      "rejectedAlternative": "fix เป็นธีมเดียวเสมอ ตัดทิ้งเพราะขัดกับโค้ดที่มีอยู่ และทำให้ผู้ใช้ธีมมืด export ได้การ์ดขาวที่ไม่เหมือนสิ่งที่เขาเห็นบนจอ เท่ากับผิดความคาดหวัง"
+    },
+    "e_migration": {
+      "decision": "ผู้ใช้เดิมที่ไม่มีคีย์ได้ Paper (light) ซึ่งเป็นค่าที่ตรงกับ index.css ปัจจุบันเป๊ะ ไม่ใช่ System",
+      "rationale": "หลักคือผู้ใช้เดิมต้องไม่เห็นอะไรเปลี่ยนเลยหลัง deploy ถ้า default เป็น System ผู้ใช้เดิมที่ตั้ง OS เป็น dark จะเปิดแอปมาเจอธีมมืดทันทีทั้งที่ไม่ได้ขอ เท่ากับ surprise regression ที่จะถูกรายงานเป็นบั๊ก",
+      "implementation": "Paper ต้องมีค่า hex เท่ากับ index.css:5-15 ทุกตัวแบบ byte-identical เป็น AC ที่ตรวจได้จริงด้วยการ diff",
+      "noVersioning": "ไม่ต้องมี migration/versioning ของค่าที่เก็บ เพราะเป็นคีย์ใหม่ที่ไม่เคยมีมาก่อน ไม่มีรูปแบบเก่าให้แปลง แค่ต้อง sanitize ค่าที่อ่านมา (ผู้ใช้แก้ localStorage เองได้) ให้ fallback เป็น Paper ถ้าไม่ใช่ธีมที่รู้จัก ตาม pattern เดียวกับ loadPromptPlacement ที่ store.ts:202"
+    },
+    "f_regressionWithoutTests": {
+      "decision": "3 ชั้น: grep guard เป็น gate ที่ตรวจซ้ำได้, QA matrix ที่ระบุหน้าจอ x ธีมชัดเจน, และบังคับ contrast check เชิงตัวเลขตอนออกแบบ palette",
       "layers": [
-        "logic",
-        "ui"
+        {
+          "layer": "1. grep guard (ตรวจได้จริง ซ้ำได้ ไม่ต้องพึ่งคน)",
+          "detail": "หลัง cleanup ครบ ต้อง grep แล้วได้ผลเป็นศูนย์ตามนี้ (a) class ที่ลงท้ายด้วย -white หรือ -black ใน src/components และ src/pages ต้องเหลือ 0 (b) hex/rgba ใน .tsx ต้องเหลือเฉพาะ box-shadow rgba ที่ allowlist ไว้ และ Landing hero art ที่ตั้งใจ (c) tailwind palette scale เช่น green-400 red-500 amber-400 emerald-500 ต้องเหลือ 0 คำสั่ง grep เต็มอยู่ใน AC ของ T15 ให้รันได้ตรงๆ",
+          "why": "นี่คือ gate เดียวที่เป็นตรวจได้จริงตามที่พี่เอิร์ธต้องการ เพราะ build จับสีไม่ได้เลย className เป็น string ล้วน"
+        },
+        {
+          "layer": "2. QA matrix เชิงบังคับ (แพร)",
+          "detail": "ไม่ใช่ลองดูว่าโอเคไหม แต่เป็นตาราง 8 surface เสี่ยงสูง (Header, Sidebar กับ ref preview, Gallery card กับ badge กับ shimmer, Lightbox, CompareModal, modal overlay ทั้ง 6, Landing hero, share card ที่ export ออกมาจริง) คูณ 3 ธีมตัวแทน (Paper light, Ink dark, Contrast high-contrast) เท่ากับ 24 ช่อง ทุกช่องต้องระบุผล pass/fail รายช่อง ไม่ใช่สรุปรวม",
+          "why": "3 ธีมตัวแทนพอ เพราะธีมที่เหลือต่างกันแค่ค่าใน token เดียวกัน ถ้า structure ถูกใน 3 ตัวสุดขั้ว ที่เหลือถูกตาม"
+        },
+        {
+          "layer": "3. contrast budget ตอนออกแบบ palette (ก่อนเขียนโค้ด ไม่ใช่หลัง)",
+          "detail": "ทุกธีมต้องผ่าน text บน bg อย่างน้อย 7:1, text-dim บน bg อย่างน้อย 4.5:1, text-faint บน bg อย่างน้อย 3:1, accent-ink บน accent อย่างน้อย 4.5:1, on-media บน media-scrim อย่างน้อย 4.5:1 และเขียนค่าที่วัดได้ลงในไฟล์ธีมเป็น comment",
+          "why": "ถ้าปล่อยให้เลือกสีตามใจแล้วค่อยตรวจด้วยตา จะได้ธีมสวยแต่อ่านไม่ออก และ high-contrast theme จะกลายเป็นแค่ชื่อ"
+        }
       ],
+      "explicitNonGoal": "ไม่ตั้ง test runner ใหม่ในสปรินต์นี้ การเพิ่ม vitest กับ jsdom เพื่อทดสอบสี CSS จะได้ test ที่เปราะและไม่จับปัญหาจริง (ปัญหาจริงคือ visual) ไม่คุ้มกับ dependency ใหม่ในโปรเจกต์ที่จงใจไม่มี test infra"
+    }
+  },
+  "paletteDesign": {
+    "count": 7,
+    "structure": "ทุกธีมนิยาม token ชุดเดียวกัน 18 ตัวใน src/lib/themes.ts (source of truth เป็น TS เพื่อให้ picker UI และ type ใช้ร่วมกัน) แล้ว mirror เป็น block [data-theme=...] ใน index.css โดย Paper อยู่ใน @theme เป็นค่า default dev ต้องเขียนสองที่ให้ตรงกัน และ AC บังคับให้ตรวจ",
+    "invariantAcrossAllThemes": "--color-media-scrim, --color-on-media, --color-on-media-dim ต้องเหมือนกันทุกธีม (หรือต่างได้ไม่เกินระดับ opacity) เพราะเป็นบริบทบนภาพที่ไม่ขึ้นกับธีมแอป ดู gapAnalysis G2",
+    "themes": [
+      {
+        "id": "system",
+        "name": "System",
+        "isMeta": true,
+        "character": "ไม่ใช่ palette จริง resolve ตาม prefers-color-scheme ไปที่ paper (light) หรือ ink (dark) ต้องอยู่บนสุดของ picker",
+        "accent": "สืบทอดจากธีมที่ resolve ได้",
+        "role": "meta"
+      },
+      {
+        "id": "paper",
+        "name": "Paper",
+        "isDefault": true,
+        "character": "light ธีมปัจจุบันเป๊ะๆ ขาว/ดำ/มิ้นท์ ค่าเท่ากับ index.css:5-15 ทุกตัว ห้ามเพี้ยนแม้แต่ตัวเดียว เพราะเป็น migration target ของผู้ใช้เดิม",
+        "accent": "mint #10b981 (คงเดิม)",
+        "role": "light + default + baseline"
+      },
+      {
+        "id": "ink",
+        "name": "Ink",
+        "character": "dark คู่ตรงข้ามของ Paper พื้นดำหมึก surface เทาเข้มไล่ระดับ ตัวหนังสือขาวนวล (ไม่ใช่ #fff เต็ม เพื่อลด halation) accent มิ้นท์เดิมแต่ปรับให้สว่างขึ้นเล็กน้อยให้ยัง pop บนพื้นมืด",
+        "accent": "mint ปรับสว่าง",
+        "role": "dark (บังคับตาม requirement)",
+        "criticalNote": "ธีมนี้คือตัวที่จะแฉบั๊ก invert ของโลโก้ (G1) และ overlay black/50 (G3) ควรเป็นธีมแรกที่ QA ทดสอบ"
+      },
+      {
+        "id": "contrast",
+        "name": "High Contrast",
+        "character": "accessible พื้นดำสนิท ตัวหนังสือขาวสนิท border ชัดหนาแน่น ไม่มีสีเทาอ่อนที่จางจนหาย accent เป็นสีที่ contrast สูงมากกับทั้งพื้นและ ink ตัว text-faint ในธีมนี้ต้องไม่ faint จริงๆ (อย่างน้อย 4.5:1 ไม่ใช่ 3:1)",
+        "accent": "เหลือง/เขียวสว่างจัด ที่ contrast กับดำอย่างน้อย 12:1",
+        "role": "high-contrast / accessible (บังคับตาม requirement)",
+        "criticalNote": "ธีมนี้ต้องยกเกณฑ์ contrast ทุกคู่ให้สูงกว่าธีมอื่นหนึ่งขั้น ไม่ใช่แค่ dark ที่เข้มขึ้น"
+      },
+      {
+        "id": "sepia",
+        "name": "Sepia",
+        "character": "light อุ่น พื้นครีมกระดาษเก่า ตัวหนังสือน้ำตาลเข้ม สบายตาสำหรับใช้งานนาน ลด blue light accent เป็นส้มอิฐหรือเขียวมะกอก",
+        "accent": "terracotta / olive",
+        "role": "light ทางเลือก (สำหรับคนที่รู้สึกว่าขาวจ้าเกินไป)"
+      },
+      {
+        "id": "midnight",
+        "name": "Midnight",
+        "character": "dark เย็น พื้นน้ำเงินกรมท่าเข้ม (ไม่ใช่ดำเทา) surface อมน้ำเงิน accent ฟ้าไซแอน ให้ความรู้สึก studio/technical ต่างจาก Ink ที่เป็นกลาง",
+        "accent": "cyan / azure",
+        "role": "dark ทางเลือก"
+      },
+      {
+        "id": "nocturne",
+        "name": "Nocturne",
+        "character": "dark อุ่น พื้นน้ำตาลเข้มอมม่วง accent ทอง/อำพัน ให้ความรู้สึกหรูและนุ่ม เหมาะกับการดูรูปเพราะสีพื้นไม่แย่งสายตาจากภาพ",
+        "accent": "amber / gold",
+        "role": "dark ทางเลือก (เน้นการดูภาพ)"
+      }
+    ],
+    "countRationale": "7 ตัว (นับ System ด้วย เท่ากับ 6 palette จริง บวก 1 meta) อยู่ในช่วง 5-8 ที่พี่เอิร์ธกำหนด และครบ 3 ตัวบังคับ (light=Paper, dark=Ink, accessible=Contrast) โดยอีก 3 ตัวเป็น light/dark ทางเลือกที่มีคาแรกเตอร์ต่างกันจริง ไม่ใช่แค่เปลี่ยน accent hue",
+    "hexValuesDeferred": "ค่า hex จริงให้ dev เป็นคนกำหนดตอน implement ภายใต้ contrast budget ที่ระบุใน decisions.f layer 3 ยกเว้น Paper ที่ต้องเท่าเดิมเป๊ะ"
+  },
+  "chainDesignPerFeature": [
+    {
+      "featureId": "F1",
+      "name": "Theme token contract + palette definitions",
       "chainDepth": "full",
-      "chain": [
-        "นุ่น (Noon): contract",
-        "มายด์ลิน (Maidlin): logic",
-        "เบล (Bell): integration",
-        "แพร (Prae): QA",
-        "โบว์ (Bow): security blocking"
-      ],
-      "chainRationale": "full เพราะแตะ request layer ที่เป็น critical path ของทุกโหมดพร้อมกัน ทั้ง image video audio bake-off retry auto-extend และมี invariant ด้านเงินที่พังง่ายมาก requestVideo:1177 ใช้ item.jobId เป็นกลไกกันจ่ายซ้ำ ถ้า abort แล้วเคลียร์ jobId ผิดจังหวะ ผู้ใช้จะถูกชาร์จซ้ำจริง จึงต้องมี contract step ของนุ่นนิยามก่อนว่า abort ระหว่าง poll ต้องคง jobId ไว้เสมอ แล้วให้โบว์ตรวจปิดท้ายแบบ blocking ข้าม UI step ไม่ได้เพราะปุ่มยกเลิกต้องมีจริงถึงจะปลดล็อกคุณค่า",
-      "securitySensitive": true,
-      "perfSensitive": true,
-      "estimatedLines": 320
+      "rationale": "เป็นรากของทุกอย่างที่เหลือ ถ้า token ชื่อผิดหรือขาด จะต้องรื้อ cleanup ทั้ง 120 จุดใหม่ทั้งหมด ราคาของการทำผิดสูงมากและแก้ทีหลังแพง จึงต้อง full chain (contract ก่อน แล้ว impl แล้ว verify)",
+      "layers": [
+        "types",
+        "css-infra",
+        "theme-data"
+      ]
     },
     {
-      "id": "F2",
-      "name": "Gallery Persistence — ผลลัพธ์รอด reload ด้วย IndexedDB",
-      "why": "ผู้ใช้จ่ายเงินจริงต่อชิ้น แต่ gallery เป็น memory-only reconcilePendingJobs ที่ actions.ts:215 กู้ได้แค่ job ที่ยังค้าง ส่วน item ที่ done แล้วหายหมดทุก reload IndexedDB helper มีพร้อมอยู่แล้วใน fsAccess.ts:37-72 แต่ใช้เก็บแค่ directory handle ตัวเดียว branch a11y ระบุเองว่า deferred เพราะต้องตัดสิน scope ก่อน รอบนี้ตัดสินให้แล้ว crash-recovery scope, cap ตามจำนวนชิ้น, เก็บ Blob ตรงๆ ไม่ใช่ data URL",
-      "layers": [
-        "persist",
-        "logic",
-        "ui"
-      ],
+      "featureId": "F2",
+      "name": "Runtime theme switching + persistence + FOUC guard",
       "chainDepth": "full",
-      "chain": [
-        "ฟ้า (Fah): schema",
-        "นุ่น (Noon): contract",
-        "มายด์ลิน (Maidlin): logic",
-        "เบล (Bell): integration",
-        "แพร (Prae): QA",
-        "โบว์ (Bow): security blocking"
-      ],
-      "chainRationale": "full และต้องมีฟ้านำหน้าเป็นพิเศษ เพราะนี่คือ feature เดียวในรอบนี้ที่สร้าง storage schema ใหม่ที่ต้องอยู่ข้าม version ของแอป ออกแบบ key cap eviction ผิดตั้งแต่แรกแล้วแก้ทีหลังต้องเขียน migration ซึ่งแพงกว่ามาก ต้องมีนุ่นด้วยเพราะ GenItem มีฟิลด์ที่ห้าม persist คือ refs ซึ่งเป็น data URL ของภาพผู้ใช้ และ jobId ที่ผูกกับ session ต้องนิยาม subset ให้ชัดก่อนเขียน โบว์เป็น blocking เพราะเขียน blob ลงดิสก์ถาวรเปลี่ยน data-retention posture ของแอปที่เดิมตั้งใจให้ memory-only",
-      "securitySensitive": true,
-      "perfSensitive": true,
-      "estimatedLines": 400
+      "rationale": "แตะ index.html (นอก bundler), localStorage, matchMedia listener lifecycle และ store singleton มีจุดพลาดที่ทำให้ leak หรือ flash หลายจุด และ persistence ผิดจะกระทบ key namespace ที่ KeyModal Advanced อ่านอยู่ (labelForStorageKey ที่ store.ts:86)",
+      "layers": [
+        "state",
+        "infra"
+      ]
     },
     {
-      "id": "F3",
-      "name": "Gallery Filter & Favorites — หาของเจอใน gallery ที่ยาว 100 ชิ้นขึ้นไป",
-      "why": "Gallery.tsx:834 ส่ง ms.images ดิบทั้งก้อนเข้า VirtualGrid ไม่มี filter/search layer เลย และ GenItem ที่ types.ts:38-98 ไม่มี favorite หรือ tag พอสะสม 100 ชิ้นขึ้นไป ซึ่งเป็นเหตุผลที่ PHASE 13 ต้องทำ virtualization ตั้งแต่แรก ผู้ใช้แยกของดีจากของทิ้งไม่ได้ พ่วงแก้ dead code resetModeGallery ที่ actions.ts:804 ซึ่ง export ไว้แต่ไม่มี UI เรียก",
+      "featureId": "F3",
+      "name": "Theme picker UI",
+      "chainDepth": "short",
+      "rationale": "เป็น presentational ล้วน มี pattern popover ใน Header ให้ลอกอยู่แล้ว 3 ตัว (ExportControl/AutoSaveControl/SpendGuardControl) และผลลัพธ์เห็นด้วยตาทันที ไม่ต้อง contract phase แยก",
+      "layers": [
+        "ui"
+      ]
+    },
+    {
+      "featureId": "F4",
+      "name": "Hardcoded color sweep",
+      "chainDepth": "short",
+      "rationale": "แต่ละ task เป็น mechanical mapping ที่ตัดสินใจไปแล้วใน F1 (token ไหน map ไปไหน) dev ไม่ต้องออกแบบอะไร แค่ทำตาม mapping table แต่ต้องแตกหลาย task เพราะ context ไม่ใช่เพราะความซับซ้อน",
+      "layers": [
+        "cleanup"
+      ],
+      "splitStrategy": "แบ่งตามบริบทสี ไม่ใช่ตามขนาดไฟล์ ไฟล์ที่ใช้ on-media/scrim อยู่ด้วยกัน (Lightbox บวก CompareModal), ไฟล์ที่มีแต่ overlay จุดเดียว (6 modal) รวมเป็น task เดียว, Gallery แยกเพราะ 1114 บรรทัดและมีทั้ง badge บนภาพและ surface ปกติปนกัน"
+    },
+    {
+      "featureId": "F5",
+      "name": "Theme-coupled assets and docs",
+      "chainDepth": "short",
+      "rationale": "แก้ invert ของโลโก้ บวก sync shareCard fallback บวก แก้ CLAUDE.md ที่ระบุ Dark theme only ผิด งานเล็กแต่ต้องมีเจ้าภาพ ไม่งั้นตกหล่น",
       "layers": [
         "ui",
-        "logic"
-      ],
-      "chainDepth": "lite",
-      "chain": [
-        "ออม (Aom): ui",
-        "เบล (Bell): integration",
-        "แพร (Prae): QA"
-      ],
-      "chainRationale": "lite เพราะข้าม contract step ของนุ่นและ backend logic step ของมายด์ลินโดยตั้งใจ feature นี้ไม่แตะ network layer เลย ไม่มี payload shape ให้ตกลง ไม่มี invariant ด้านเงิน ที่เพิ่มใน types.ts มีแค่ favorite boolean ฟิลด์เดียวกับ transient filter state เล็กเกินกว่าจะคุ้มกับ contract step แยก แต่ยังต้องมีเบลจริงๆ ไม่ใช่ ui-only ล้วน เพราะ filter list ต้องเป็น useMemo ที่ป้อนเข้า react-window ซึ่ง index mapping กระทบ openLightbox(index) ที่อ้าง index ของ array เดิม พลาดตรงนี้แล้ว lightbox เปิดผิดรูป",
-      "securitySensitive": false,
-      "perfSensitive": true,
-      "estimatedLines": 260
+        "docs"
+      ]
     },
     {
-      "id": "F4",
-      "name": "Spend Guard — ยอดสะสมข้ามโหมด + เพดานงบต่อ session",
-      "why": "Sidebar.tsx:105-123 คิด usage จาก ms.images ของโหมดปัจจุบันอย่างเดียว ไม่มียอดรวมข้ามโหมด ไม่มียอดสะสม และมี guard ก่อนจ่ายเงินแค่ path เดียวคือ BakeOffConfirmModal ที่ actions.ts:987 ส่วน generate() ปกติที่ยิงได้ทีละ 30 ชิ้นไม่มีอะไรถามเลย computeItemCost และ computeCost ที่ actions.ts:1723-1741 มีครบอยู่แล้ว แค่ยังไม่มีใครรวมยอดข้ามโหมดหรือเอามาเป็น gate",
+      "featureId": "F6",
+      "name": "Regression gate",
+      "chainDepth": "short",
+      "rationale": "grep guard บวก QA matrix เป็น verification ไม่ใช่ implementation",
       "layers": [
-        "logic",
-        "persist",
-        "ui"
-      ],
-      "chainDepth": "full",
-      "chain": [
-        "นุ่น (Noon): contract",
-        "มายด์ลิน (Maidlin): logic",
-        "ออม (Aom): ui",
-        "แพร (Prae): QA"
-      ],
-      "chainRationale": "full แต่ไม่มีโบว์ ต้องมี contract step เพราะ gate ต้องแทรกใน generate() ซึ่งเป็นฟังก์ชันเดียวกับที่ F1 กำลังแก้ ถ้าไม่นิยาม insertion point ให้ชัดก่อน สอง feature จะแก้ generate() ทับกันเอง นี่เป็น dependency จริงไม่ใช่พิธีกรรม ไม่ต้องมีโบว์เพราะไม่แตะ credential ไม่เขียนความลับ เก็บแค่ตัวเลข USD สะสม ไม่ต้องมีเบลแยกเพราะออมต่อ store ตรงได้ผ่าน useApp() ซึ่งเป็น state global ตัวเดียว ไม่มี derived list ซับซ้อนแบบ F3",
-      "securitySensitive": false,
-      "perfSensitive": false,
-      "estimatedLines": 240
+        "qa"
+      ]
     }
   ],
-  "totalEstimatedLines": 1220,
   "sequencingNotes": [
-    "F1 ต้องเสร็จก่อน F4 ทั้งคู่แก้ generate() ที่ actions.ts:815-882 ถ้าทำขนานกันจะ conflict F1 แก้บรรทัดยิง request ที่ 881 ส่วน F4 แทรก gate ก่อนบรรทัด 848",
-    "F2 ต้องเสร็จก่อน F3 เพราะ F3 เพิ่ม GenItem.favorite ซึ่ง F2 ต้องรู้ว่าจะ persist ฟิลด์นี้ด้วยไหม คำตอบคือต้อง persist มิฉะนั้น favorite หายทุก reload ซึ่งย้อนแย้งกับ F2 เอง",
-    "F1 กับ F2 ขนานกันได้ คนละไฟล์เป็นหลัก F1 อยู่ที่ actions.ts request path ส่วน F2 อยู่ที่ lib ใหม่และ boot path จุดชนเดียวคือ runRequest ตอน item done ซึ่งนัดไว้แล้วว่า F2 hook หลัง autoSaveItem ที่ actions.ts:1036",
-    "Gallery.tsx เป็น hot file ที่ชนกับ branch a11y ให้ F3 เป็น feature เดียวที่แตะ Gallery.tsx ส่วนปุ่มยกเลิกของ F1 ไปอยู่บน Header และ PromptComposer แทน Card เพื่อลด surface การชน"
+    "T1 (token contract) ต้องเสร็จและ freeze ก่อน task cleanup ใดๆ เริ่ม ถ้า token ชื่อเปลี่ยนกลางทาง cleanup ที่ทำไปแล้วจะผิดหมด",
+    "T2 (mapping table) เป็น deliverable ที่สำคัญที่สุดของสปรินต์ cleanup task ทั้ง 5 ตัวอ่านตารางนี้อย่างเดียว ไม่ต้องตัดสินใจเอง นี่คือสิ่งที่กัน sub-agent ตีความสีต่างกันจนได้ผลลัพธ์ไม่สม่ำเสมอ",
+    "cleanup task T9 ถึง T13 ขนานกันได้ทั้งหมดหลัง T2 กับ T4 เสร็จ เพราะไม่มีไฟล์ทับกัน ตรวจแล้วว่า file set ไม่ intersect",
+    "T14 (invert logo) ต้องรอ T4 (theme CSS blocks) เพราะต้องใช้ var ระดับธีม",
+    "T16 (grep gate) ต้องรันหลัง cleanup ครบทุกตัว เป็น gate จริง ถ้าไม่ผ่านต้องตีกลับ",
+    "T17 (QA matrix) รันท้ายสุด ต้องมี T8 (picker) แล้วถึงจะสลับธีมทดสอบได้"
   ],
   "risks": [
-    "Gallery.tsx ชนกับ feat/ux-a11y-improvements แน่นอน branch นั้นแก้ +219 บรรทัดในไฟล์เดียวกัน จำกัด F3 ไว้ที่ Gallery() body เท่านั้น",
-    "F2 เขียน blob ลงดิสก์ถาวรเปลี่ยน privacy posture ของแอปที่ CLAUDE.md ระบุว่า memory-only by design ต้อง opt-in ชัดเจนและมีปุ่มล้าง ไม่ใช่เปิดเงียบๆ",
-    "ไม่มี test framework เลย build gate เดียวคือ tsc --noEmit และ vite build ซึ่งจับได้แค่ type error พฤติกรรม async เช่น abort eviction race ต้องให้แพรทดสอบมือจริงในเบราว์เซอร์"
-  ],
-  "revisions": [
     {
-      "at": "2026-08-20",
-      "by": "มินจู (Min-Ju) — Loop Controller",
-      "scope": "T7 role change (F2 chain)",
-      "reason": "ฟ้า (T6) ประกาศ interface PersistedGenItem พร้อม allowlist rationale ครบใน galleryStore.ts แล้ว การให้นุ่นวาง contract ซ้ำจะเป็นงานซ้ำซ้อนและเสี่ยงชนกันเองในไฟล์เดียวกัน",
-      "change": "T7 เปลี่ยนจาก \"เขียน contract ใหม่\" เป็น \"review contract ที่ฟ้าวางแล้ว + ปิด integration gap (favorite) + วาง signature ที่ T8 จะ implement\" — chain depth ของ F2 ยังเป็น full เหมือนเดิม ไม่ได้ตัดขั้นตอนออก",
-      "evidence": "galleryStore.ts:95,266 — PersistedGenItem.favorite มีอยู่แต่ saveItem hardcode false ไม่อ่าน item.favorite ที่ T12 เพิ่มเข้า GenItem แล้ว"
+      "id": "R1",
+      "risk": "sub-agent ที่ทำ cleanup ตีความ text-white เป็น text-text แล้วทำให้ badge บนภาพหายไปในธีม light",
+      "severity": "high",
+      "mitigation": "T2 mapping table ระบุชัดว่า text-white ในบริบท on-media ต้องไปที่ text-on-media ไม่ใช่ text-text และ AC ของทุก cleanup task บังคับให้อ้างอิงตารางเป็นข้อๆ"
     },
     {
-      "at": "2026-08-20",
-      "by": "มินจู (Min-Ju) — Loop Controller",
-      "scope": "T3 reassignment",
-      "reason": "เบล (Bell) ถือ T13 อยู่ระหว่างทาง (Gallery/actions/store) การให้ถือ T3 ควบจะชนไฟล์ตัวเองและทำให้ verify แยกไม่ออก",
-      "change": "T3 ย้ายจากเบลไปเจน (Jane) — Backend Endpoint Engineer และให้เจนรับ T19 (notify batch bug) ควบในรอบเดียว เพราะทั้งคู่อยู่โดเมน endpoint/notify เดียวกันและ T19 dependsOn T2 เหมือนกัน",
-      "evidence": "T13 in_progress อยู่กับเบล, T3+T19 ต่างก็ dependsOn T2 ซึ่ง done แล้ว"
+      "id": "R2",
+      "risk": "โลโก้หายในธีมมืดเพราะ invert (G1) grep สีจับไม่ได้เลย",
+      "severity": "high",
+      "mitigation": "T14 เป็น task เฉพาะ และอยู่ใน QA matrix ทั้ง 3 ธีม"
     },
     {
-      "at": "2026-08-20",
-      "by": "มินจู (Min-Ju) — Loop Controller",
-      "scope": "T4 QA method",
-      "reason": "ยืนยันด้วย list_connected_browsers ว่าไม่มี Chrome เชื่อมต่อ (คืน []) — AC ของ T4 ทุกข้อเขียนไว้ให้ตรวจด้วย network tab จริง จึงทำตามตัวอักษรไม่ได้ในรอบนี้",
-      "change": "T4 ทำ static + harness verification ให้ลึกที่สุด (อ่าน code path จริง + รัน harness ที่ transpile โค้ดจริง) แล้วบันทึกส่วนที่ต้องใช้เบราว์เซอร์เป็น browserQaDebt ส่งให้พี่เอิร์ธตรวจเอง ห้ามเคลมผ่านในข้อที่ตรวจไม่ได้",
-      "evidence": "mcp list_connected_browsers -> [] ; เบล (T13) รายงานปัญหาเดียวกันตอนทำ AC 2/5/6/9/10"
+      "id": "R3",
+      "risk": "index.html inline script กับ themes.ts หลุด sync (key name หรือรายชื่อธีม) แล้วเกิด FOUC เงียบๆ ที่ไม่มีใครเห็นตอน dev เพราะ localStorage มีค่าอยู่แล้ว",
+      "severity": "medium",
+      "mitigation": "AC ของ T7 บังคับให้ทดสอบด้วย hard reload หลัง clear localStorage และมี comment ชี้หากันทั้งสองไฟล์"
     },
     {
-      "at": "2026-08-20",
-      "by": "มินจู (Min-Ju) — Loop Controller",
-      "scope": "T20 added — unblock T5 BLOCKING",
-      "reason": "โบว์ (T5) ให้ BLOCKING: CardImpl ไม่มี branch status===cancelled ทำให้ item ที่ยกเลิกแล้วเป็นการ์ดว่าง เข้าไม่ถึง retry() ที่อยู่ใน error branch เท่านั้น -> jobId ที่เก็บไว้ตาม INVARIANT ใช้ไม่ได้ = ผู้ใช้ต้อง generate ใหม่ = จ่ายซ้ำ ซึ่งคือความเสียหายเดียวกับที่ INVARIANT ตั้งใจกัน แค่มาคนละทาง",
-      "rootCause": "Loop Controller (หนูเอง) ล็อก Gallery.tsx ไว้จากทุกคนเพื่อกัน conflict กับ branch a11y แต่ contract ของนุ่นที่ types.ts:15 สั่งไว้ชัดว่าต้องเพิ่ม branch cancelled ใน Gallery Card — ไม่มีใครได้รับอนุญาตให้ทำ จึงตกหล่น",
-      "change": "เพิ่ม T20 (ออม) แก้ F1+F5 ใน Gallery.tsx โดยล็อก footprint เฉพาะ CardImpl cancelled branch + StatusFilter แล้วให้โบว์ re-audit (T5 กลับเป็น in_progress จนกว่าจะ pass)"
+      "id": "R4",
+      "risk": "เพิ่ม token ใหม่แล้ว shareCard.ts FALLBACK_COLORS ไม่ครบ ทำให้ share card ของธีมใหม่เพี้ยนโดยไม่มีใครรู้ เพราะออกไปเป็นไฟล์นอกแอป",
+      "severity": "medium",
+      "mitigation": "T15 sync fallback บวก QA matrix มีช่อง export share card จริงแล้วเปิดดู ไม่ใช่แค่ดูบนจอ"
     },
     {
-      "at": "2026-08-20",
-      "by": "มินจู (Min-Ju) — Loop Controller",
-      "scope": "T21 added — F2 opt-in UI",
-      "reason": "มายด์ลิน (T8) flag ว่าไม่มี UI ไหนเรียก setGalleryPersistEnabled(true) เลย (grep ยืนยัน 0 match นอก galleryStore.ts) F2 ทั้ง feature จึงปิดสนิทสำหรับผู้ใช้ทุกคน = งาน T6/T7/T8 ทั้งสายไม่มีใครได้ใช้",
-      "change": "เพิ่ม T21 (ออม) ทำ toggle opt-in + ปุ่มล้างข้อมูล + แสดงพื้นที่ใช้ ใน KeyModal Advanced section (SettingsModal.tsx ไม่มีบน branch นี้ — อยู่บน a11y ที่ยังไม่ merge)",
-      "evidence": "KeyModal.tsx:240-250 มี Advanced section ที่แสดงพื้นที่ localStorage อยู่แล้ว เป็นที่ที่เข้ากับ toggle นี้พอดี"
+      "id": "R5",
+      "risk": "matchMedia listener ไม่ถูก cleanup ทำให้ leak หรือ listener ซ้อนหลายตัวหลัง StrictMode double-mount (main.tsx ใช้ StrictMode จริง)",
+      "severity": "medium",
+      "mitigation": "AC ของ T6 ระบุ StrictMode double-invoke ชัดเจน และให้ subscribe ที่ระดับ module นอก React หรือ cleanup ให้ครบ"
     },
     {
-      "at": "2026-08-20",
-      "by": "มินจู (Min-Ju) — Loop Controller",
-      "scope": "T9 superseded",
-      "reason": "T9 (boot restore + opt-in toggle + ปุ่มล้าง) ถูกทำครบไปแล้วโดย T8 (มายด์ลิน: rehydrate เกาะ reconcilePendingJobs + dedupe by id/fingerprint) และ T21 (ออม: toggle + ปุ่มล้าง + usage ใน KeyModal Advanced) — AC ข้อสุดท้ายของ T9 ยังห้ามแตะ KeyModal.tsx ซึ่งขัดกับทางที่ทีมเลือกจริง เพราะ SettingsModal.tsx ไม่มีบน branch นี้",
-      "change": "ปิด T9 เป็น superseded ไม่ให้เบลทำซ้ำ, ย้าย AC ที่ยังไม่มีใครตรวจ (dedupe ตอน boot ที่มีทั้ง job ค้างและ persisted item) ไปเป็น AC ของ T10 (QA) แทน, ปลด dep T10 จาก T9 -> T22"
+      "id": "R6",
+      "risk": "ธีมมืดทำให้ Landing hero art (bg-[#0a0a0a] บวก text-white ที่ Landing.tsx:139-144) กลืนไปกับพื้นหลังจนการ์ดหาย",
+      "severity": "low",
+      "mitigation": "T13 ระบุให้คงความมืดของการ์ดไว้แต่ต้องมี border ที่แยกจากพื้นได้ในทุกธีม"
     },
     {
-      "at": "2026-08-20",
-      "by": "มินจู (Min-Ju) — Loop Controller",
-      "scope": "T18 AC correction",
-      "reason": "AC เดิมเขียนว่า \"ตั้งเพดานเป็น 0 แล้วกด generate ต้องไม่ถามเลย\" ซึ่งขัดกับ contract ที่นุ่น (T15) ตัดสินและมายด์ลิน (T16) implement ไปแล้ว: capUsd===0 = เข้มที่สุด ถามทุกครั้ง / undefined = ปิดฟีเจอร์",
-      "change": "แก้ AC ข้อนั้นให้ตรงกับ contract จริง และเพิ่ม AC ตรวจว่า 0 ไม่ถูก falsy-collapse เป็นเคสปิด",
-      "evidence": "types.ts contract block + actions.ts evaluateSpendGate cap===undefined check"
+      "id": "R7",
+      "risk": "ผู้ใช้เดิมเปิดมาแล้วธีมเปลี่ยนโดยไม่ได้ขอ",
+      "severity": "low",
+      "mitigation": "decisions.e default เป็น Paper ที่เท่าเดิมเป๊ะ ไม่ใช่ System และ AC ของ T3 บังคับ diff ค่า hex กับ index.css เดิม"
     }
+  ],
+  "outOfScope": [
+    "custom color picker ให้ผู้ใช้แต่งสีเอง (พี่เอิร์ธตัดออกแล้ว)",
+    "per-mode theme (ธีมต่างกันตามโหมด) AppState UI preference ตัวอื่นเป็น global หมด ธีมควรตามนั้น",
+    "ใส่ธีมลง export session JSON export เก็บ metadata ของ prompt เท่านั้น ธีมเป็น device preference ไม่ควรเดินทางข้ามเครื่อง",
+    "ตั้ง test runner ใหม่",
+    "แก้ legacy/index.html (frozen ตาม CLAUDE.md)"
   ]
 }

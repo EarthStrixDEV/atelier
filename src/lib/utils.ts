@@ -76,7 +76,10 @@ export function convertDataUrl(url: string, format: ImgFormat): Promise<string> 
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#fff"; // jpg ไม่มี alpha channel กันพื้นหลังโปร่งใสกลายเป็นดำ
+      // THEME DO-NOT-TOUCH: นี่คือพื้นหลังของ "ไฟล์ JPG ที่ผู้ใช้ดาวน์โหลด" ไม่ใช่สี UI
+      // JPG ไม่มี alpha channel — พื้นที่โปร่งใสต้องถูกถมเป็นขาวก่อน encode ไม่งั้นกลายเป็นดำ
+      // ห้าม map เป็น theme token: ถ้าผูกกับธีม ผู้ใช้ธีมมืดจะได้ไฟล์ JPG พื้นดำโดยไม่ได้ตั้งใจ
+      ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
       resolve(canvas.toDataURL("image/jpeg", 0.95));

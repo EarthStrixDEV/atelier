@@ -5,6 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/png" href="/atelier/assets/atelier-logo.png">
 <title>Atelier — AI Media Studio</title>
+<script>
+  /*
+   * FOUC guard (T7 / F2) — ต้องเป็น inline blocking script ใน <head> เท่านั้น
+   *
+   * ทำไมอยู่ตรงนี้: เบราว์เซอร์รัน script sync ใน head จบก่อน first paint เสมอ ถ้าย้ายไปท้าย body
+   * หรือทำเป็น module/async/defer จะได้เฟรมที่ CSS default (Paper = พื้นขาว) ทาไปแล้วก่อนธีมมืดจะถูกเซ็ต
+   * = flash ขาวที่ผู้ใช้ธีมมืดเห็นทุกครั้งที่ reload
+   *
+   * ⚠️ ค่า key และรายชื่อธีมด้านล่าง duplicate กับ THEME_KEY/KNOWN_THEMES ใน src/lib/store.ts (บรรทัด 19, 227)
+   * โดยตั้งใจ — index.html ไม่ผ่าน bundler จึง import ค่านั้นมาไม่ได้ ถ้าแก้ฝั่ง store.ts **ต้องแก้ที่นี่ด้วย**
+   * ไม่งั้นจะเกิด FOUC เงียบๆ ที่ dev ไม่มีทางเห็น เพราะเครื่อง dev มีค่าใน localStorage อยู่แล้ว
+   *
+   * หมายเหตุ: store.ts เก็บเป็น string ดิบผ่าน writeLocalStorage (ไม่ใช่ JSON.stringify)
+   * จึงอ่านตรงๆ ห้ามใส่ JSON.parse ที่นี่ เพราะจะ throw กับทุกค่าจริงแล้วตกไป Paper ตลอด
+   */
+  (function () {
+    try {
+      var raw = localStorage.getItem("atelier_theme");
+      if (raw === "system") {
+        // resolve เองก่อน paint — ถ้าปล่อยให้ React resolve ทีหลัง ผู้ใช้ System + OS dark จะเห็น flash ขาว
+        // matchMedia ไม่มีในเบราว์เซอร์เก่ามาก จึงเช็คก่อนเรียก ไม่งั้น throw แล้วตกไป catch ทั้งก้อน
+        var dark = typeof window.matchMedia === "function"
+          && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = dark ? "ink" : "paper";
+      } else if (
+        raw === "paper" || raw === "ink" || raw === "contrast"
+        || raw === "sepia" || raw === "midnight" || raw === "nocturne"
+      ) {
+        document.documentElement.dataset.theme = raw;
+      }
+      // ไม่มีคีย์ / ค่ามั่ว / ธีมที่เลิกใช้ → ไม่เซ็ต attribute เลย ปล่อยให้ @theme default (Paper) ทำงาน
+      // ตรงกับ decisions.e: ผู้ใช้เดิมที่ไม่เคยมีคีย์ต้องได้ Paper ไม่ใช่ System
+    } catch (e) {
+      /* localStorage ถูกปิด (private mode / third-party cookie blocked) — เงียบไว้ ใช้ธีม default */
+    }
+  })();
+</script>
 </head>
 <body>
 <div id="root"></div>

@@ -379,6 +379,13 @@ export interface AppState {
   toast: { msg: string; n: number };
   sidebarCollapsed: boolean;
   promptPlacement: PromptPlacement;
+  /**
+   * ธีมที่ผู้ใช้ "เลือกไว้" — เก็บค่าดิบรวม "system" ไม่ใช่ค่าที่ resolve แล้ว
+   * เพราะถ้าเก็บค่า resolve แล้ว ผู้ใช้ที่เลือก system จะกลายเป็นล็อก paper/ink ถาวร
+   * ตามธีม OS ต่อไม่ได้ — ตัว resolve เป็นหน้าที่ของ applyTheme() (T6) ตอนทาลง DOM
+   * global ไม่ใช่ per-mode: ธีมเป็นของทั้งแอป เหมือน promptPlacement/lbFormat ข้างบน
+   */
+  theme: ThemeId;
   lbFormat: ImgFormat;
   /** Auto Save — เซฟผลลัพธ์ที่ done ลง directory ที่ user เลือกไว้ผ่าน File System Access API */
   autoSaveEnabled: boolean;
@@ -712,3 +719,151 @@ export interface SpendConfirmRequest {
  *    ตอนอ่านได้ โดยไม่ต้องอ่าน Blob ทั้ง store ขึ้นมาแปลงตอนเปิด DB
  */
 export type { PersistedGenItem, RestoredGenItem } from "./galleryStore";
+
+/* ─────────────────────────── Theme system (F1 · T1 token contract) ─────────────────────────── */
+
+/**
+ * ธีมที่ผู้ใช้เลือกได้ — 6 palette จริง + `"system"` ที่เป็น meta ไม่ใช่ palette
+ *
+ * ทำไม `"system"` ถึงอยู่ใน union เดียวกับ palette แทนที่จะแยกเป็น `ThemeId | "system"` สองชั้น:
+ * ค่าที่ **ผู้ใช้เลือก** กับค่าที่ **เอาไปทาจริง** เป็นคนละสิ่งกันโดยเจตนา (ดู `ResolvedThemeId`)
+ * สิ่งที่ persist ลง localStorage และสิ่งที่ picker UI ผูกกับปุ่มคือ union นี้ทั้งชุด — เก็บ `"system"`
+ * ดิบๆ ไม่ resolve ก่อนเก็บ เพื่อให้ผู้ใช้ที่เลือก System แล้วสลับ OS theme ทีหลังยังตามได้
+ * (ถ้า resolve ก่อนเก็บ จะกลายเป็นการล็อกค่าที่ resolve ได้ ณ วินาทีนั้นไปตลอด)
+ *
+ * ค่าเริ่มต้นคือ `"paper"` ไม่ใช่ `"system"` — ผู้ใช้เดิมที่ยังไม่เคยมีคีย์นี้ต้องเห็นแอปเหมือนเดิมเป๊ะ
+ * ถ้า default เป็น system คนที่ตั้ง OS เป็น dark จะเปิดมาเจอธีมมืดทั้งที่ไม่ได้ขอ
+ */
+export type ThemeId =
+  | "system"
+  | "paper"
+  | "ink"
+  | "contrast"
+  | "sepia"
+  | "midnight"
+  | "nocturne";
+
+/**
+ * ธีมที่ resolve แล้ว — คือ `ThemeId` ที่ตัด `"system"` ออก
+ *
+ * มีอยู่เพื่อให้ tsc กันความผิดพลาดชนิดที่ตาจับยาก: `document.documentElement.dataset.theme`
+ * ต้องไม่มีวันเป็น `"system"` (ไม่มี CSS block ชื่อนั้น ธีมจะไม่ถูกทาเลยและตกกลับไป default เงียบๆ)
+ * ฟังก์ชันที่รับค่านี้จึงประกาศพารามิเตอร์เป็น `ResolvedThemeId` ไม่ใช่ `ThemeId` — ใครส่ง
+ * ค่าที่ยังไม่ผ่าน resolve เข้ามา จะพังตั้งแต่ compile ไม่ใช่ตอนผู้ใช้เปิดหน้าเว็บ
+ * ด้วยเหตุผลเดียวกัน `THEMES` ก็ถูก key ด้วย type นี้ — จำนวน palette จริงมี 6 ไม่ใช่ 7
+ */
+export type ResolvedThemeId = Exclude<ThemeId, "system">;
+
+/**
+ * ชุดสีครบหนึ่งธีม — 18 ตัว = 11 ตัวเดิมจาก index.css:5-15 + 7 ตัวใหม่ที่ T1 เพิ่ม
+ *
+ * **ทุก field เป็น required โดยเจตนา ห้ามมี optional แม้แต่ตัวเดียว** — นี่คือกลไกเดียวใน
+ * สปรินต์นี้ที่ตรวจจับ "ธีมนิยาม token ไม่ครบ" ได้อัตโนมัติ เพราะโปรเจกต์ไม่มี test runner
+ * และ `npm run build` จับสีผิดไม่ได้เลย (className เป็น string ล้วน) ถ้าปล่อยให้ optional
+ * ธีมที่ลืมนิยาม `warning` จะ build ผ่านแล้วไปตกที่ `var()` ที่ไม่มีค่าตอน runtime = สีหาย
+ *
+ * **กลุ่ม on-media เป็น theme-invariant — ค่าต้องเท่ากันทุกธีมทั้ง 6** (`mediaScrim`,
+ * `onMedia`, `onMediaDim`) เหตุผลตาม gapAnalysis G2: สามตัวนี้ไม่ได้อยู่บน surface ของแอป
+ * แต่อยู่บน **ภาพของผู้ใช้** ซึ่งเป็นสีอะไรก็ได้ ไม่ขึ้นกับธีมที่เลือก — badge บนภาพและ
+ * ตัวหนังสือใน full-screen viewer ต้องอ่านออกเสมอ ถ้าปล่อยให้ตามธีม ธีม light จะได้
+ * ตัวหนังสือสีเข้มบน scrim สีเข้ม = หายไปเลย ซึ่ง build ไม่มีทางจับได้
+ * ผลตามมาที่ dev ต้องรู้: **ห้าม map `text-white` ที่อยู่บนภาพไปเป็น `text-text`** เด็ดขาด
+ * ปลายทางที่ถูกคือ `text-on-media` / `text-on-media-dim` เท่านั้น
+ *
+ * ── ชื่อ field ใน TS ↔ ชื่อ CSS custom property (map เดียวในโปรเจกต์ อยู่ที่นี่ที่เดียว) ──
+ * กติกาคือ camelCase ของ field แปลงเป็น kebab-case แล้วเติม prefix `--color-` ข้างหน้า
+ * **prefix `--color-` เป็นข้อบังคับ ไม่ใช่ convention** — Tailwind v4 gen utility (`bg-*`,
+ * `text-*`, `border-*`) ให้เฉพาะ custom property ที่ขึ้นต้นด้วย `--color-` เท่านั้น
+ * ตั้งชื่อเป็น `--overlay` เฉยๆ จะไม่มี class `bg-overlay` เกิดขึ้นและ build ก็ไม่ error
+ * ข้อยกเว้นสองตัวที่ชื่อไม่ตรงตรงๆ คือ `surface2` → `--color-surface-2` และ
+ * `borderColor` → `--color-border` (ตั้งชื่อ field ว่า `border` ตรงๆ ไม่ได้ — ชนคำสงวนน้อย
+ * แต่ทำให้อ่านสับสนกับ CSS shorthand `border`) จึงต้องดูตารางนี้ ไม่ใช่เดาจากชื่อ:
+ *
+ *   bg          → --color-bg              text        → --color-text
+ *   surface     → --color-surface         textDim     → --color-text-dim
+ *   surface2    → --color-surface-2       textFaint   → --color-text-faint
+ *   borderColor → --color-border          accent      → --color-accent
+ *   borderStrong→ --color-border-strong   accentInk   → --color-accent-ink
+ *   danger      → --color-danger
+ *   success     → --color-success         overlay     → --color-overlay
+ *   warning     → --color-warning         mediaScrim  → --color-media-scrim
+ *   info        → --color-info            onMedia     → --color-on-media
+ *                                         onMediaDim  → --color-on-media-dim
+ */
+export interface ThemeTokens {
+  /* ── 11 ตัวเดิม (ค่าปัจจุบันของแอปอยู่ที่ index.css:5-15 = ธีม paper) ── */
+  bg: string;
+  surface: string;
+  surface2: string;
+  borderColor: string;
+  borderStrong: string;
+  text: string;
+  textDim: string;
+  textFaint: string;
+  accent: string;
+  accentInk: string;
+  danger: string;
+
+  /* ── กลุ่มสถานะ (ตามธีม) — มีเพราะ semantic "สำเร็จ/เตือน" ไม่ควรยืม accent หรือ danger ── */
+  /**
+   * จุดไฟสถานะเขียว แทน `bg-green-400` ที่ Header.tsx:126 (Auto Save) และ Header.tsx:500 (API key)
+   * ห้าม map ไป `accent` แม้บางธีม accent จะเป็นสีเขียว — accent เปลี่ยนตามธีม (Nocturne เป็นทอง,
+   * Midnight เป็นฟ้า) แล้วจุดไฟ "พร้อมใช้งาน" จะกลายเป็นสีที่ไม่สื่อความหมายนั้นอีกต่อไป
+   */
+  success: string;
+  /** เตือนแต่ยังไม่ error — ยังไม่มีที่ใช้ตอนนี้ ตั้งไว้ให้ spend guard/quota warning เลิกยืม `danger` */
+  warning: string;
+  /** ข้อมูล/neutral highlight — คู่กับ success/warning ให้ครบชุดสถานะ ไม่ต้องมาเพิ่มทีหลังแล้วรื้อ CSS ซ้ำ */
+  info: string;
+
+  /**
+   * scrim ของ modal แทน `bg-black/50` ที่ซ้ำกัน 6 ไฟล์
+   * **ตามธีม** ไม่ใช่ invariant — ในธีมมืด ดำ 50% บนพื้นดำแทบไม่สร้าง separation ระหว่าง modal
+   * กับพื้นหลังเลย ธีมมืดจึงต้องใส่ค่าที่เข้มกว่า ต่างจากกลุ่ม on-media ข้างล่างที่ค่าคงที่
+   */
+  overlay: string;
+
+  /* ── กลุ่ม on-media: theme-invariant ทั้ง 3 ตัว ค่าต้องเท่ากันทุกธีม (ดู block comment ด้านบน) ── */
+  /** พื้น full-screen viewer (Lightbox/CompareModal) — ดูรูปต้องพื้นมืดเสมอไม่ว่าผู้ใช้เลือกธีมอะไร */
+  mediaScrim: string;
+  /** ตัวหนังสือ/ไอคอนชั้นหลักบนภาพหรือบน `mediaScrim` — แทน `text-white` ที่เป็นบริบทบนสื่อ */
+  onMedia: string;
+  /** ชั้นรองบนสื่อ — แทน `text-white/50|60|70` และ `border-white/15|20|25` ที่เป็น secondary */
+  onMediaDim: string;
+}
+
+/**
+ * แถวหนึ่งใน theme picker — metadata ล้วน ไม่มีค่าสี
+ *
+ * แยกจาก `ThemeTokens` เพราะ `"system"` **มีแถวใน picker แต่ไม่มีชุดสี** ถ้ายัดสองอย่างนี้
+ * รวมกันจะต้องปลอมค่าสีให้ system หรือทำให้ทุก field เป็น optional ซึ่งพังกฎ required ข้างบนทันที
+ * `swatch` เก็บเป็น "ชื่อ field ใน ThemeTokens" ไม่ใช่ค่าสี เพื่อให้ picker ไปอ่านค่าจริงจาก
+ * `THEMES` ตอน render — ไม่งั้นจะได้สีก๊อปไว้สองที่แล้ว drift จาก palette จริงโดยไม่มีอะไรจับ
+ */
+export interface ThemeMeta {
+  id: ThemeId;
+  /** ชื่อที่โชว์ใน picker (System, Paper, Ink, High Contrast, Sepia, Midnight, Nocturne) */
+  label: string;
+  /** คำอธิบายสั้นๆ ของคาแรกเตอร์ธีม — ช่วยให้เลือกได้โดยไม่ต้องลองทีละอัน */
+  hint: string;
+  /**
+   * token ที่เอามาแสดงเป็นตัวอย่างสีในแถว picker เรียงตามลำดับที่จะวาด
+   * `null` สำหรับ `"system"` เพราะไม่มี palette ของตัวเอง — UI ต้องไปหยิบของธีมที่ resolve ได้แทน
+   */
+  swatch: readonly (keyof ThemeTokens)[] | null;
+}
+
+/**
+ * palette หนึ่งชุดพร้อม metadata ที่ไม่ใช่สี
+ *
+ * `colorScheme` ไม่ใช่สีแต่ต้องอยู่คู่ palette เพราะมันคือค่าที่จะไปลง CSS `color-scheme`
+ * ของ block ธีมนั้น ซึ่งเป็นตัวสั่ง native control (scrollbar, form control, autofill) ให้
+ * เปลี่ยนตาม — ถ้าไม่ตั้ง ธีมมืดจะได้ scrollbar ขาวโพลนและ autofill พื้นเหลืองที่ทับตัวหนังสือ
+ * เก็บไว้ที่นี่แทนที่จะ derive จากความสว่างของ `bg` เพราะ derive แล้วจะเดาผิดได้กับธีม
+ * ที่อยู่กลางๆ (Sepia) และเป็นค่าที่คนออกแบบธีมควรตัดสินใจเอง ไม่ใช่ให้โค้ดเดา
+ */
+export interface ThemeDefinition {
+  id: ResolvedThemeId;
+  colorScheme: "light" | "dark";
+  tokens: ThemeTokens;
+}
