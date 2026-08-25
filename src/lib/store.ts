@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, SpendLedger } from "./types";
+import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, SpendLedger, ToastVariant } from "./types";
 import { SPEND_LEDGER_KEY } from "./types";
 import { MAX_CHAT_HISTORY, MAX_EXPORT_LOG, MAX_USER_TEMPLATES, modeLabel, MODES } from "./constants";
 import { PERMISSION_KEY as NOTIFY_PERMISSION_ASKED_KEY } from "./notify";
@@ -39,7 +39,7 @@ export const GALLERY_MAX_ID_KEY = "atelier_gallery_max_id";
  */
 const FAVORITES_KEY_PREFIX = "atelier_favorites_";
 const FAVORITE_STAMPS_KEY = "atelier_favorite_stamps";
-/** prefix ของทุก key ที่แอปนี้เขียนลง localStorage — ใช้คำนวณขนาดรวมในหน้า Advanced ของ KeyModal */
+/** prefix ของทุก key ที่แอปนี้เขียนลง localStorage — ใช้คำนวณขนาดรวมในหน้า Settings */
 export const STORAGE_KEY_PREFIX = "atelier_";
 
 /**
@@ -54,13 +54,13 @@ export function writeLocalStorage(key: string, value: string): boolean {
   } catch {
     if (!state.storageQuotaWarned) {
       state.storageQuotaWarned = true;
-      toast("บันทึกข้อมูลลง localStorage ไม่สำเร็จ (พื้นที่เต็ม) — history/template ล่าสุดอาจไม่ถูกเซฟค่ะ");
+      toast("บันทึกข้อมูลลง localStorage ไม่สำเร็จ (พื้นที่เต็ม) — history/template ล่าสุดอาจไม่ถูกเซฟค่ะ", "error");
     }
     return false;
   }
 }
 
-/** ขนาดรวมโดยประมาณ (byte) ของทุก key ที่ขึ้นต้นด้วย atelier_ ใน localStorage — ใช้โชว์ใน Advanced ของ KeyModal */
+/** ขนาดรวมโดยประมาณ (byte) ของทุก key ที่ขึ้นต้นด้วย atelier_ ใน localStorage — ใช้โชว์ในหน้า Settings */
 export function estimateAtelierStorageBytes(): number {
   let total = 0;
   try {
@@ -291,19 +291,60 @@ export function saveUserExtraModels(list: ORModel[]) {
 
 const API_KEY_KEY = "atelier_api_key";
 
+/**
+ * ค่า default คือเก็บ key ใน sessionStorage (หายเมื่อปิดแท็บ) ซึ่งปลอดภัยกว่าสำหรับเครื่องที่ใช้ร่วมกัน
+ * ผู้ใช้เลือก opt-in ให้จำไว้ใน localStorage ได้เองผ่าน KeyModal — เก็บ flag ไว้ที่ localStorage เสมอ
+ * (ไม่ใช่ sessionStorage) เพราะต้องรู้ตั้งแต่ก่อนโหลด key ว่าจะไปอ่านจากที่ไหน
+ */
+const API_KEY_REMEMBER_KEY = "atelier_api_key_remember";
+
+export function loadRememberApiKey(): boolean {
+  try {
+    return localStorage.getItem(API_KEY_REMEMBER_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * fallback เป็น one-way เท่านั้น: อ่าน localStorage ได้ก็ต่อเมื่อผู้ใช้เลือก "จำไว้" จริงๆ
+ * ห้ามทำสองทางเด็ดขาด — ถ้า remember=false แล้วยังไปอ่าน localStorage เป็นตัวสำรอง
+ * key ที่ผู้ใช้สั่งลบไปแล้วจะ "ฟื้นคืนชีพ" ได้เงียบๆ ในเคสที่ removeItem เคย fail
+ * (เช่น storage ถูกบล็อกชั่วคราว) ซึ่งขัดกับสิ่งที่ UI สัญญาไว้ว่าลบออกจากเครื่องแล้ว
+ */
 function loadApiKey(): string {
   try {
+    if (loadRememberApiKey()) {
+      // ทางนี้ยอม fallback ได้ เพราะผู้ใช้ตั้งใจให้ key อยู่ต่ออยู่แล้ว — กันเคส localStorage
+      // ถูกล้างนอกแอปแล้ว key ที่เพิ่งใส่ใน session นี้หายไปด้วยทั้งที่ยังใช้งานอยู่
+      return localStorage.getItem(API_KEY_KEY) ?? sessionStorage.getItem(API_KEY_KEY) ?? "";
+    }
+    // remember=false → localStorage ไม่ควรมี key เลยตาม design ถ้าเจอแปลว่าเป็น stale
+    // จากการลบที่เคยล้มเหลว — ลบทิ้งเลย (self-heal) แทนที่จะเอามาใช้
+    try { localStorage.removeItem(API_KEY_KEY); } catch { /* best-effort */ }
     return sessionStorage.getItem(API_KEY_KEY) ?? "";
   } catch {
     return "";
   }
 }
 
-export function saveApiKey(key: string) {
+/**
+ * เขียน key ลงที่เดียวเท่านั้นตาม remember แล้วลบอีกที่ทิ้งเสมอ — สำคัญมากด้านความปลอดภัย
+ * เพราะถ้าผู้ใช้เปลี่ยนจาก "จำไว้" กลับเป็น "ไม่จำ" key ต้องหายจาก localStorage จริงๆ
+ * ไม่ใช่ค้างอยู่เงียบๆ จน reboot เครื่องก็ยังกู้กลับมาได้
+ */
+export function saveApiKey(key: string, remember = loadRememberApiKey()) {
   try {
-    if (key) sessionStorage.setItem(API_KEY_KEY, key);
-    else sessionStorage.removeItem(API_KEY_KEY);
-  } catch { /* sessionStorage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+    localStorage.setItem(API_KEY_REMEMBER_KEY, remember ? "1" : "0");
+  } catch { /* localStorage ถูกปิด — flag จะกลับไป default (ไม่จำ) ซึ่งปลอดภัยกว่าอยู่แล้ว */ }
+  const [target, other] = remember ? [localStorage, sessionStorage] : [sessionStorage, localStorage];
+  try {
+    if (key) target.setItem(API_KEY_KEY, key);
+    else target.removeItem(API_KEY_KEY);
+  } catch { /* storage เต็มหรือถูกปิด — ข้ามไปเงียบๆ ไม่กระทบการใช้งานหลัก */ }
+  try {
+    other.removeItem(API_KEY_KEY);
+  } catch { /* เช่นเดียวกัน */ }
 }
 
 function loadHistory(mode: Mode): HistoryEntry[] {
@@ -471,7 +512,7 @@ export function saveSessionSnapshotRaw(json: string) {
   writeLocalStorage(SESSION_SNAPSHOT_KEY, json);
 }
 
-/** ลบ snapshot ทิ้ง — เรียกหลังผู้ใช้กด "กู้คืน" สำเร็จแล้ว (กันกู้ซ้ำ) หรือตอนผู้ใช้กดลบแถวนี้ใน Advanced ของ KeyModal */
+/** ลบ snapshot ทิ้ง — เรียกหลังผู้ใช้กด "กู้คืน" สำเร็จแล้ว (กันกู้ซ้ำ) หรือตอนผู้ใช้กดลบแถวนี้ในหน้า Settings */
 export function clearSessionSnapshot() {
   try {
     localStorage.removeItem(SESSION_SNAPSHOT_KEY);
@@ -502,7 +543,7 @@ export function addExportLogEntry(entry: ExportLogEntry) {
   writeLocalStorage(EXPORT_LOG_KEY, JSON.stringify(list));
 }
 
-/** ลบ log ทั้งหมด — ใช้จากปุ่ม "clear" ต่อแถวใน Advanced ของ KeyModal */
+/** ลบ log ทั้งหมด — ใช้จากปุ่ม "clear" ต่อแถวในหน้า Settings */
 export function clearExportLog() {
   try {
     localStorage.removeItem(EXPORT_LOG_KEY);
@@ -681,7 +722,7 @@ export const state: AppState = {
   grillResult: null,
   optimize: { status: "idle", result: null, error: "" },
   extendItemId: null,
-  toast: { msg: "", n: 0 },
+  toast: { msg: "", n: 0, variant: "info" },
   sidebarCollapsed: false,
   promptPlacement: loadPromptPlacement(),
   lbFormat: "png",
@@ -696,11 +737,14 @@ export const state: AppState = {
   importPending: null,
   importUnknownFields: {},
   shortcutsModalOpen: false,
+  settingsModalOpen: false,
   bakeOffConfirmOpen: false,
   compareItems: null,
   userExtraModels: loadUserExtraModels(),
   spendLedger: loadSpendLedger(),
   spendConfirm: null,
+  driveConnecting: false,
+  driveConnected: false,
 };
 
 let version = 0;
@@ -726,6 +770,7 @@ export function useApp(): AppState {
 
 export const cur = () => state.modes[state.mode];
 
-export function toast(msg: string) {
-  mutate(s => { s.toast = { msg, n: s.toast.n + 1 }; });
+/** default "success" เพราะข้อความส่วนใหญ่ที่เรียกอยู่คือแจ้งผลสำเร็จ — call site ที่เป็น error ให้ส่ง toast(msg, "error") ชัดเจน */
+export function toast(msg: string, variant: ToastVariant = "success") {
+  mutate(s => { s.toast = { msg, n: s.toast.n + 1, variant }; });
 }

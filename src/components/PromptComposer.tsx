@@ -283,14 +283,16 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
       <div id="prompt-sidebar">
         <div className="mb-[9px] flex items-center justify-between gap-2">
           <label htmlFor="prompt-sidebar-input" className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-text-dim"><PenLine size={12} /> Prompt</label>
+          {/* มี label กำกับ ไม่ใช่ไอคอนเปล่า — ปุ่มนี้เคยเป็นไอคอนอย่างเดียวข้างคำว่า "Prompt"
+              จนดูเหมือนปุ่มหลงทาง ผู้ใช้ส่วนใหญ่ไม่รู้เลยว่าย้ายกล่อง prompt ได้ */}
           <button
             type="button"
-            className="grid h-7 w-7 cursor-pointer place-items-center rounded-md border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
-            title="ย้ายไปกลาง Gallery"
+            className="flex h-7 cursor-pointer items-center gap-1 rounded-md border border-border px-2 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
+            title="ย้ายกล่อง Prompt ไปลอยกลางจอ (กว้างขึ้น เห็น Gallery เต็มตา)"
             aria-label="ย้าย Prompt ไปกลาง Gallery"
             onClick={move}
           >
-            <PanelBottom size={13} />
+            <PanelBottom size={13} /> ย้ายไปกลางจอ
           </button>
         </div>
         <div className="mb-[9px]">

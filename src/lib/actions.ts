@@ -12,6 +12,7 @@ import {
   AutoSavePermissionError, autoSaveBlob, forgetAutoSaveDir, fsAccessSupported, isAutoSaveDirConnected, peekSavedDirName,
   pickAutoSaveDir, reconnectAutoSaveDir, urlToBlob,
 } from "./fsAccess";
+import { connectDrive as gdriveConnect, disconnectDrive as gdriveDisconnect, DrivePermissionError, isDriveConfigured, isDriveConnected, uploadToDrive } from "./googleDrive";
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
 import { deleteItem, isGalleryPersistEnabled, loadItems, onGalleryPersistDisabled, saveItem, setFavorite } from "./galleryStore";
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
@@ -117,7 +118,7 @@ export async function loadModels() {
       if (!audioList.some(m => m.id === em.id)) audioList.push(em);
     }
     audioList.sort((a, b) => AUDIO_MODEL_IDS.indexOf(a.id) - AUDIO_MODEL_IDS.indexOf(b.id));
-    // โมเดลที่ผู้ใช้เพิ่มเองผ่าน Advanced ของ KeyModal — merge ต่อจาก EXTRA_MODELS/AUDIO_EXTRA_MODELS ด้วย pattern เดียวกัน (ไม่ให้ id ซ้ำ)
+    // โมเดลที่ผู้ใช้เพิ่มเองผ่าน SettingsModal — merge ต่อจาก EXTRA_MODELS/AUDIO_EXTRA_MODELS ด้วย pattern เดียวกัน (ไม่ให้ id ซ้ำ)
     // แยกเข้ากลุ่มภาพ/เสียงตาม output_modalities ที่ผู้ใช้ระบุเอง — เข้ากลุ่มภาพเป็น default ถ้าไม่ได้ระบุ
     for (const em of state.userExtraModels) {
       const isAudioModel = (em.architecture?.output_modalities || []).includes("audio");
@@ -138,14 +139,14 @@ export async function loadModels() {
     if (import.meta.env.DEV) checkModelIdDrift(list.map(m => m.id), fetched.map(m => m.id));
   } catch (e) {
     mutate(s => { s.modelsFailed = true; });
-    toast("โหลดรายชื่อโมเดลไม่สำเร็จ: " + errMsg(e));
+    toast("โหลดรายชื่อโมเดลไม่สำเร็จ: " + errMsg(e), "error");
   }
 }
 
-// ---------- Advanced: EXTRA_MODELS override ที่ผู้ใช้เพิ่มเอง (KeyModal) ----------
+// ---------- Settings: EXTRA_MODELS override ที่ผู้ใช้เพิ่มเอง (SettingsModal) ----------
 /**
  * true ถ้ายังไม่โหลด model list เสร็จเลยสักตัว (ทั้งภาพและเสียง) — ใช้ defer การ validate id
- * ใน KeyModal แทนที่จะฟันธงว่า "ไม่รู้จัก" ทั้งหมดทั้งที่แค่ยังโหลดไม่เสร็จ
+ * ใน SettingsModal แทนที่จะฟันธงว่า "ไม่รู้จัก" ทั้งหมดทั้งที่แค่ยังโหลดไม่เสร็จ
  */
 export function modelListsStillLoading(): boolean {
   return state.models.length === 0 && state.audioModels.length === 0 && !state.modelsFailed;
@@ -175,7 +176,7 @@ export async function loadVideoModels() {
     mutate(s => { s.videoModels = list; ensureModelSelection(); applyVideoCapabilities(); });
   } catch (e) {
     mutate(s => { s.videoModelsFailed = true; });
-    toast("โหลดรายชื่อโมเดลวิดีโอไม่สำเร็จ: " + errMsg(e));
+    toast("โหลดรายชื่อโมเดลวิดีโอไม่สำเร็จ: " + errMsg(e), "error");
   }
 }
 
@@ -328,7 +329,7 @@ export function restoreSessionSnapshot() {
   } catch {
     parsed = null;
   }
-  if (!parsed) { toast("บันทึกเซสชันอัตโนมัติเสียหาย กู้คืนไม่ได้ค่ะ"); dismissRestoreBanner(); return; }
+  if (!parsed) { toast("บันทึกเซสชันอัตโนมัติเสียหาย กู้คืนไม่ได้ค่ะ", "error"); dismissRestoreBanner(); return; }
   const preview = diffImportSession(parsed);
   mutate(s => { s.importPending = { raw: parsed, preview }; s.restoreBanner = null; });
 }
@@ -633,13 +634,13 @@ export async function addRefImages(kind: RefKind, files: FileList | File[]) {
   const mode = state.mode; // ผู้ใช้อาจสลับโหมดระหว่างรออ่านไฟล์ — ผูก ref กับโหมดที่กดแนบ
   const selectedFiles = isVideoMode(mode) ? Array.from(files).slice(0, 1) : Array.from(files);
   for (const file of selectedFiles) {
-    if (!file.type.startsWith("image/")) { toast(`"${file.name}" ไม่ใช่ไฟล์รูปค่ะ`); continue; }
+    if (!file.type.startsWith("image/")) { toast(`"${file.name}" ไม่ใช่ไฟล์รูปค่ะ`, "error"); continue; }
     if (file.size > MAX_REF_BYTES) {
-      toast(`"${file.name}" ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ`);
+      toast(`"${file.name}" ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ`, "error");
       continue;
     }
     if (state.modes[mode].refs.filter(r => r.kind === kind).length >= MAX_REFS_PER_KIND) {
-      toast(`แนบได้สูงสุด ${MAX_REFS_PER_KIND} รูปต่อประเภทค่ะ`);
+      toast(`แนบได้สูงสุด ${MAX_REFS_PER_KIND} รูปต่อประเภทค่ะ`, "error");
       break;
     }
     try {
@@ -649,7 +650,7 @@ export async function addRefImages(kind: RefKind, files: FileList | File[]) {
         else state.modes[mode].refs.push({ kind, dataUrl, name: file.name });
       });
     } catch (e) {
-      toast(errMsg(e));
+      toast(errMsg(e), "error");
     }
   }
 }
@@ -675,7 +676,7 @@ export function clearRefImages() {
 export function useAsVideoFirstFrame(item: GenItem) {
   if (!item.url || item.status !== "done") return;
   if (dataUrlByteSize(item.url) > MAX_REF_BYTES) {
-    toast(`ภาพนี้ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ใช้เป็นเฟรมแรกไม่ได้`);
+    toast(`ภาพนี้ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ใช้เป็นเฟรมแรกไม่ได้`, "error");
     return;
   }
   mutate(s => {
@@ -699,7 +700,7 @@ export function useAsVideoFirstFrame(item: GenItem) {
 export function refineItem(item: GenItem) {
   if (!item.url || item.status !== "done") return;
   if (dataUrlByteSize(item.url) > MAX_REF_BYTES) {
-    toast(`ภาพนี้ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ใช้เป็นภาพอ้างอิงไม่ได้`);
+    toast(`ภาพนี้ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ใช้เป็นภาพอ้างอิงไม่ได้`, "error");
     return;
   }
   if (item.mode !== state.mode) switchMode(item.mode);
@@ -732,11 +733,11 @@ export async function startFromItem(item: GenItem, targetMode: "video" | "cinema
   try {
     frameDataUrl = isVideoMode(item.mode) ? (await captureVideoFrame(item.url)).dataUrl : item.mode === "audio" ? null : item.url;
   } catch (e) {
-    toast("จับเฟรมจากต้นฉบับไม่สำเร็จ: " + errMsg(e));
+    toast("จับเฟรมจากต้นฉบับไม่สำเร็จ: " + errMsg(e), "error");
     return;
   }
   if (frameDataUrl && dataUrlByteSize(frameDataUrl) > MAX_REF_BYTES) {
-    toast(`ภาพต้นฉบับใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ใช้เป็นจุดเริ่มต้นไม่ได้`);
+    toast(`ภาพต้นฉบับใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ใช้เป็นจุดเริ่มต้นไม่ได้`, "error");
     return;
   }
 
@@ -783,7 +784,7 @@ export function addToQueue() {
   const prompt = ms.prompt.trim();
   const m = currentModel();
   if (!prompt || !m || ms.queue.length >= MAX_QUEUE) return;
-  if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)"); return; }
+  if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)", "error"); return; }
   mutate(() => {
     ms.queue.push({
       prompt,
@@ -929,7 +930,7 @@ function runGenerate(approved?: { mode: Mode; jobs: QueueJob[] }) {
     const prompt = ms.prompt.trim();
     const model = currentModel();
     if (!prompt || !model) return;
-    if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)"); return; }
+    if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)", "error"); return; }
     jobs = [{
       prompt, model: model.id, modelName: model.name || model.id, ratio: ms.ratio,
       count: ms.count, duration: ms.duration, audio: ms.audio,
@@ -1012,7 +1013,7 @@ export function toggleBakeOffModel(modelId: string) {
       ms.bakeOffModelIds = ms.bakeOffModelIds.filter(id => id !== modelId);
     } else {
       if (ms.bakeOffModelIds.length >= MAX_BAKE_OFF_MODELS) {
-        toast(`เลือกได้สูงสุด ${MAX_BAKE_OFF_MODELS} โมเดลค่ะ`);
+        toast(`เลือกได้สูงสุด ${MAX_BAKE_OFF_MODELS} โมเดลค่ะ`, "error");
         return;
       }
       ms.bakeOffModelIds = [...ms.bakeOffModelIds, modelId];
@@ -1058,7 +1059,7 @@ export function runBakeOff() {
   const mode = state.mode;
   const list = modelsForMode(mode);
   const models = ms.bakeOffModelIds.map(id => list.find(m => m.id === id)).filter((m): m is ORModel => !!m);
-  if (models.length < 2) { toast("โมเดลที่เลือกไว้ไม่พร้อมใช้งานแล้วค่ะ ลองเลือกใหม่นะคะ"); return; }
+  if (models.length < 2) { toast("โมเดลที่เลือกไว้ไม่พร้อมใช้งานแล้วค่ะ ลองเลือกใหม่นะคะ", "error"); return; }
 
   const prompt = ms.prompt.trim();
   const negPrompt = ms.negPrompt.trim();
@@ -1619,7 +1620,7 @@ async function performAutoSave(item: GenItem) {
     if (e instanceof AutoSavePermissionError) {
       // permission ถูกถอนจริง — ปิด auto-save ทั้งระบบกันเขียนพลาดซ้ำทุกภาพถัดไป ต้องให้ผู้ใช้เชื่อมต่อใหม่เอง
       mutate(s => { s.autoSaveEnabled = false; s.autoSaveDirName = null; });
-      toast("Auto Save หยุดทำงาน: " + item.autoSaveErrMsg);
+      toast("Auto Save หยุดทำงาน: " + item.autoSaveErrMsg, "error");
     }
     // error อื่นๆ (เขียนไฟล์พลาดชั่วคราว) — ไม่ปิด auto-save ทั้งระบบ แค่ทำเครื่องหมายชิ้นนี้ไว้ให้กด retry ทีหลังได้
   }
@@ -1642,7 +1643,7 @@ export function hasFailedAutoSaves(): boolean {
  */
 export function retryFailedAutoSaves() {
   if (!isAutoSaveDirConnected()) {
-    toast("การเชื่อมต่อ Auto Save หลุดไปแล้วค่ะ — เชื่อมต่อ directory ใหม่ก่อนถึงจะลองเซฟซ้ำได้");
+    toast("การเชื่อมต่อ Auto Save หลุดไปแล้วค่ะ — เชื่อมต่อ directory ใหม่ก่อนถึงจะลองเซฟซ้ำได้", "error");
     return;
   }
   const failed = cur().images.filter(x => x.autoSaveStatus === "failed");
@@ -1664,7 +1665,7 @@ export async function connectAutoSaveDir() {
     toast(`เชื่อมต่อ Auto Save กับ "${name}" แล้วค่ะ`);
   } catch (e) {
     // user กด cancel ที่ picker ก็โยน AbortError มาเหมือนกัน — เงียบไว้ไม่ต้อง toast
-    if (e instanceof Error && e.name !== "AbortError") toast(errMsg(e));
+    if (e instanceof Error && e.name !== "AbortError") toast(errMsg(e), "error");
   } finally {
     mutate(s => { s.autoSaveConnecting = false; });
   }
@@ -1688,7 +1689,7 @@ export async function reconnectSavedAutoSaveDir() {
     // permission ถูกปฏิเสธ/handle เสีย — เคลียร์ IndexedDB กันปุ่มค้างโชว์ให้กดซ้ำไม่จบ
     await forgetAutoSaveDir();
     mutate(s => { s.autoSaveSavedDirName = null; });
-    toast(errMsg(e));
+    toast(errMsg(e), "error");
   } finally {
     mutate(s => { s.autoSaveConnecting = false; });
   }
@@ -1703,6 +1704,85 @@ export async function disconnectAutoSaveDir() {
   await forgetAutoSaveDir();
   mutate(s => { s.autoSaveEnabled = false; s.autoSaveDirName = null; });
   toast("ยกเลิกการเชื่อมต่อ Auto Save แล้วค่ะ");
+}
+
+// ---------- Google Drive (manual "Save to Drive" — คนละเรื่องกับ Auto Save) ----------
+/** คิว serialize การ upload ทีละไฟล์ — เหตุผลเดียวกับ autoSaveChain (กัน concurrent write ทับกัน) */
+let driveSaveChain: Promise<void> = Promise.resolve();
+function enqueueDriveSave(task: () => Promise<void>): Promise<void> {
+  driveSaveChain = driveSaveChain.then(task, task);
+  return driveSaveChain;
+}
+
+async function performDriveSave(item: GenItem) {
+  item.driveSaveStatus = "pending";
+  item.driveSaveErrMsg = "";
+  mutate();
+  try {
+    const ext = isVideoMode(item.mode) ? "mp4" : item.mode === "audio" ? "mp3" : state.lbFormat;
+    const blob = await urlToBlob(
+      isVideoMode(item.mode) || item.mode === "audio" ? item.url! : await convertDataUrl(item.url!, state.lbFormat)
+    );
+    await uploadToDrive(blob, randomFileName(ext));
+    item.driveSaveStatus = "saved";
+    item.driveSaveErrMsg = "";
+  } catch (e) {
+    item.driveSaveStatus = "failed";
+    item.driveSaveErrMsg = errMsg(e);
+    if (e instanceof DrivePermissionError) {
+      // token หมดอายุจริง — ตัดการเชื่อมต่อทั้งระบบกันอัพโหลดพลาดซ้ำทุกไฟล์ถัดไป ต้องเชื่อมต่อใหม่เอง
+      mutate(s => { s.driveConnected = false; });
+      toast("Google Drive หลุดการเชื่อมต่อ: " + item.driveSaveErrMsg, "error");
+    }
+  }
+  mutate();
+}
+
+export function isDriveSaveConfigured(): boolean {
+  return isDriveConfigured();
+}
+
+/** เปิด OAuth consent ใหม่ — ต้องเรียกจาก user gesture (onClick) เท่านั้น */
+export async function connectDrive() {
+  mutate(s => { s.driveConnecting = true; });
+  try {
+    await gdriveConnect();
+    mutate(s => { s.driveConnected = true; });
+    toast("เชื่อมต่อ Google Drive แล้วค่ะ");
+  } catch (e) {
+    toast(errMsg(e), "error");
+  } finally {
+    mutate(s => { s.driveConnecting = false; });
+  }
+}
+
+export function disconnectDrive() {
+  gdriveDisconnect();
+  mutate(s => { s.driveConnected = false; });
+  toast("ยกเลิกการเชื่อมต่อ Google Drive แล้วค่ะ");
+}
+
+/** เซฟทีละชิ้น — กดจากปุ่มบน card ค่ะ ขอ user เชื่อมต่อก่อนถ้ายังไม่ได้เชื่อมต่อ */
+export function saveItemToDrive(item: GenItem) {
+  if (!item.url) return;
+  if (!isDriveConnected()) {
+    toast("กรุณาเชื่อมต่อ Google Drive ก่อนค่ะ", "error");
+    return;
+  }
+  enqueueDriveSave(() => performDriveSave(item));
+}
+
+/** เซฟหลายชิ้นพร้อมกัน (จาก multi-select bar) — เรียงคิวทีละไฟล์เหมือน retryFailedAutoSaves */
+export function saveSelectedToDrive() {
+  if (!isDriveConnected()) {
+    toast("กรุณาเชื่อมต่อ Google Drive ก่อนค่ะ", "error");
+    return;
+  }
+  const ms = cur();
+  const items = [...ms.selected].map(id => ms.images.find(x => x.id === id)).filter((x): x is GenItem => !!x && x.status === "done" && !!x.url);
+  if (!items.length) return;
+  for (const item of items) enqueueDriveSave(() => performDriveSave(item));
+  toast(`กำลังอัพโหลดขึ้น Drive ${items.length} ไฟล์ค่ะ~`);
 }
 
 /**
@@ -1974,9 +2054,9 @@ export function retry(item: GenItem) {
  */
 export function retryWithOverride(item: GenItem, modelId: string, ratio: string) {
   const model = modelsForMode(item.mode).find(m => m.id === modelId);
-  if (!model) { toast("ไม่พบโมเดลนี้ในโหมดของภาพนี้แล้วค่ะ"); return; }
+  if (!model) { toast("ไม่พบโมเดลนี้ในโหมดของภาพนี้แล้วค่ะ", "error"); return; }
   if (isVideoMode(item.mode) && modelRequiresRefImage(model.id) && !item.refs[0]) {
-    toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video) — ภาพนี้ไม่มี ref ที่แนบไว้ตอนสร้าง");
+    toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video) — ภาพนี้ไม่มี ref ที่แนบไว้ตอนสร้าง", "error");
     return;
   }
   // โมเดล/ratio เปลี่ยนไป — jobId เดิม (ถ้ามี) ผูกกับ request เก่า resume ต่อไม่ได้แล้ว ลบออกจาก ledger ทิ้งไปเลย
@@ -2015,7 +2095,7 @@ export function regenerateFromItem(item: GenItem) {
   if (item.mode !== state.mode) switchMode(item.mode);
   if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
   const model = modelsForMode(item.mode).find(m => m.id === item.model);
-  if (!model) { toast("ไม่พบโมเดลเดิมของภาพนี้แล้วค่ะ (อาจถูกถอดออกจาก OpenRouter)"); return; }
+  if (!model) { toast("ไม่พบโมเดลเดิมของภาพนี้แล้วค่ะ (อาจถูกถอดออกจาก OpenRouter)", "error"); return; }
   let newItem!: GenItem;
   mutate(s => {
     newItem = {
@@ -2086,14 +2166,14 @@ export async function autoExtendFromLastFrame(item: GenItem) {
   if (item.mode !== state.mode) switchMode(item.mode);
 
   const model = modelsForMode(item.mode).find(m => m.id === item.model);
-  if (!model) { toast("ไม่พบโมเดลเดิมของ scene นี้แล้วค่ะ (อาจถูกถอดออกจาก OpenRouter)"); return; }
+  if (!model) { toast("ไม่พบโมเดลเดิมของ scene นี้แล้วค่ะ (อาจถูกถอดออกจาก OpenRouter)", "error"); return; }
 
   autoExtendInFlight.add(item.id);
   mutate(); // broadcast ทันที ให้ปุ่มเปลี่ยนเป็น disabled/"กำลังจับเฟรม…" ระหว่างรอ capture
   try {
     const { dataUrl: frameDataUrl } = await captureVideoFrame(item.url);
     if (dataUrlByteSize(frameDataUrl) > MAX_REF_BYTES) {
-      toast(`เฟรมที่จับได้ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ลองใช้ TimeFrame & Extend เลือกเฟรมเองแทนนะคะ`);
+      toast(`เฟรมที่จับได้ใหญ่เกิน ${Math.round(MAX_REF_BYTES / 1024 / 1024)}MB ค่ะ ลองใช้ TimeFrame & Extend เลือกเฟรมเองแทนนะคะ`, "error");
       return;
     }
     const ref: RefImage = { kind: "ref", dataUrl: frameDataUrl, name: "เฟรมสุดท้ายจาก scene ก่อนหน้า" };
@@ -2122,7 +2202,7 @@ export async function autoExtendFromLastFrame(item: GenItem) {
     void scheduleRequest(newItem);
     toast("จับเฟรมสุดท้ายแล้ว กำลังสร้าง scene ถัดไปให้ค่ะ~");
   } catch (e) {
-    toast("จับเฟรมสุดท้ายไม่สำเร็จ: " + errMsg(e) + " — ลองใช้ TimeFrame & Extend เลือกเฟรมเองแทนนะคะ");
+    toast("จับเฟรมสุดท้ายไม่สำเร็จ: " + errMsg(e) + " — ลองใช้ TimeFrame & Extend เลือกเฟรมเองแทนนะคะ", "error");
   } finally {
     autoExtendInFlight.delete(item.id);
     mutate(); // broadcast อีกครั้งให้ปุ่มกลับมากดได้ปกติ
@@ -2477,7 +2557,7 @@ export async function downloadCurrent() {
   try {
     url = await convertDataUrl(item.url, state.lbFormat);
   } catch {
-    toast("แปลงไฟล์ไม่สำเร็จ ดาวน์โหลดเป็นไฟล์ต้นฉบับแทนค่ะ");
+    toast("แปลงไฟล์ไม่สำเร็จ ดาวน์โหลดเป็นไฟล์ต้นฉบับแทนค่ะ", "error");
     url = item.url;
   }
   triggerDownload(url, randomFileName(state.lbFormat));
@@ -2906,18 +2986,18 @@ export function importSession(file: File) {
     try {
       raw = JSON.parse(String(reader.result));
     } catch {
-      toast("ไฟล์ไม่ใช่ JSON ที่ถูกต้องค่ะ");
+      toast("ไฟล์ไม่ใช่ JSON ที่ถูกต้องค่ะ", "error");
       return;
     }
     const parsed = parseSessionFile(raw);
     if (!parsed) {
-      toast("ไฟล์นี้ไม่ใช่ session ของ Atelier ค่ะ");
+      toast("ไฟล์นี้ไม่ใช่ session ของ Atelier ค่ะ", "error");
       return;
     }
     const preview = diffImportSession(parsed);
     mutate(s => { s.importPending = { raw: parsed, preview }; });
   };
-  reader.onerror = () => toast("อ่านไฟล์ไม่สำเร็จค่ะ");
+  reader.onerror = () => toast("อ่านไฟล์ไม่สำเร็จค่ะ", "error");
   reader.readAsText(file);
 }
 
@@ -3453,9 +3533,9 @@ export function applyGrillPrompt(p: GrillPrompt) {
 export function queueGrillPrompt(p: GrillPrompt) {
   const ms = cur();
   const m = currentModel();
-  if (!m) { toast("ยังไม่ได้เลือกโมเดลค่ะ"); return; }
-  if (ms.queue.length >= MAX_QUEUE) { toast(`คิวเต็มแล้วค่ะ (${MAX_QUEUE}/${MAX_QUEUE})`); return; }
-  if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)"); return; }
+  if (!m) { toast("ยังไม่ได้เลือกโมเดลค่ะ", "error"); return; }
+  if (ms.queue.length >= MAX_QUEUE) { toast(`คิวเต็มแล้วค่ะ (${MAX_QUEUE}/${MAX_QUEUE})`, "error"); return; }
+  if (refImageMissing()) { toast("โมเดลนี้ต้องแนบภาพอ้างอิงก่อนค่ะ (Image-to-Video)", "error"); return; }
   mutate(() => {
     ms.queue.push({
       prompt: p.prompt,

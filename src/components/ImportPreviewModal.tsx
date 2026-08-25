@@ -72,16 +72,18 @@ export default function ImportPreviewModal() {
 
         <div className="flex flex-col gap-2">
           <button
-            className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-2.5 text-[13px] font-semibold text-accent-ink transition-opacity hover:opacity-90"
+            className="flex w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg bg-accent py-2.5 text-accent-ink transition-opacity hover:opacity-90"
             onClick={commitImportMerge}
           >
-            <GitMerge size={14} /> Merge — รวมเข้ากับข้อมูลปัจจุบัน
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold"><GitMerge size={14} /> Merge — รวมเข้ากับข้อมูลปัจจุบัน</span>
+            <span className="text-[11px] opacity-80">เก็บของเดิมไว้ทั้งหมด แค่เพิ่มประวัติและรวมคิวเข้าไปค่ะ</span>
           </button>
           <button
-            className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-2.5 text-[13px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
+            className="flex w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-border py-2.5 text-text-dim transition-colors hover:border-danger hover:text-danger"
             onClick={commitImportReplace}
           >
-            <RefreshCw size={14} /> Replace — แทนที่ทั้งหมดด้วยไฟล์นี้
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold"><RefreshCw size={14} /> Replace — แทนที่ทั้งหมดด้วยไฟล์นี้</span>
+            <span className="text-[11px] text-text-faint">ลบข้อมูลเดิมทั้งหมด แล้วใช้ไฟล์นี้แทนค่ะ</span>
           </button>
           <button
             className="flex w-full cursor-pointer items-center justify-center rounded-lg py-1.5 text-[12px] font-medium text-text-faint transition-colors hover:text-text"
@@ -90,9 +92,6 @@ export default function ImportPreviewModal() {
             ยกเลิก
           </button>
         </div>
-        <p className="mt-3.5 text-[11px] leading-relaxed text-text-faint">
-          Merge จะไม่แตะ prompt/ratio/count/duration ปัจจุบันของแต่ละโหมดเลย มีแค่เพิ่มประวัติและรวมคิวเข้าไปเท่านั้นค่ะ
-        </p>
       </div>
     </div>
   );

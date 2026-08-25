@@ -29,6 +29,7 @@ export type GenStatus = "loading" | "done" | "error" | "cancelled";
 export type CancelReason = "user" | "user-all" | "shutdown";
 export type ImgFormat = "png" | "jpg";
 export type PromptPlacement = "sidebar" | "center";
+export type ToastVariant = "success" | "error" | "info";
 
 export interface ORModel {
   id: string;
@@ -82,6 +83,14 @@ export interface GenItem {
   autoSaveStatus?: "idle" | "pending" | "saved" | "failed";
   /** ข้อความ error ล่าสุดของ Auto Save — ใช้แยกข้อความ "permission หมดอายุ" กับ "เขียนไฟล์พลาดชั่วคราว" ตอน retry */
   autoSaveErrMsg?: string;
+  /**
+   * สถานะ "Save to Drive" ต่อชิ้น — undefined/"idle" = ยังไม่เคยกดเซฟ, "pending" = กำลังอัพโหลด,
+   * "saved" = อัพโหลดสำเร็จแล้ว, "failed" = อัพโหลดไม่สำเร็จ (token หมดอายุหรือ upload พลาด)
+   * คนละเรื่องกับ autoSaveStatus (เซฟลงเครื่องอัตโนมัติ) — อันนี้กดเซฟทีละไฟล์/หลายไฟล์เอง ไม่ auto
+   */
+  driveSaveStatus?: "idle" | "pending" | "saved" | "failed";
+  /** ข้อความ error ล่าสุดของ Save to Drive */
+  driveSaveErrMsg?: string;
   /**
    * negative prompt ที่แนบไปตอนยิง request นี้ (snapshot ตอนกด generate — PHASE 14) — undefined/"" = ไม่มี
    * เก็บไว้ที่ item เพื่อให้ retry/regenerate ใช้ค่าเดิมได้แม้ผู้ใช้แก้ negPrompt ใน sidebar ไปแล้ว
@@ -376,7 +385,8 @@ export interface AppState {
   };
   /** id ของ item ที่เปิด TimeFrame & Extend tool อยู่ (โหมด cinematic) — null = ปิด */
   extendItemId: number | null;
-  toast: { msg: string; n: number };
+  /** variant กำหนดสี/ไอคอนใน Toast — undefined ของ n=0 เริ่มต้น (ยังไม่เคย toast) ไม่มีผลเพราะ msg ว่างอยู่แล้ว */
+  toast: { msg: string; n: number; variant: ToastVariant };
   sidebarCollapsed: boolean;
   promptPlacement: PromptPlacement;
   lbFormat: ImgFormat;
@@ -414,6 +424,8 @@ export interface AppState {
   importUnknownFields: Partial<Record<Mode, Record<string, unknown>>>;
   /** true ถ้าเปิดโมดัล cheat-sheet ปุ่มลัด (Shift+?) อยู่ — toggle จาก useKeyboardShortcuts */
   shortcutsModalOpen: boolean;
+  /** true ถ้าเปิด Settings modal อยู่ (storage breakdown / โมเดลผู้ช่วย AI / เพิ่มโมเดลเอง — ย้ายมาจาก Advanced ของ KeyModal) */
+  settingsModalOpen: boolean;
   /** true ถ้าเปิดโมดัลยืนยันค่าใช้จ่ายก่อนยิง Bake-off จริงอยู่ (PHASE 14) — เปิดจากปุ่ม Generate ตอน bakeOffEnabled */
   bakeOffConfirmOpen: boolean;
   /**
@@ -422,7 +434,7 @@ export interface AppState {
    */
   compareItems: GenItem[] | null;
   /**
-   * โมเดลที่ผู้ใช้เพิ่มเองผ่านช่อง "Advanced" ของ KeyModal (JSON array รูปแบบเดียวกับ EXTRA_MODELS/AUDIO_EXTRA_MODELS)
+   * โมเดลที่ผู้ใช้เพิ่มเองผ่านหน้า Settings (JSON array รูปแบบเดียวกับ EXTRA_MODELS/AUDIO_EXTRA_MODELS)
    * persist ผ่าน localStorage แยกจาก apiKey เพราะไม่ใช่ secret — merge เข้า models/audioModels ต่อจาก EXTRA_MODELS เดิม
    */
   userExtraModels: ORModel[];
@@ -444,6 +456,10 @@ export interface AppState {
    * ส่วนปุ่มยืนยันในโมดัลเป็นคนเรียก `generate()` รอบสอง (pattern เดียวกับ bakeOffConfirmOpen)
    */
   spendConfirm?: SpendConfirmRequest | null;
+  /** true ระหว่างที่รอ user ยืนยัน OAuth consent ของ Google Drive (เปิด popup GIS อยู่) */
+  driveConnecting: boolean;
+  /** true ถ้ามี access token ที่ยังใช้ได้อยู่ตอนนี้ (memory-only — ต้องเชื่อมต่อใหม่ทุก reload เหมือน Auto Save) */
+  driveConnected: boolean;
 }
 
 

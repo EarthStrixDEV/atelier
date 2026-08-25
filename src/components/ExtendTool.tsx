@@ -40,7 +40,7 @@ export default function ExtendTool() {
 
   const useFrame = () => {
     const v = videoRef.current;
-    if (!v || !v.videoWidth) { toast("วิดีโอยังโหลดไม่เสร็จค่ะ ลองอีกครั้งนะคะ"); return; }
+    if (!v || !v.videoWidth) { toast("วิดีโอยังโหลดไม่เสร็จค่ะ ลองอีกครั้งนะคะ", "error"); return; }
     v.pause();
     const canvas = document.createElement("canvas");
     canvas.width = v.videoWidth;
@@ -91,7 +91,12 @@ export default function ExtendTool() {
           />
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
+        {/* บอกออกมาตรงๆ ว่าทำไมวิดีโอเปิดมาแล้วอยู่ท้ายคลิป — เดิมผู้ใช้ต้องเดาเอาจากตัวเลขเวลา */}
+        <p className="mt-3 text-[11px] leading-relaxed text-text-faint">
+          เลือกเฟรมสุดท้ายไว้ให้อัตโนมัติแล้วค่ะ — เลื่อนแถบด้านล่างเพื่อเลือกเฟรมอื่นได้
+        </p>
+
+        <div className="mt-2 flex items-center gap-3">
           <button
             className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title={playing ? "หยุดชั่วคราว" : "เล่น"}

@@ -1,20 +1,20 @@
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from "react-window";
 import {
-  ArrowDownWideNarrow, Ban, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Columns2, Copy, Crosshair, Download, FastForward,
-  HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Search, Sparkles, Star, Trash2, Video,
-  Wand2, X,
+  ArrowDownWideNarrow, ArrowUp, Ban, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Cloud, CloudUpload, Columns2, Copy, Crosshair,
+  Download, FastForward, HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Search, Sparkles,
+  Star, Trash2, Video, Wand2, X,
 } from "lucide-react";
 import { MODE_META, RATIOS, isVideoMode } from "../lib/constants";
 import {
   autoExtendFromLastFrame, canCompareItem, canRefineItem, canStartFrom, cinematicChains, clearSelection,
-  copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, modelsForMode, openCompare,
-  openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryWithOverride,
-  setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
+  copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
+  openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryWithOverride, saveItemToDrive,
+  saveSelectedToDrive, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
 } from "../lib/actions";
 import { state, toast, useApp } from "../lib/store";
 import type { GenItem, Mode } from "../lib/types";
-import { isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
+import { classifyGenError, isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
 import PromptComposer from "./PromptComposer";
 
 const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9)
@@ -45,6 +45,8 @@ interface GridRowProps {
   registerRowEl: (index: number, el: HTMLDivElement | null) => void;
   /** id ของ card ที่กำลัง focus อยู่ตอนนี้ (Gallery Focus Mode) — null = ไม่มี card ไหนถูก focus */
   focusedId: number | null;
+  /** id ของ card ที่เป็นประตูเข้า tab order (roving tabindex) — ดู tabEntryId ใน useGalleryFocus */
+  tabEntryId: number | null;
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
@@ -58,7 +60,7 @@ interface GridRowProps {
  */
 function GridRow({
   index, style, items, columnCount, selected, onToggleSelect, onOpen, registerRowEl,
-  focusedId, onFocusCard, onArrowKey, onEnterKey,
+  focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
 }: RowComponentProps<GridRowProps>) {
   const start = index * columnCount;
   const rowItems = items.slice(start, start + columnCount);
@@ -83,6 +85,7 @@ function GridRow({
             onToggleSelect={onToggleSelect}
             onOpen={onOpen}
             focused={focusedId === item.id}
+            isTabEntry={tabEntryId === item.id}
             onFocusCard={onFocusCard}
             onArrowKey={onArrowKey}
             onEnterKey={onEnterKey}
@@ -115,6 +118,10 @@ interface VirtualGridProps {
   mode: Mode;
   /** ยกออกมาให้ Gallery ควบคุมจากข้างนอกได้ (เช่น เลื่อนไปแถวบนสุดตอนมี item ใหม่โผล่จาก Generate) */
   listRef: RefObject<ListImperativeAPI | null>;
+  /** รายงานว่าตอนนี้เห็นแถวบนสุดอยู่ไหม — Gallery ใช้ตัดสินว่าจะ auto-scroll หรือโชว์ปุ่มแทน */
+  onAtTopChange: (atTop: boolean) => void;
+  /** ปุ่มลอย "ผลลัพธ์ใหม่" — รับมาวางทับในกรอบเดียวกับ List แทนที่จะให้ Gallery ครอบ div เพิ่มเอง */
+  newResultPill?: React.ReactNode;
 }
 
 /**
@@ -124,9 +131,13 @@ interface VirtualGridProps {
  */
 function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObject<ListImperativeAPI | null>, mode: Mode) {
   const [focusedId, setFocusedId] = useState<number | null>(null);
+  // ช่วง index ของ item ที่ react-window mount อยู่จริงตอนนี้ — ใช้เลือกประตูเข้า tab order ให้เป็นการ์ด
+  // ที่อยู่ใน DOM เสมอ (ดู tabEntryId) null = ยังไม่เคยได้รับรายงานจาก List
+  const [renderedRange, setRenderedRange] = useState<{ start: number; stop: number } | null>(null);
 
   // สลับโหมด (Home/Video/…) แล้ว focus เดิมไม่มีความหมายอีกต่อไป — เคลียร์ทิ้ง
-  useEffect(() => { setFocusedId(null); }, [mode]);
+  // renderedRange ก็เป็นของ list เก่า เคลียร์ด้วยกันกัน entry point ชี้ช่วงที่ไม่ตรงกับ items ชุดใหม่
+  useEffect(() => { setFocusedId(null); setRenderedRange(null); }, [mode]);
 
   // item ที่ focus ไว้หลุดจาก items จริง (เช่น mode reset) — เคลียร์ focus กัน state ค้าง id ที่ไม่มีอยู่แล้ว
   useEffect(() => {
@@ -153,7 +164,26 @@ function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObje
 
   const onEnterKey = useCallback((index: number) => openLightbox(index), []);
 
-  return { focusedId, onFocusCard, onArrowKey, onEnterKey };
+  /**
+   * roving tabindex — ต้องมีการ์ด "หนึ่งใบเสมอ" ที่ tabIndex=0 เป็นประตูเข้า ไม่งั้น keyboard user
+   * กด Tab เข้ากริดไม่ได้เลย (การ์ด done ที่เหลือเป็น -1 เพื่อไม่ให้ Tab ไล่ทีละใบ — arrow key เป็นตัวขยับแทน)
+   *
+   * ประตูเข้าต้องเป็นการ์ดที่ "mount อยู่จริง" เท่านั้น เพราะ react-window unmount การ์ดนอก viewport ทิ้ง —
+   * ถ้าเลือกใบที่ถูก virtualize ออกไปแล้ว DOM จะไม่เหลือ element ที่ tabIndex=0 เลย และกด Tab เข้ากริดไม่ได้
+   * ทั้งที่มีการ์ดเต็มจอ ลำดับการเลือก: ใบที่ focus อยู่ (ถ้ายัง mount) → ใบ done ใบแรกในช่วงที่ mount →
+   * ใบ done ใบแรกทั้ง list (fallback ตอนยังไม่เคยได้ range จาก List)
+   */
+  const tabEntryId = useMemo(() => {
+    const visible = renderedRange
+      ? items.slice(renderedRange.start, renderedRange.stop + 1)
+      : items;
+    if (focusedId != null && visible.some(x => x.id === focusedId)) return focusedId;
+    const inView = visible.find(x => x.status === "done");
+    if (inView) return inView.id;
+    return items.find(x => x.status === "done")?.id ?? null;
+  }, [items, focusedId, renderedRange]);
+
+  return { focusedId, tabEntryId, setRenderedRange, onFocusCard, onArrowKey, onEnterKey };
 }
 
 /**
@@ -162,7 +192,7 @@ function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObje
  * เป็นแถวๆ ละ columnCount ก่อนส่งให้ List วาดทีละแถวตาม viewport — List เป็นเจ้าของ scroll container ของตัวเอง
  * (overflow-y-auto ภายใน) จึงต้องอยู่ในกล่อง flex-1 min-h-0 แยกจาก header/StoryboardStrip ที่ไม่ virtualize
  */
-function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }: VirtualGridProps) {
+function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, onAtTopChange, newResultPill }: VirtualGridProps) {
   const [width, setWidth] = useState(0);
   const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: 320, key: mode });
   const rowElsRef = useRef(new Map<number, HTMLDivElement>());
@@ -175,7 +205,7 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
   // เป็น "ลิสต์ที่ผ่านตัวกรองแล้ว" ไม่ใช่ cur().images — กด Enter ตอนเปิดตัวกรองจึงเปิดรูปผิดใบ
   // hook เป็นเขตของ roving tabindex (branch a11y) ห้ามแก้ข้างใน จึงทับที่ call site นี้ด้วย onOpen เดิมที่
   // Gallery ส่งลงมาอยู่แล้ว (openFiltered — map visibleIndex → id → realIndex) ให้ Enter กับคลิกเดินทางเดียวกันเป๊ะ
-  const { focusedId, onFocusCard, onArrowKey } = useGalleryFocus(items, columnCount, listRef, mode);
+  const { focusedId, tabEntryId, setRenderedRange, onFocusCard, onArrowKey } = useGalleryFocus(items, columnCount, listRef, mode);
   const onEnterKey = onOpen;
 
   const onResize = useCallback((size: { width: number; height: number }) => {
@@ -193,9 +223,30 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
 
   useEffect(() => () => unobserveRef.current?.(), []);
 
+  // ฟัง scroll ตรงๆ ด้วย เพราะ onRowsRendered ยิงเฉพาะตอน "ช่วงแถวที่ render" เปลี่ยน —
+  // เลื่อนนิดเดียวในแถวเดิม (ซึ่งเปลี่ยนสถานะ "อยู่บนสุดไหม" ได้จริง) จะไม่ยิงเลย
+  useEffect(() => {
+    const el = listRef.current?.element;
+    if (!el) return;
+    const onScroll = () => onAtTopChange(el.scrollTop <= NEAR_TOP_PX);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [listRef, onAtTopChange, items.length]);
+
   // เดโม/ตรวจสอบ Phase 13 เท่านั้น — นับจำนวน row ที่ react-window บอกว่ากำลัง render จริงตอนนี้ (คูณ columnCount
   // เป็นจำนวน card โดยประมาณ, แถวสุดท้ายอาจมีน้อยกว่านั้นถ้า item ไม่พอดีเต็มแถว) ตัด tree-shake ออกจาก production build
   const onRowsRendered = useCallback((visible: { startIndex: number; stopIndex: number }) => {
+    // แปลงช่วง "แถว" ที่ react-window render อยู่ เป็นช่วง index ของ item เพื่อให้ roving tabindex
+    // เลือกประตูเข้าจากการ์ดที่ mount อยู่จริงเท่านั้น (ดู tabEntryId) — ต้องอยู่ก่อน DEV guard ข้างล่าง
+    setRenderedRange({
+      start: visible.startIndex * columnCount,
+      stop: (visible.stopIndex + 1) * columnCount - 1,
+    });
+    // วัดจาก scrollTop จริงไม่ใช่ index ของแถวที่ render — overscan ทำให้แถว 0 ยังถูก render
+    // อยู่แม้เลื่อนลงไปพอสมควรแล้ว ถ้าใช้ index จะตัดสินผิดว่า "ยังอยู่บนสุด"
+    const el = listRef.current?.element;
+    onAtTopChange(!el || el.scrollTop <= NEAR_TOP_PX);
     if (!import.meta.env.DEV) return;
     const rowsRendered = visible.stopIndex - visible.startIndex + 1;
     const lastRowStart = (rowCount - 1) * columnCount;
@@ -203,11 +254,11 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
     const includesLastRow = visible.stopIndex >= rowCount - 1;
     const full = includesLastRow ? rowsRendered - 1 : rowsRendered;
     setMountedCount(Math.min(items.length, full * columnCount + (includesLastRow ? lastRowSize : columnCount)));
-  }, [columnCount, rowCount, items.length]);
+  }, [columnCount, rowCount, items.length, setRenderedRange, onAtTopChange]);
 
   const rowProps = useMemo<GridRowProps>(() => ({
-    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, onFocusCard, onArrowKey, onEnterKey,
-  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, onFocusCard, onArrowKey, onEnterKey]);
+    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
+  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -222,6 +273,7 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef }:
         onRowsRendered={onRowsRendered}
         style={{ height: "100%", width: "100%" }}
       />
+      {newResultPill}
       <VirtualGridDevReadout mounted={mountedCount} total={items.length} mode={mode} />
     </div>
   );
@@ -380,16 +432,60 @@ interface CardProps {
   onOpen: (index: number) => void;
   /** Gallery Focus Mode (PHASE 15) — true ถ้าการ์ดนี้คือใบที่ถูก focus อยู่ตอนนี้ */
   focused: boolean;
+  /** true ถ้าการ์ดนี้เป็นประตูเข้า tab order ของกริด (roving tabindex — มีได้ใบเดียวเท่านั้น) */
+  isTabEntry: boolean;
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
 }
 
+/** เลื่อนลงมาไม่เกินเท่านี้ยังถือว่า "อยู่บนสุด" — เผื่อผู้ใช้ขยับเมาส์นิดหน่อยแล้วยังคาดหวังให้เลื่อนตามของใหม่ */
+const NEAR_TOP_PX = 80;
+
 const ARROW_KEY_DIR: Record<string, "left" | "right" | "up" | "down"> = {
   ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
 };
 
-function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, onFocusCard, onArrowKey, onEnterKey }: CardProps) {
+/**
+ * ข้อความ error บนการ์ด — แปลง error ดิบจาก OpenRouter เป็นหัวข้อ + สิ่งที่ต้องทำต่อ
+ * เพราะ raw message อย่าง "HTTP 402" ไม่บอกผู้ใช้ว่าควรเติมเครดิตหรือแค่กดลองใหม่
+ * ยังเก็บข้อความดิบไว้ให้กางดูได้ ไม่ทิ้งข้อมูลที่จำเป็นตอน debug
+ */
+function GenErrorDetail({ errMsg }: { errMsg: string }) {
+  const [rawOpen, setRawOpen] = useState(false);
+  const info = classifyGenError(errMsg);
+  const trimmed = errMsg.trim();
+  // ถ้าข้อความดิบสั้นและสื่อความอยู่แล้ว (เช่นข้อความไทยที่เราโยนเอง) การกางดูซ้ำไม่ได้ประโยชน์
+  const showRaw = trimmed.length > 0 && trimmed !== info.title;
+
+  return (
+    <div className="flex max-h-full min-h-0 flex-col items-center gap-1">
+      <div className="flex items-center gap-1 text-[12px] font-semibold text-danger">
+        <CircleAlert size={12} className="shrink-0" />
+        <span>{info.title}</span>
+      </div>
+      <p className="text-[11px] leading-normal text-text-dim">{info.hint}</p>
+      {showRaw && (
+        <>
+          <button
+            className="cursor-pointer text-[10.5px] text-text-faint underline transition-colors hover:text-text-dim"
+            aria-expanded={rawOpen}
+            onClick={e => { e.stopPropagation(); setRawOpen(o => !o); }}
+          >
+            {rawOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียด"}
+          </button>
+          {rawOpen && (
+            <p className="max-h-[72px] overflow-y-auto break-words px-1 text-left font-mono text-[10px] leading-normal text-text-faint">
+              {trimmed}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, isTabEntry, onFocusCard, onArrowKey, onEnterKey }: CardProps) {
   // synthetic root ที่ startFromItem สร้าง (ดู actions.ts) เป็น video/cinematic mode แต่ url เป็นภาพนิ่ง (ยังไม่มีวิดีโอจริง) — render เป็น <img> แทน <video>
   const isVid = isVideoMode(item.mode) && !isImageDataUrl(item.url);
   const isAud = item.mode === "audio";
@@ -416,9 +512,9 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
   return (
     <div
       ref={rootRef}
-      tabIndex={done ? -1 : undefined}
+      tabIndex={done ? (isTabEntry ? 0 : -1) : undefined}
       className={
-        "group relative overflow-hidden rounded-card border bg-surface transition-colors outline-none " +
+        "group relative overflow-hidden rounded-card border bg-surface transition-colors outline-none js-focus-ring-owned " +
         (selected ? "border-accent" : focused ? "border-text" : "border-border") +
         (done ? " cursor-zoom-in hover:border-border-strong" : "") +
         (focused ? " ring-2 ring-text ring-offset-2 ring-offset-bg" : "")
@@ -426,6 +522,12 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
       role={done ? "button" : undefined}
       aria-label={done ? "เปิดดูภาพขยาย: " + item.prompt : undefined}
       onClick={done ? () => { onFocusCard(item.id); onOpen(index); } : undefined}
+      // Tab เข้ามาที่ประตูเข้า (tabIndex=0) ต้องเริ่มโหมด focus ให้ทันที ไม่งั้น arrow key ไม่ทำงาน
+      // เพราะ focusedId ยังเป็น null อยู่ — เช็ค !focused ก่อนกัน setState ซ้ำกับ .focus() ที่ effect เรียกเอง
+      // e.target === e.currentTarget สำคัญ: onFocus ของ React bubble ขึ้นมาจากปุ่มลูกในการ์ด (Copy Prompt,
+      // Crosshair, checkbox, …) ถ้าไม่กรอง แค่ Tab ผ่านปุ่มของการ์ดอื่นก็จะแย่ง focusedId ไปทั้งที่ผู้ใช้
+      // ไม่ได้โฟกัสตัวการ์ดนั้น แล้ว arrow key รอบถัดไปจะยิงจาก id ผิดใบ
+      onFocus={done && !focused ? (e => { if (e.target === e.currentTarget) onFocusCard(item.id); }) : undefined}
       onKeyDown={done ? (e => {
         const dir = ARROW_KEY_DIR[e.key];
         if (dir) { e.preventDefault(); onArrowKey(item.id, dir); return; }
@@ -537,6 +639,29 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           </span>
         )}
 
+        {done && item.driveSaveStatus && item.driveSaveStatus !== "idle" && (
+          <span
+            className={
+              "absolute z-1 grid h-5 w-5 place-items-center rounded-full border backdrop-blur-sm " +
+              (item.autoSaveStatus && item.autoSaveStatus !== "idle" ? "bottom-2 left-8" : "bottom-2 left-2") + " " +
+              (item.driveSaveStatus === "saved"
+                ? "border-accent/40 bg-[rgba(10,10,10,.72)] text-accent"
+                : item.driveSaveStatus === "failed"
+                ? "border-danger/40 bg-[rgba(10,10,10,.72)] text-danger"
+                : "border-white/15 bg-[rgba(10,10,10,.72)] text-white")
+            }
+            title={
+              item.driveSaveStatus === "saved" ? "Save to Drive: อัพโหลดขึ้น Google Drive แล้ว"
+                : item.driveSaveStatus === "failed" ? "Save to Drive ไม่สำเร็จ: " + (item.driveSaveErrMsg || "ไม่ทราบสาเหตุ")
+                : "Save to Drive: กำลังอัพโหลด…"
+            }
+          >
+            {item.driveSaveStatus === "saved" ? <Cloud size={11} />
+              : item.driveSaveStatus === "failed" ? <CircleAlert size={11} />
+              : <Loader2 size={11} className="animate-spin" />}
+          </span>
+        )}
+
         {!done && item.status === "loading" && (
           isVid ? (
             <VideoProgress item={item} />
@@ -550,7 +675,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
 
         {item.status === "error" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-[18px] text-center">
-            <div className="max-h-[60%] overflow-hidden text-[11.5px] leading-normal text-danger">{item.errMsg}</div>
+            <GenErrorDetail errMsg={item.errMsg} />
             <div className="flex items-center gap-1">
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
@@ -640,6 +765,17 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
             >
               <RefreshCw size={10} /> Regenerate
             </button>
+            {isDriveSaveConfigured() && (
+              <button
+                className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-border py-1.5 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+                title="อัพโหลดขึ้น Google Drive (โฟลเดอร์ Atelier Output)"
+                aria-label={"Save to Drive: " + item.prompt}
+                disabled={item.driveSaveStatus === "pending"}
+                onClick={e => { e.stopPropagation(); saveItemToDrive(item); }}
+              >
+                <CloudUpload size={10} /> Save to Drive
+              </button>
+            )}
             {isCinematicVideoScene && (
               <button
                 className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-accent/60 py-1.5 text-[10.5px] font-semibold text-text transition-colors hover:bg-accent hover:text-accent-ink"
@@ -712,7 +848,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
  */
 function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): boolean {
   if (prev.index !== next.index || prev.selected !== next.selected || prev.autoExtending !== next.autoExtending) return false;
-  if (prev.focused !== next.focused) return false;
+  if (prev.focused !== next.focused || prev.isTabEntry !== next.isTabEntry) return false;
   if (prev.onToggleSelect !== next.onToggleSelect || prev.onOpen !== next.onOpen) return false;
   if (prev.onFocusCard !== next.onFocusCard || prev.onArrowKey !== next.onArrowKey || prev.onEnterKey !== next.onEnterKey) return false;
   const a = prev.item;
@@ -851,15 +987,35 @@ export default function Gallery() {
 
   const centerPrompt = s.promptPlacement === "center";
 
-  // item ใหม่ถูก unshift ไว้บนสุดเสมอ — ถ้าผู้ใช้เลื่อนดูรูปเก่าอยู่ตอนกด Generate จะมองไม่เห็น
-  // การ์ดใหม่เลย (ทั้งที่สร้างสำเร็จ) จนกว่าจะเลื่อนขึ้นเอง จึงต้องเลื่อนขึ้นบนสุดให้ทุกครั้งที่มี item ใหม่โผล่
+  // item ใหม่ถูก unshift ไว้บนสุดเสมอ — ถ้าผู้ใช้อยู่บนสุดอยู่แล้วก็เลื่อนตามให้เลย แต่ถ้ากำลังเลื่อน
+  // ดูงานเก่าอยู่ ห้ามดึงกลับขึ้นไป (เป็นพฤติกรรมเดิมที่รำคาญมาก — กำลังดูอยู่ดีๆ จอกระโดด)
+  // ให้ขึ้นปุ่มลอยบอกแทน กดเองเมื่อพร้อม
   // scroll จริงอยู่ใน react-window List (ดู VirtualGrid) จึงต้องสั่งผ่าน listRef.scrollToRow แทน scrollTo ของ div ธรรมดา
   const listRef = useRef<ListImperativeAPI | null>(null);
+  const [atTop, setAtTop] = useState(true);
+  const [pendingNew, setPendingNew] = useState(false);
+  const atTopRef = useRef(true);
+  const onAtTopChange = useCallback((v: boolean) => {
+    atTopRef.current = v;
+    setAtTop(v);
+    // เลื่อนกลับขึ้นบนสุดเองเมื่อไหร่ ถือว่าเห็นของใหม่แล้ว — เก็บปุ่มทิ้ง
+    if (v) setPendingNew(false);
+  }, []);
+
   const newestId = ms.images[0]?.id;
   useEffect(() => {
-    if (newestId != null) listRef.current?.scrollToRow({ index: 0, align: "start", behavior: "smooth" });
+    if (newestId == null) return;
+    // อ่านจาก ref ไม่ใช่ state เพราะ effect นี้ผูกกับ newestId อย่างเดียว ถ้าใส่ atTop ใน deps
+    // มันจะยิงซ้ำทุกครั้งที่ scroll ข้ามขอบบน ทำให้เลื่อนเด้งโดยไม่มี item ใหม่จริง
+    if (atTopRef.current) listRef.current?.scrollToRow({ index: 0, align: "start", behavior: "smooth" });
+    else setPendingNew(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newestId]);
+
+  const jumpToNewest = () => {
+    setPendingNew(false);
+    listRef.current?.scrollToRow({ index: 0, align: "start", behavior: "smooth" });
+  };
 
   // ---- F3: Gallery filter (T12 = local state ล้วน ยังไม่ persist — T13 จะย้ายไป store + wire index mapping ต่อ) ----
   const [query, setQuery] = useState("");
@@ -963,6 +1119,15 @@ export default function Gallery() {
               >
                 <Download size={11} /> ดาวน์โหลด
               </button>
+              {isDriveSaveConfigured() && (
+                <button
+                  className="flex cursor-pointer items-center gap-1 rounded-md border border-border-strong px-2.5 py-1 text-[11px] text-text transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+                  aria-label={`อัพโหลดที่เลือกไว้ขึ้น Google Drive (${selectedCount} รายการ)`}
+                  onClick={saveSelectedToDrive}
+                >
+                  <CloudUpload size={11} /> Save to Drive
+                </button>
+              )}
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
                 aria-label="ยกเลิกการเลือกทั้งหมด"
@@ -1092,6 +1257,20 @@ export default function Gallery() {
           onOpen={openFiltered}
           mode={s.mode}
           listRef={listRef}
+          onAtTopChange={onAtTopChange}
+          newResultPill={
+            /* ปุ่มลอยแทนการดึงจอกลับขึ้นบนเอง — ผู้ใช้เลือกเองว่าจะขึ้นไปดูตอนไหน
+               ต้องวางในตัว VirtualGrid เอง ห้ามครอบ div เพิ่มรอบนอก ไม่งั้น flex chain
+               ของ react-window ขาด (List เป็นเจ้าของ scroll container ของตัวเอง) แล้วกริดเลื่อนไม่ได้เลย */
+            pendingNew && !atTop ? (
+              <button
+                className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border border-border-strong bg-surface px-3.5 py-1.5 text-[11.5px] font-semibold text-text shadow-[0_6px_20px_rgba(0,0,0,.12)] transition-colors hover:border-text"
+                onClick={jumpToNewest}
+              >
+                <ArrowUp size={12} /> ผลลัพธ์ใหม่
+              </button>
+            ) : null
+          }
         />
       )}
       </div>
