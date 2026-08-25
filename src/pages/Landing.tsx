@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   ArrowRight, Image, Layers, Music, Video, Zap, ShieldCheck, Wand2,
-  Sparkles, Palette, Sun, Camera, Smile, Shirt, Play,
+  Sparkles, Palette, Sun, Camera, Smile, Shirt, Play, Table2,
 } from "lucide-react";
 
 const HIGHLIGHTS = [
@@ -165,6 +165,12 @@ export default function Landing() {
               รายชื่อโมเดลดึงสดจาก OpenRouter ทุกครั้งที่เปิดแอป — ไม่ได้ผูกตายตัวกับผู้ให้บริการรายเดียว
               เลือกโมเดลที่เหมาะกับงานแต่ละชิ้นได้อิสระตามโหมดที่ใช้งาน
             </p>
+            <Link
+              to="/models"
+              className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-accent transition-opacity hover:opacity-80"
+            >
+              <Table2 size={14} /> ดูตาราง Model Catalog เต็ม →
+            </Link>
           </div>
           <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {MODEL_GROUPS.map(g => (

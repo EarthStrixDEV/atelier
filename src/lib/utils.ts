@@ -95,6 +95,31 @@ export function triggerDownload(href: string, filename: string) {
   a.remove();
 }
 
+/**
+ * ฟอร์แมต USD ให้คงเส้นคงวาข้าม Model Catalog (table + grid, ทั้ง 3 domain) — แทนการ inline .toFixed()
+ * แยกๆ กันหลายแบบ ไม่ใช้กับ Sidebar usage bar เดิม (ยังใช้ .toFixed() ของตัวเองต่อไป นอก scope)
+ * จำนวนทศนิยม: ปรับตามขนาดตัวเลขให้ตัวเลขเล็กๆ (เช่น ราคาต่อภาพ 0.000002) ยังอ่านความต่างออก
+ */
+export function fmtUsd(n: number, opts?: { trimTrailingZeros?: boolean }): string {
+  const decimals = n < 0.01 ? 6 : n < 1 ? 3 : 2;
+  let s = n.toFixed(decimals);
+  if (opts?.trimTrailingZeros && s.includes(".")) {
+    s = s.replace(/0+$/, "").replace(/\.$/, "");
+  }
+  return "$" + s;
+}
+
+// สรุป duration เป็นช่วงถ้าต่อเนื่องทีละ 1 (เช่น grok "1,2,...,15" → "1-15 วิ")
+// ถ้าไม่ต่อเนื่อง (เช่น veo "4,6,8") แสดงเป็นลิสต์คั่นจุลภาคแทน — ทั้งสองแบบอ่านง่ายกว่าลิสต์ตัวเลขยาวๆ
+export function fmtDurations(durations: number[]): string {
+  const sorted = [...durations].sort((a, b) => a - b);
+  const isConsecutive = sorted.every((d, i) => i === 0 || d === sorted[i - 1] + 1);
+  if (isConsecutive && sorted.length > 2) {
+    return `${sorted[0]}-${sorted[sorted.length - 1]} วิ`;
+  }
+  return sorted.map(d => `${d}วิ`).join(", ");
+}
+
 // ราคาต่อวินาทีที่ 720p — schema ของ pricing_skus ต่างกันต่อ provider
 // (grok คิดเป็น cents, veo/kling เป็น USD ต่อวินาที, seedance เป็น token คำนวณล่วงหน้าไม่ได้ → null)
 export function videoPricePerSec(m: ORModel, audio: boolean): number | null {
