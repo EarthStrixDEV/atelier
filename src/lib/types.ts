@@ -30,6 +30,8 @@ export type CancelReason = "user" | "user-all" | "shutdown";
 export type ImgFormat = "png" | "jpg";
 export type PromptPlacement = "sidebar" | "center";
 export type ToastVariant = "success" | "error" | "info";
+/** ภาษา UI ทั้งแอป (i18n Wave 0) — default เป็น "th" เสมอ ห้าม auto-detect จาก browser locale (ดู loadLocale ใน store.ts) */
+export type Locale = "th" | "en";
 
 export interface ORModel {
   id: string;
@@ -492,6 +494,12 @@ export interface AppState {
   driveConnecting: boolean;
   /** true ถ้ามี access token ที่ยังใช้ได้อยู่ตอนนี้ (memory-only — ต้องเชื่อมต่อใหม่ทุก reload เหมือน Auto Save) */
   driveConnected: boolean;
+  /**
+   * ภาษา UI ทั้งแอป (i18n Wave 0) — persist ผ่าน `LOCALE_KEY` ใน localStorage (ดู store.ts)
+   * required ไม่ใช่ optional เพราะ `state` ใน store.ts ประกอบ object literal แบบ synchronous เสมอ
+   * ทุกจุดที่อ่านค่านี้ไม่ต้องเผื่อ undefined
+   */
+  locale: Locale;
 }
 
 

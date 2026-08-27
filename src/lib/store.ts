@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, SpendLedger, ToastVariant } from "./types";
+import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Locale, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, SpendLedger, ToastVariant } from "./types";
 import { SPEND_LEDGER_KEY } from "./types";
 import { MAX_CHAT_HISTORY, MAX_EXPORT_LOG, MAX_USER_TEMPLATES, modeLabel, MODES } from "./constants";
 import { PERMISSION_KEY as NOTIFY_PERMISSION_ASKED_KEY } from "./notify";
@@ -8,6 +8,8 @@ const HISTORY_KEY_PREFIX = "atelier_history_";
 const CHAT_HISTORY_KEY = "atelier_chat_history";
 const TEMPLATES_KEY_PREFIX = "atelier_templates_";
 export const PROMPT_PLACEMENT_KEY = "atelier_prompt_placement";
+/** ภาษา UI ทั้งแอป (i18n Wave 0) — ดู loadLocale/saveLocale ท้ายไฟล์ */
+export const LOCALE_KEY = "atelier_locale";
 /** job ledger สำหรับ survive-reload — เขียนทันทีที่ได้ jobId (หรือเริ่มยิง request ที่ไม่มี jobId) ดู actions.ts */
 export const PENDING_JOBS_KEY = "atelier_pending_jobs";
 /** เขียนตอน beforeunload ว่าโหมดไหนมีคิวค้างอยู่ตอนปิด/reload — เทียบตอน boot ว่าคิวหายไปจริงไหม (ดู reconcilePendingJobs) */
@@ -86,6 +88,7 @@ export interface StorageKeyBreakdownEntry {
 function labelForStorageKey(key: string): string {
   if (key === CHAT_HISTORY_KEY) return "ประวัติแชท Chat with Atelier";
   if (key === PROMPT_PLACEMENT_KEY) return "ตำแหน่งช่อง Prompt";
+  if (key === LOCALE_KEY) return "ภาษาที่ใช้แสดงผล UI";
   if (key === PENDING_JOBS_KEY) return "รายการงานค้าง (job ledger)";
   if (key === QUEUE_NONEMPTY_KEY) return "flag คิวค้างตอนปิดแท็บ";
   if (key === SESSION_SNAPSHOT_KEY) return "บันทึกเซสชันอัตโนมัติ";
@@ -141,6 +144,10 @@ export function clearStorageKey(key: string) {
   }
   if (key === PROMPT_PLACEMENT_KEY) {
     mutate(s => { s.promptPlacement = "sidebar"; });
+    return;
+  }
+  if (key === LOCALE_KEY) {
+    mutate(s => { s.locale = "th"; });
     return;
   }
   if (key === SPEND_LEDGER_KEY) {
@@ -205,6 +212,24 @@ function loadPromptPlacement(): PromptPlacement {
   } catch {
     return "sidebar";
   }
+}
+
+/**
+ * default เป็น "th" เสมอ — ห้าม auto-detect จาก browser locale (navigator.language ฯลฯ)
+ * เพราะผู้ใช้เดิมที่ไม่เคยตั้งค่านี้ต้องไม่เห็น UI เปลี่ยนภาษากะทันหันตอนแอปอัปเดตมาเวอร์ชันที่มี i18n
+ */
+function loadLocale(): Locale {
+  try {
+    return localStorage.getItem(LOCALE_KEY) === "en" ? "en" : "th";
+  } catch {
+    return "th";
+  }
+}
+
+export function saveLocale(locale: Locale): void {
+  try {
+    localStorage.setItem(LOCALE_KEY, locale);
+  } catch { /* best-effort เท่านั้น — ไม่กระทบการใช้งานหลัก */ }
 }
 
 const ASSIST_MODEL_KEY = "atelier_assist_model";
@@ -750,6 +775,7 @@ export const state: AppState = {
   spendConfirm: null,
   driveConnecting: false,
   driveConnected: false,
+  locale: loadLocale(),
 };
 
 let version = 0;

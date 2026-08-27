@@ -19,10 +19,10 @@ import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyP
 import {
   addExportLogEntry, addPendingJob, bumpGalleryMaxId, clearGalleryMaxId, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites, loadFavoriteStamps, saveFavoriteStamps, MAX_FAVORITES_PER_MODE,
   freshSpendLedger, loadGalleryMaxId, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
-  PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveSessionSnapshotRaw,
+  PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveLocale, saveSessionSnapshotRaw,
   saveSpendLedger, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
 } from "./store";
-import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, SpendConfirmRequest, SpendLedger, StoryboardChain, TtsVoice } from "./types";
+import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, SpendConfirmRequest, SpendLedger, StoryboardChain, TtsVoice } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -3217,6 +3217,12 @@ export function setAssistModelId(id: string | null) {
   mutate(s => { s.assistModelId = id; });
   saveAssistModelId(id);
   toast(id ? "ตั้งโมเดลผู้ช่วย AI เป็น " + id + " แล้วค่ะ" : "กลับไปใช้โมเดลผู้ช่วย AI เริ่มต้นแล้วค่ะ");
+}
+
+/** สลับภาษา UI ทั้งแอป — persist ทันทีเหมือน setting อื่นๆ */
+export function setLocale(locale: Locale): void {
+  mutate(s => { s.locale = locale; });
+  saveLocale(locale);
 }
 
 /** true ถ้าเคย toast แจ้ง fallback ไปแล้วอย่างน้อยหนึ่งครั้งใน session นี้ — กันเตือนซ้ำทุกครั้งที่โมเดลที่เลือกไว้ถูกถอด */
