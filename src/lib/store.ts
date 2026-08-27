@@ -691,6 +691,9 @@ function freshModeState(mode: Mode): ModeState {
     negPrompt: "",
     bakeOffEnabled: false,
     bakeOffModelIds: [],
+    voiceId: null,
+    ttsVoices: [],
+    ttsVoicesLoading: false,
   };
 }
 
@@ -701,6 +704,7 @@ export const state: AppState = {
   models: [],
   videoModels: [],
   audioModels: [],
+  speechModels: [],
   modelsFailed: false,
   videoModelsFailed: false,
   mode: "home",
@@ -710,6 +714,7 @@ export const state: AppState = {
     video: freshModeState("video"),
     cinematic: freshModeState("cinematic"),
     audio: freshModeState("audio"),
+    tts: freshModeState("tts"),
   },
   seq: 0,
   keyModalOpen: false,

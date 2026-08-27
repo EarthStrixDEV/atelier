@@ -2,7 +2,7 @@ import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState
 import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentProps } from "react-window";
 import {
   ArrowDownWideNarrow, ArrowUp, Ban, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Cloud, CloudUpload, Columns2, Copy, Crosshair,
-  Download, FastForward, HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Music, Play, RefreshCw, RotateCcw, Search, Sparkles,
+  Download, FastForward, HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Mic, Music, Play, RefreshCw, RotateCcw, Search, Sparkles,
   Star, Trash2, Video, Wand2, X,
 } from "lucide-react";
 import { MODE_META, RATIOS, isVideoMode } from "../lib/constants";
@@ -344,7 +344,7 @@ function RetryOverridePanel({ item, onClose }: { item: GenItem; onClose: () => v
         {modelList.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
       </select>
 
-      {item.mode !== "audio" && (
+      {item.mode !== "audio" && item.mode !== "tts" && (
         <div className="grid grid-cols-5 gap-1">
           {RATIOS.map(r => {
             const disabled = !!(vRatios && !vRatios.includes(r.v));
@@ -489,6 +489,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
   // synthetic root ที่ startFromItem สร้าง (ดู actions.ts) เป็น video/cinematic mode แต่ url เป็นภาพนิ่ง (ยังไม่มีวิดีโอจริง) — render เป็น <img> แทน <video>
   const isVid = isVideoMode(item.mode) && !isImageDataUrl(item.url);
   const isAud = item.mode === "audio";
+  const isTts = item.mode === "tts";
   const done = item.status === "done";
   const favorite = !!item.favorite;
   // Extend/Extend-จากเฟรมสุดท้าย ต้องมีวิดีโอจริงให้จับเฟรม — ซ่อนทั้งคู่บน synthetic root ที่ยังไม่มีวิดีโอ (url เป็นภาพนิ่ง/ไม่มี)
@@ -534,7 +535,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
         if (e.key === "Enter") { e.preventDefault(); onEnterKey(index); }
       }) : undefined}
     >
-      <div className="relative w-full bg-surface-2" style={{ aspectRatio: isAud ? "2 / 1" : ratioCSS(item.ratio) }}>
+      <div className="relative w-full bg-surface-2" style={{ aspectRatio: (isAud || isTts) ? "2 / 1" : ratioCSS(item.ratio) }}>
         <span className="pointer-events-none absolute left-2 top-2 z-1 max-w-[calc(100%-16px)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-white/15 bg-[rgba(10,10,10,.72)] px-[9px] py-[3px] font-mono text-[9.5px] text-white backdrop-blur-sm" title={item.model}>
           {item.modelName}
         </span>
@@ -558,10 +559,10 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
         {done && item.url && (
           isVid ? (
             <video src={item.url} muted loop autoPlay playsInline className="absolute inset-0 block h-full w-full object-cover" />
-          ) : isAud ? (
+          ) : (isAud || isTts) ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 pt-6">
-              <Music size={26} className="text-text-dim" />
-              {/* stopPropagation กันคลิกที่ตัวเล่นเพลงแล้วเปิด lightbox */}
+              {isTts ? <Mic size={26} className="text-text-dim" /> : <Music size={26} className="text-text-dim" />}
+              {/* stopPropagation กันคลิกที่ตัวเล่นเสียงแล้วเปิด lightbox */}
               <audio src={item.url} controls className="h-9 w-full" onClick={e => e.stopPropagation()} />
             </div>
           ) : (
@@ -745,7 +746,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
 
       <div className="flex justify-between gap-2.5 border-t border-border px-3 py-2.5 text-[11px] text-text-dim">
         <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{item.prompt}</span>
-        <span className="shrink-0 font-mono text-[10px] text-text-faint">{isAud ? "mp3" : item.ratio}</span>
+        <span className="shrink-0 font-mono text-[10px] text-text-faint">{(isAud || isTts) ? "mp3" : item.ratio}</span>
       </div>
 
       {done && (
@@ -975,7 +976,7 @@ export default function Gallery() {
   const meta = MODE_META[s.mode];
   const done = ms.images.filter(x => x.status === "done").length;
   const loading = ms.images.filter(x => x.status === "loading").length;
-  const unit = s.mode === "cinematic" ? " scene" : s.mode === "video" ? " clip" : s.mode === "audio" ? " song" : " image";
+  const unit = s.mode === "cinematic" ? " scene" : s.mode === "video" ? " clip" : s.mode === "audio" ? " song" : s.mode === "tts" ? " clip" : " image";
 
   // เผื่อ item ที่เคยเลือกไว้ถูกลบ/ยังไม่ done — กรองเฉพาะที่ยัง valid
   const validIds = new Set(ms.images.filter(x => x.status === "done").map(x => x.id));
@@ -1233,6 +1234,8 @@ export default function Gallery() {
         <div className="flex min-h-[380px] flex-col items-center justify-center gap-3.5 rounded-[14px] border border-dashed border-border text-text-faint">
           {s.mode === "audio"
             ? <Music size={44} className="opacity-40" strokeWidth={1.4} />
+            : s.mode === "tts"
+            ? <Mic size={44} className="opacity-40" strokeWidth={1.4} />
             : s.mode === "cinematic"
             ? <Clapperboard size={44} className="opacity-40" strokeWidth={1.4} />
             : <ImageIcon size={44} className="opacity-40" strokeWidth={1.4} />}

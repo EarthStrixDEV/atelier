@@ -1,4 +1,4 @@
-import { Clapperboard, FileWarning, GitMerge, Image, Layers, Music, RefreshCw, Video, X } from "lucide-react";
+import { Clapperboard, FileWarning, GitMerge, Image, Layers, Mic, Music, RefreshCw, Video, X } from "lucide-react";
 import { cancelImport, commitImportMerge, commitImportReplace } from "../lib/actions";
 import { modeLabel } from "../lib/constants";
 import { useApp } from "../lib/store";
@@ -10,6 +10,7 @@ const MODE_ICONS: Record<Mode, typeof Image> = {
   video: Video,
   cinematic: Clapperboard,
   audio: Music,
+  tts: Mic,
 };
 
 /**

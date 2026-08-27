@@ -5,7 +5,7 @@ import {
   MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_CONCURRENT_REQUESTS, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage,
   NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, PREFERRED,
-  RATIOS, REF_KINDS, VIDEO_MODEL_IDS,
+  RATIOS, REF_KINDS, TTS_EXTRA_MODELS, TTS_FALLBACK_VOICES, TTS_MODEL_IDS, VIDEO_MODEL_IDS,
   VIDEO_POLL_MS, VIDEO_POLL_MS_HIDDEN, VIDEO_POLL_MS_MAX, VIDEO_RESOLUTION, videoTimeoutMsForModel, isNegativePromptMode, isVideoMode, modeLabel,
 } from "./constants";
 import {
@@ -22,7 +22,7 @@ import {
   PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveSessionSnapshotRaw,
   saveSpendLedger, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
 } from "./store";
-import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, SpendConfirmRequest, SpendLedger, StoryboardChain } from "./types";
+import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, SpendConfirmRequest, SpendLedger, StoryboardChain, TtsVoice } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -79,6 +79,7 @@ function checkModelIdDrift(imageModelIds: string[], allFetchedIds: string[]) {
 export function modelsForMode(mode: Mode): ORModel[] {
   if (isVideoMode(mode)) return state.videoModels;
   if (mode === "audio") return state.audioModels;
+  if (mode === "tts") return state.speechModels;
   const filter = MODE_MODEL_FILTER[mode];
   if (!filter) return state.models;
   return state.models.filter(m => filter.some(re => re.test(m.id)));
@@ -118,6 +119,13 @@ export async function loadModels() {
       if (!audioList.some(m => m.id === em.id)) audioList.push(em);
     }
     audioList.sort((a, b) => AUDIO_MODEL_IDS.indexOf(a.id) - AUDIO_MODEL_IDS.indexOf(b.id));
+    // โมเดล TTS (Gemini 3.1 Flash TTS) มาจาก fetch เดียวกัน — คัดตาม allowlist + เติม fallback ถ้ายังไม่ list
+    // (ยังไม่ list ใน /api/v1/models จริงตอนเขียนโค้ดนี้ — ทั้ง list นี้จึงมาจาก TTS_EXTRA_MODELS ล้วนๆ ตอนนี้)
+    const speechList: ORModel[] = fetched.filter(m => TTS_MODEL_IDS.includes(m.id));
+    for (const em of TTS_EXTRA_MODELS) {
+      if (!speechList.some(m => m.id === em.id)) speechList.push(em);
+    }
+    speechList.sort((a, b) => TTS_MODEL_IDS.indexOf(a.id) - TTS_MODEL_IDS.indexOf(b.id));
     // โมเดลที่ผู้ใช้เพิ่มเองผ่าน SettingsModal — merge ต่อจาก EXTRA_MODELS/AUDIO_EXTRA_MODELS ด้วย pattern เดียวกัน (ไม่ให้ id ซ้ำ)
     // แยกเข้ากลุ่มภาพ/เสียงตาม output_modalities ที่ผู้ใช้ระบุเอง — เข้ากลุ่มภาพเป็น default ถ้าไม่ได้ระบุ
     for (const em of state.userExtraModels) {
@@ -135,12 +143,53 @@ export async function loadModels() {
       return PREFERRED.length;
     };
     list.sort((a, b) => rank(a) - rank(b) || (a.name || a.id).localeCompare(b.name || b.id));
-    mutate(s => { s.models = list; s.audioModels = audioList; ensureModelSelection(); applyVideoCapabilities(); });
+    mutate(s => { s.models = list; s.audioModels = audioList; s.speechModels = speechList; ensureModelSelection(); applyVideoCapabilities(); });
     if (import.meta.env.DEV) checkModelIdDrift(list.map(m => m.id), fetched.map(m => m.id));
   } catch (e) {
     mutate(s => { s.modelsFailed = true; });
     toast("โหลดรายชื่อโมเดลไม่สำเร็จ: " + errMsg(e), "error");
   }
+}
+
+// ---------- TTS voices ----------
+/**
+ * ลอง parse voice list จาก field ที่เป็นไปได้ของโมเดล (ยังไม่ยืนยัน field name จริงจาก OpenRouter เพราะ
+ * โมเดลนี้ยังไม่ list ใน /api/v1/models) — เช็ค `model.voices` ก่อน แล้วค่อย `model.architecture?.voices`
+ * ถ้าไม่มีเลยสักที่ fallback เป็น TTS_FALLBACK_VOICES (รายชื่อ 30 voice จาก Google Cloud TTS docs)
+ * field จาก API ทั้งสองที่รองรับทั้งแบบ string ล้วนและแบบ { id, name } — normalize ให้เป็น TtsVoice เสมอ
+ */
+function extractVoices(model: ORModel): TtsVoice[] {
+  const raw = model.voices ?? model.architecture?.voices;
+  if (raw && raw.length) {
+    return raw.map(v => (typeof v === "string" ? { id: v } : v));
+  }
+  return TTS_FALLBACK_VOICES;
+}
+
+/**
+ * โหลด voice list ของโมเดลที่เลือกอยู่ในโหมด tts — เรียกตอนเปลี่ยนโมเดลในโหมดนี้ (ดู selectModel)
+ * ไม่มี fetch จริงเพิ่มเติม (voice list มาจาก model object ที่โหลดไว้แล้วหรือ fallback ล้วนๆ) แต่ยังทำเป็น
+ * async + ttsVoicesLoading flag ไว้ เผื่อวันหน้า OpenRouter list voices ผ่าน endpoint แยกจริงๆ
+ */
+export async function loadVoicesForModel(modelId: string): Promise<void> {
+  mutate(() => { cur().ttsVoicesLoading = true; });
+  try {
+    const model = state.speechModels.find(m => m.id === modelId);
+    const voices = model ? extractVoices(model) : TTS_FALLBACK_VOICES;
+    mutate(() => {
+      const ms = cur();
+      ms.ttsVoices = voices;
+      if (!voices.some(v => v.id === ms.voiceId)) ms.voiceId = voices[0]?.id ?? null;
+    });
+  } finally {
+    mutate(() => { cur().ttsVoicesLoading = false; });
+  }
+}
+
+/** ตั้งเสียงพากย์ของโหมด tts — no-op ถ้าไม่ได้อยู่โหมด tts (ปุ่มเลือกเสียงใน sidebar โผล่เฉพาะโหมดนี้อยู่แล้ว) */
+export function selectVoice(voiceId: string): void {
+  if (state.mode !== "tts") return;
+  mutate(() => { cur().voiceId = voiceId; });
 }
 
 // ---------- Settings: EXTRA_MODELS override ที่ผู้ใช้เพิ่มเอง (SettingsModal) ----------
@@ -336,6 +385,8 @@ export function restoreSessionSnapshot() {
 
 export function selectModel(id: string) {
   mutate(() => { cur().modelId = id; applyVideoCapabilities(); });
+  // เปลี่ยนโมเดลในโหมด tts ต้องโหลด voice list ใหม่เสมอ — voice ผูกกับโมเดล ค้างของโมเดลก่อนหน้าไว้ไม่ได้
+  if (state.mode === "tts") void loadVoicesForModel(id);
 }
 
 // เปิด/ปิดค่า duration + ratio + audio ตาม capability ของโมเดลวิดีโอที่เลือกอยู่
@@ -560,7 +611,7 @@ export function dedupPromptKeywords() {
  * ในเวลาเดียวกัน — ใช้ทำ badge ใน dropdown เลือกโมเดล (ทุกตัวใน list) และ per-item retry override
  */
 export function refsSupportedFor(mode: Mode, model: ORModel | null): boolean {
-  if (mode === "audio") return false; // ยังไม่รองรับ image-to-music — ตัด ref ออกทั้งโหมด
+  if (mode === "audio" || mode === "tts") return false; // ยังไม่รองรับ image-to-music/เสียงพูดจากภาพ — ตัด ref ออกทั้งสองโหมด
   if (isVideoMode(mode)) return true;
   const outs = model?.architecture?.output_modalities || [];
   return !(outs.length && !outs.includes("text"));
@@ -731,7 +782,7 @@ export async function startFromItem(item: GenItem, targetMode: "video" | "cinema
 
   let frameDataUrl: string | null = null;
   try {
-    frameDataUrl = isVideoMode(item.mode) ? (await captureVideoFrame(item.url)).dataUrl : item.mode === "audio" ? null : item.url;
+    frameDataUrl = isVideoMode(item.mode) ? (await captureVideoFrame(item.url)).dataUrl : (item.mode === "audio" || item.mode === "tts") ? null : item.url;
   } catch (e) {
     toast("จับเฟรมจากต้นฉบับไม่สำเร็จ: " + errMsg(e), "error");
     return;
@@ -757,7 +808,7 @@ export async function startFromItem(item: GenItem, targetMode: "video" | "cinema
       prompt: item.prompt,
       model: targetModel?.id ?? item.model,
       modelName: targetModel?.name ?? targetModel?.id ?? item.modelName,
-      ratio: item.mode === "audio" ? ts.ratio : item.ratio,
+      ratio: (item.mode === "audio" || item.mode === "tts") ? ts.ratio : item.ratio,
       duration: 0, // ยังไม่มีวิดีโอจริง (แค่ภาพตั้งต้น) — 0 กันไปบวกเข้ายอดวินาที/ราคาของ storyboard chain ผิดๆ
       audio: false,
       jobStatus: "",
@@ -981,6 +1032,8 @@ function runGenerate(approved?: { mode: Mode; jobs: QueueJob[] }) {
           refs: job.refs ?? [], // session ที่ import มาจากไฟล์เก่าไม่มีฟิลด์นี้
           parentId,
           ...(job.negPrompt ? { negPrompt: job.negPrompt } : {}),
+          // snapshot voice ที่เลือกอยู่ตอนกดสร้าง (เฉพาะโหมด tts) — กัน retry ใช้ voice ผิดถ้าผู้ใช้เปลี่ยน dropdown หลังยิงไปแล้ว
+          ...(mode === "tts" && ms.voiceId ? { ttsVoiceId: ms.voiceId } : {}),
         };
         addToGallery(s, mode, item);
         batch.push(item);
@@ -988,8 +1041,8 @@ function runGenerate(approved?: { mode: Mode; jobs: QueueJob[] }) {
     }
   });
   // batch > 1 งาน (คิวหลาย job หรือ count > 1) — รวมแจ้งเตือนเป็นก้อนเดียวตอนครบทุกงาน แทนแจ้งทีละงาน
-  // เฉพาะโหมด video/cinematic/audio เท่านั้นที่ runRequest เรียก notifyJobSettled — โหมดอื่นไม่ต้องเปิด batch เลย (กัน batch ค้างไม่มีใคร resolve)
-  const notifiable = isVideoMode(mode) || mode === "audio";
+  // เฉพาะโหมด video/cinematic/audio/tts เท่านั้นที่ runRequest เรียก notifyJobSettled — โหมดอื่นไม่ต้องเปิด batch เลย (กัน batch ค้างไม่มีใคร resolve)
+  const notifiable = isVideoMode(mode) || mode === "audio" || mode === "tts";
   const batchId = notifiable && batch.length > 1 ? beginNotifyBatch(batch.length) : null;
   // ผ่าน governor เสมอ — cap in-flight ระดับแอปที่ MAX_CONCURRENT_REQUESTS (ไม่ยิง 30 fetch พร้อมกันอีกแล้ว)
   batch.forEach(item => void scheduleRequest(item, batchId));
@@ -1322,6 +1375,8 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
       item.url = await requestVideo(item, sig);
     } else if (item.mode === "audio") {
       item.url = await requestAudio(item, sig);
+    } else if (item.mode === "tts") {
+      item.url = await requestTts(item, sig);
     } else {
       const m = state.models.find(x => x.id === item.model);
       const outs = m?.architecture?.output_modalities || [];
@@ -1365,8 +1420,8 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
   // ตั้งใจเปิดไว้เพื่อเอาไฟล์ลงเครื่องจริง ห้ามให้ storage layer ที่เป็น cache แย่งคิว I/O ไปก่อน
   // fire-and-forget เหมือนกัน: เขียนพลาด/quota เต็ม ต้องไม่ทำให้ item ที่ done แล้วกลายเป็น error
   if (item.status === "done") persistItemToGallery(item);
-  // แจ้งเตือน desktop/title flicker เฉพาะงานที่ใช้เวลานาน (video/cinematic/audio) — ภาพนิ่งเร็วพอไม่ต้องรบกวน
-  if (isVideoMode(item.mode) || item.mode === "audio") notifyJobSettled(item, batchId);
+  // แจ้งเตือน desktop/title flicker เฉพาะงานที่ใช้เวลานาน (video/cinematic/audio/tts) — ภาพนิ่งเร็วพอไม่ต้องรบกวน
+  if (isVideoMode(item.mode) || item.mode === "audio" || item.mode === "tts") notifyJobSettled(item, batchId);
 }
 
 // ---------- model reliability stats (session-only) ----------
@@ -1581,6 +1636,7 @@ export async function rehydrateGallery() {
           negPrompt: r.negPrompt,
           bakeOffGroupId: r.bakeOffGroupId || undefined,
           favorite: r.favorite,
+          ttsVoiceId: r.ttsVoiceId,
         });
         restoredCount++;
       }
@@ -1607,9 +1663,9 @@ async function performAutoSave(item: GenItem) {
   item.autoSaveErrMsg = "";
   mutate();
   try {
-    const ext = isVideoMode(item.mode) ? "mp4" : item.mode === "audio" ? "mp3" : state.lbFormat;
+    const ext = isVideoMode(item.mode) ? "mp4" : (item.mode === "audio" || item.mode === "tts") ? "mp3" : state.lbFormat;
     const blob = await urlToBlob(
-      isVideoMode(item.mode) || item.mode === "audio" ? item.url! : await convertDataUrl(item.url!, state.lbFormat)
+      isVideoMode(item.mode) || item.mode === "audio" || item.mode === "tts" ? item.url! : await convertDataUrl(item.url!, state.lbFormat)
     );
     await autoSaveBlob(blob, randomFileName(ext));
     item.autoSaveStatus = "saved";
@@ -1719,9 +1775,9 @@ async function performDriveSave(item: GenItem) {
   item.driveSaveErrMsg = "";
   mutate();
   try {
-    const ext = isVideoMode(item.mode) ? "mp4" : item.mode === "audio" ? "mp3" : state.lbFormat;
+    const ext = isVideoMode(item.mode) ? "mp4" : (item.mode === "audio" || item.mode === "tts") ? "mp3" : state.lbFormat;
     const blob = await urlToBlob(
-      isVideoMode(item.mode) || item.mode === "audio" ? item.url! : await convertDataUrl(item.url!, state.lbFormat)
+      isVideoMode(item.mode) || item.mode === "audio" || item.mode === "tts" ? item.url! : await convertDataUrl(item.url!, state.lbFormat)
     );
     await uploadToDrive(blob, randomFileName(ext));
     item.driveSaveStatus = "saved";
@@ -1954,6 +2010,50 @@ async function requestAudio(item: GenItem, signal: AbortSignal): Promise<string>
   }
   if (!chunks.length) throw new Error("ไม่พบเสียงใน response");
   const blobUrl = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "audio/mpeg" }));
+  registerBlobUrl(item.id, blobUrl);
+  return blobUrl;
+}
+
+/**
+ * อ่าน error message จาก response ที่ไม่ ok — เช็ค Content-Type ก่อนเลือกวิธี parse เพียงแบบเดียว
+ * (ห้ามเรียกทั้ง .json() และ .text() บน response เดียวกัน — body stream อ่านซ้ำไม่ได้):
+ *  - "application/json" → parse แล้วอ่าน error.message
+ *  - อื่นๆ (เช่น text/html จาก error page ของ gateway) → อ่านเป็น text, ตัด HTML tag ทิ้ง แล้ว truncate
+ *    ไม่เกิน 200 ตัวอักษร กัน error page ดิบยาวๆ โผล่ใน toast
+ * คืนข้อความไทยขึ้นต้นด้วย "การสร้างเสียงพูดล้มเหลว" ให้สอดคล้องกับ "การสร้างวิดีโอล้มเหลว"/"การสร้างเพลงล้มเหลว" เดิม
+ */
+async function parseTtsErrorMessage(res: Response): Promise<string> {
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const data = await res.json().catch(() => ({}));
+    const detail = data?.error?.message || (typeof data?.error === "string" ? data.error : "");
+    return "การสร้างเสียงพูดล้มเหลว" + (detail ? ": " + detail : " (HTTP " + res.status + ")");
+  }
+  const raw = await res.text().catch(() => "");
+  const stripped = raw.replace(/<[^>]*>/g, "").trim();
+  const truncated = stripped.length > 200 ? stripped.slice(0, 200) + "…" : stripped;
+  return "การสร้างเสียงพูดล้มเหลว" + (truncated ? ": " + truncated : " (HTTP " + res.status + ")");
+}
+
+// TTS ยิงผ่าน /api/v1/audio/speech ตรงๆ (คนละ endpoint กับ Lyria ที่ใช้ chat/completions แบบ stream) —
+// response เป็น audio bytes เดี่ยวๆ ไม่ใช่ SSE stream จึงอ่านเป็น blob ตรงได้เลย ไม่ต้อง decode chunk ทีละก้อน
+async function requestTts(item: GenItem, signal: AbortSignal): Promise<string> {
+  item.startedAt = Date.now();
+  mutate();
+  // ไม่มี job id ให้ resume เหมือน requestAudio — ยัง track ไว้ใน ledger เพื่อเห็นเป็นงานที่หายไปถ้าปิดแท็บกลางคัน
+  trackPendingJob(item);
+  const voiceId = item.ttsVoiceId;
+  if (!voiceId) throw new Error("กรุณาเลือกเสียงพากย์ก่อนสร้างเสียงค่ะ");
+  const res = await fetch("https://openrouter.ai/api/v1/audio/speech", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + state.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: item.model, input: item.prompt, voice: voiceId, response_format: "mp3" }),
+    signal,
+  });
+  if (!res.ok) throw new Error(await parseTtsErrorMessage(res));
+  const blob = await res.blob();
+  if (!blob.size) throw new Error("ไม่พบเสียงใน response");
+  const blobUrl = URL.createObjectURL(blob);
   registerBlobUrl(item.id, blobUrl);
   return blobUrl;
 }
@@ -2319,7 +2419,7 @@ export async function downloadSelected() {
     // synthetic root ที่ startFromItem สร้าง (ดู isImageDataUrl) เป็น video/cinematic mode แต่ url เป็นภาพนิ่ง — ดาวน์โหลดเป็นภาพตามจริง ไม่ใช่ .mp4
     if (isVideoMode(item.mode) && !isImageDataUrl(item.url)) {
       ext = "mp4";
-    } else if (item.mode === "audio") {
+    } else if (item.mode === "audio" || item.mode === "tts") {
       ext = "mp3"; // blob URL — ดาวน์โหลดตรงได้เลย
     } else {
       try { url = await convertDataUrl(item.url, format); }
@@ -2549,8 +2649,8 @@ export async function downloadCurrent() {
   const item = ms.images[ms.lbIndex];
   if (!item?.url) return;
   // synthetic root ที่ startFromItem สร้างเป็น video/cinematic mode แต่ url เป็นภาพนิ่ง — ตกไปที่ path แปลง/ดาวน์โหลดเป็นภาพด้านล่างแทน
-  if ((isVideoMode(item.mode) && !isImageDataUrl(item.url)) || item.mode === "audio") {
-    triggerDownload(item.url, randomFileName(item.mode === "audio" ? "mp3" : "mp4")); // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
+  if ((isVideoMode(item.mode) && !isImageDataUrl(item.url)) || item.mode === "audio" || item.mode === "tts") {
+    triggerDownload(item.url, randomFileName((item.mode === "audio" || item.mode === "tts") ? "mp3" : "mp4")); // blob URL — ดาวน์โหลดตรงได้เลย ไม่ต้องแปลง format
     return;
   }
   let url: string;
@@ -2571,6 +2671,9 @@ export async function downloadCurrent() {
  */
 function computeCost(mode: Mode, model: string, audio: boolean, duration: number): number | null {
   if (mode === "audio") return AUDIO_MODEL_PRICES[model] ?? null;
+  // ยังไม่มีราคาคงที่ต่อโมเดล TTS ให้ประกาศ (ไม่ได้อยู่ใน scope นี้) — คืน null (ไม่ทราบราคา) แทนที่จะตกไป
+  // ค้นหาใน state.models (list ของโหมดภาพ) ซึ่งไม่มีโมเดล TTS อยู่แล้วและจะคืน null อยู่ดีแต่ทำให้เข้าใจผิดว่าตั้งใจ fallback ไปทางนั้น
+  if (mode === "tts") return null;
   if (isVideoMode(mode)) {
     const m = state.videoModels.find(x => x.id === model);
     if (!m) return null;
@@ -2840,13 +2943,13 @@ export function resetSpendLedger() {
 /**
  * เวอร์ชันของ export format — v1 (เดิม): history อาจเป็น string[] ล้วน ไม่มี timestamp/pin
  * v2: history เป็น HistoryEntry[] เสมอ (มี at + pinned จาก PHASE 1)
- * v3 (ปัจจุบัน): เพิ่ม negPrompt ต่อโหมด (PHASE 14) — bump ตอนที่เพิ่ม field ระดับนี้เข้าไปใน export จริง
- * ไฟล์ v1/v2 เก่ายัง import ได้ปกติ (negPrompt undefined = ไม่มีค่าเดิมให้กู้ ไม่ใช่ error)
+ * v3: เพิ่ม negPrompt ต่อโหมด (PHASE 14) — bump ตอนที่เพิ่ม field ระดับนี้เข้าไปใน export จริง
+ * v4 (ปัจจุบัน): เพิ่ม voiceId ต่อโหมด (โหมด tts) — ไฟล์เก่าทุกเวอร์ชันยัง import ได้ปกติ (voiceId undefined = ไม่มีค่าเดิมให้กู้ ไม่ใช่ error)
  */
-const SESSION_VERSION = 3;
+const SESSION_VERSION = 4;
 
 /** field ต่อโหมดที่ build นี้รู้จักและอ่าน/เขียนเองตรงๆ — ที่เหลือถือเป็น "unknown field" เก็บ round-trip ไว้เฉยๆ */
-const KNOWN_MODE_FIELDS = new Set(["prompt", "ratio", "count", "duration", "audio", "queue", "history", "negPrompt"]);
+const KNOWN_MODE_FIELDS = new Set(["prompt", "ratio", "count", "duration", "audio", "queue", "history", "negPrompt", "voiceId"]);
 
 /**
  * ประกอบ session data object ตัวเดียวกันทุกครั้งที่ต้อง serialize สถานะปัจจุบัน — ใช้ร่วมกันทั้ง exportSession
@@ -2876,6 +2979,7 @@ function buildSessionData(label?: string): Record<string, unknown> {
       queue: s.queue.map(({ refs: _refs, ...q }) => q),
       history: s.history,
       negPrompt: s.negPrompt,
+      voiceId: s.voiceId,
     };
   }
   data.modes = modes;
@@ -2931,7 +3035,7 @@ export function autosaveSessionSnapshot() {
 
 type ImportModeData = {
   prompt?: unknown; ratio?: unknown; count?: unknown; duration?: unknown; audio?: unknown;
-  queue?: unknown; history?: unknown; negPrompt?: unknown;
+  queue?: unknown; history?: unknown; negPrompt?: unknown; voiceId?: unknown;
   [k: string]: unknown;
 };
 type ImportFileShape = { atelier_session?: unknown; modes?: Record<string, ImportModeData> };
@@ -2967,7 +3071,8 @@ function diffImportSession(file: ImportFileShape): ImportPreview {
       (typeof m.count === "number" && m.count !== s.count) ||
       (typeof m.duration === "number" && m.duration !== s.duration) ||
       (typeof m.audio === "boolean" && m.audio !== s.audio) ||
-      (typeof m.negPrompt === "string" && m.negPrompt !== s.negPrompt);
+      (typeof m.negPrompt === "string" && m.negPrompt !== s.negPrompt) ||
+      ((typeof m.voiceId === "string" || m.voiceId === null) && m.voiceId !== s.voiceId);
 
     const fileQueue = Array.isArray(m.queue) ? (m.queue as QueueJob[]) : [];
     const roomLeft = Math.max(0, MAX_QUEUE - s.queue.length);
@@ -3022,6 +3127,8 @@ export function commitImportReplace() {
       if (typeof m.audio === "boolean") ms.audio = m.audio;
       // negPrompt (PHASE 14) เฉพาะโหมดภาพเท่านั้นที่มีผล แต่ยังรับค่าเก็บไว้ได้ทุกโหมด (ไม่ตีความ ไม่กระทบ mode อื่น)
       if (typeof m.negPrompt === "string") ms.negPrompt = m.negPrompt;
+      // voiceId เฉพาะโหมด tts เท่านั้นที่มีผล แต่ยังรับค่าเก็บไว้ได้ทุกโหมดเหมือน negPrompt (ไม่ตีความ ไม่กระทบ mode อื่น)
+      if (typeof m.voiceId === "string" || m.voiceId === null) ms.voiceId = m.voiceId;
       // ref images เป็น memory-only โดยตั้งใจ — ตัดออกจาก queue ที่ import มา (ถ้าไฟล์มีติดมา)
       if (Array.isArray(m.queue)) {
         ms.queue = (m.queue as QueueJob[]).slice(0, MAX_QUEUE).map(q => ({ ...q, refs: [] }));

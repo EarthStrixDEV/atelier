@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown, ArrowUp, Clapperboard, Clock, CircleDollarSign, Cpu, GripVertical, Hash, Image, ImageOff, ImagePlus,
-  Keyboard, Layers, Layers3, ListOrdered, ListTree, Music, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, Sparkles,
+  Keyboard, Layers, Layers3, ListOrdered, ListTree, Mic, Music, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, Sparkles,
   TriangleAlert, Trash2, Video, Volume2, X,
 } from "lucide-react";
 import {
-  AUDIO_MODEL_PRICES, COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_BAKE_OFF_MODELS, MAX_QUEUE,
+  AUDIO_MODEL_PRICES, COUNTS, DURATIONS, hasPromptBuilder, KEYWORDS_BY_MODE, MAX_BAKE_OFF_MODELS, MAX_QUEUE,
   MAX_REFS_PER_KIND, modelRequiresRefImage, MODE_META, RATIOS, REF_KINDS, isNegativePromptMode, isVideoMode, modeLabel,
 } from "../lib/constants";
 import {
-  addRefImages, addToQueue, applyOptimizedPrompt, bakeOffCostBreakdown, canRunBakeOff, clearOptimize, clearRefImages,
+  addRefImages, addToQueue, bakeOffCostBreakdown, canRunBakeOff, clearRefImages,
   combinedHistory, computeItemCost, computeQueueJobCost, currentModel, generate, hasFailedAutoSaves, loadModels,
-  loadVideoModels, modelsForMode, negPromptSupported, openBakeOffConfirm, refSupportLevel, refsSupported,
-  removeFromHistory, removeFromQueue, removeRefImage, reorderQueue, retryFailedAutoSaves, runOptimize, selectModel,
-  setNegPrompt, setPrompt, sortHistoryForDisplay, toggleAllHistoryOpen, toggleBakeOff, toggleBakeOffModel,
+  loadVideoModels, loadVoicesForModel, modelsForMode, negPromptSupported, openBakeOffConfirm, refSupportLevel, refsSupported,
+  removeFromHistory, removeFromQueue, removeRefImage, reorderQueue, retryFailedAutoSaves, selectModel,
+  selectVoice, setNegPrompt, sortHistoryForDisplay, toggleAllHistoryOpen, toggleBakeOff, toggleBakeOffModel,
   toggleKeyword, togglePinHistory, usePromptFromCombinedHistory,
 } from "../lib/actions";
 import type { Mode } from "../lib/types";
@@ -28,6 +28,7 @@ const HISTORY_MODE_ICONS: Record<Mode, typeof Image> = {
   video: Video,
   cinematic: Clapperboard,
   audio: Music,
+  tts: Mic,
 };
 
 const SIDEBAR_MIN = 240;
@@ -55,6 +56,7 @@ export default function Sidebar() {
   const meta = MODE_META[s.mode];
   const isVideo = isVideoMode(s.mode);
   const isAudio = s.mode === "audio";
+  const isTts = s.mode === "tts";
   const model = currentModel();
   const list = modelsForMode(s.mode);
 
@@ -72,6 +74,13 @@ export default function Sidebar() {
   const [bakeOffSearch, setBakeOffSearch] = useState("");
   const [historyScope, setHistoryScope] = useState<"mode" | "all">("mode");
   useEffect(() => { setKwSearch(""); }, [s.mode]);
+
+  // โหมด tts: โหลด voice list ใหม่ทุกครั้งที่โมเดล (หรือโหมด) เปลี่ยน — ครอบคลุมทั้งเคสสลับเข้าโหมดนี้ครั้งแรก
+  // (switchMode ไม่ได้เรียก loadVoicesForModel เอง) และเคสเปลี่ยนโมเดลใน dropdown (selectModel เรียกซ้ำอยู่แล้ว
+  // แต่เรียกซ้ำจากที่นี่ไม่มีผลข้างเคียง เพราะ loadVoicesForModel ไม่มี fetch จริง แค่ derive จาก model ที่โหลดไว้แล้ว)
+  useEffect(() => {
+    if (isTts && model?.id) void loadVoicesForModel(model.id);
+  }, [isTts, model?.id]);
   const kwQuery = kwSearch.trim().toLowerCase();
   const filteredGroups = useMemo(() => {
     if (!kwQuery) return KEYWORDS_BY_MODE[s.mode];
@@ -156,7 +165,8 @@ export default function Sidebar() {
   const canAttachRefs = refsSupported();
   const hasPrompt = !!ms.prompt.trim();
   const needsRefImage = isVideo && modelRequiresRefImage(model?.id) && !ms.refs[0];
-  const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage;
+  const needsVoice = isTts && !ms.voiceId;
+  const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage && !needsVoice;
   const generatingCount = ms.images.filter(x => x.status === "loading").length;
   // Bake-off (PHASE 14) เปลี่ยนพฤติกรรมปุ่ม Generate หลัก — ยิงผ่าน openBakeOffConfirm (โมดัลยืนยันราคา) แทน generate() ตรงๆ
   const bakeOffActive = ms.bakeOffEnabled;
@@ -260,84 +270,6 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Legacy prompt markup retained temporarily while the shared composer owns rendering. */}
-      {false && <>
-      <div>
-        <label htmlFor="prompt" className={fieldLabel}>Prompt</label>
-        <textarea
-          id="prompt"
-          value={ms.prompt}
-          placeholder={meta.placeholder}
-          onChange={e => setPrompt(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (canGenerate) generate();
-            }
-          }}
-          className="min-h-[110px] w-full resize-y rounded-card border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-faint focus:border-accent"
-        />
-        <button
-          className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-[9px] text-xs font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
-          disabled={!hasPrompt || s.optimize.status === "loading"}
-          onClick={runOptimize}
-        >
-          <Sparkles size={13} />
-          {s.optimize.status === "loading" ? "กำลังจูน prompt…" : "Optimize"}
-        </button>
-      </div>
-
-      {/* Optimize result panel */}
-      {(s.optimize.status === "done" || s.optimize.status === "error") && (
-        <div className="flex flex-col gap-2.5 rounded-[10px] border border-border-strong bg-surface p-3">
-          {s.optimize.status === "error" ? (
-            <>
-              <div className="text-xs leading-normal text-danger">{s.optimize.error}</div>
-              <button className="cursor-pointer rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
-                ปิด
-              </button>
-            </>
-          ) : s.optimize.result && (
-            <>
-              <div className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-text-faint">Prompt ที่จูนแล้ว</div>
-              <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 px-[11px] py-2.5 text-[12.5px] leading-relaxed text-text">
-                {s.optimize.result!.prompt}
-              </div>
-              {s.optimize.result!.keywords.length > 0 && (
-                <>
-                  <div className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-text-faint">Keyword แนะนำ (กดเพื่อเพิ่มเข้า prompt ปัจจุบัน)</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {s.optimize.result!.keywords.map(kw => (
-                      <button
-                        key={kw.text}
-                        className={
-                          "cursor-pointer rounded-full border px-[11px] py-[5px] text-[11.5px] transition-all " +
-                          (hasKeyword(ms.prompt, kw.text)
-                            ? "border-accent bg-accent font-semibold text-accent-ink"
-                            : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
-                        }
-                        onClick={() => toggleKeyword(kw.text)}
-                      >
-                        {kw.text}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-              <div className="flex gap-2">
-                <button className="flex-1 cursor-pointer rounded-lg bg-accent py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={applyOptimizedPrompt}>
-                  ใช้ prompt นี้
-                </button>
-                <button className="flex-1 cursor-pointer rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
-                  ยกเลิก
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-      </>}
-
       {/* Prompt history — section เดียวสลับ scope ด้วย chip แทนที่จะแยกเป็นสอง section ที่หน้าตาเหมือนกันเป๊ะ
           (เดิม "Prompt History" กับ "ประวัติทั้งหมด" วางซ้อนกัน คนใหม่แยกไม่ออกว่าต่างกันตรงไหน) */}
       <div className="rounded-lg border border-border bg-surface">
@@ -419,8 +351,8 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Prompt builder */}
-      <div>
+      {/* Prompt builder — tts ไม่มี keyword picker แบบ image prompt (hasPromptBuilder) */}
+      {hasPromptBuilder(s.mode) && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}><ListTree size={12} /> Prompt Builder</label>
         <div className="relative mb-2">
           <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
@@ -499,10 +431,10 @@ export default function Sidebar() {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
-      {/* Attach reference / style / facial — โหมด audio ไม่รองรับภาพอ้างอิง */}
-      {!isAudio && <div>
+      {/* Attach reference / style / facial — โหมด audio/tts ไม่รองรับภาพอ้างอิง */}
+      {!isAudio && !isTts && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}>
           <ImagePlus size={12} /> Attach Reference
           {ms.refs.length > 0 && (
@@ -816,8 +748,8 @@ export default function Sidebar() {
         </button>
       )}
 
-      {/* Aspect ratio — ไม่มีผลกับเสียง */}
-      {!isAudio && <div>
+      {/* Aspect ratio — ไม่มีผลกับเสียง/tts */}
+      {!isAudio && !isTts && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}><RectangleHorizontal size={12} /> Aspect Ratio</label>
         <div className="grid grid-cols-5 gap-1.5">
           {RATIOS.map(r => {
@@ -884,8 +816,8 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Count */}
-      <div>
+      {/* Count — tts ไม่มีตัวเลือกจำนวน (สร้างครั้งละ 1 คลิปเสมอ) */}
+      {!isTts && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}><Hash size={12} /> {meta.countLabel}</label>
         <div className="grid grid-cols-4 gap-1.5">
           {COUNTS.map(c => (
@@ -900,7 +832,39 @@ export default function Sidebar() {
             </button>
           ))}
         </div>
-      </div>
+      </div>}
+
+      {/* Voice Actor (tts) */}
+      {isTts && (
+        <div>
+          <label htmlFor="tts-voice" className={fieldLabel + " flex items-center gap-1.5"}><Mic size={12} /> เสียงพากย์ (Voice Actor)</label>
+          {ms.ttsVoicesLoading ? (
+            <select
+              id="tts-voice"
+              disabled
+              className="w-full cursor-not-allowed rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text-faint outline-none"
+            >
+              <option>กำลังโหลดเสียง…</option>
+            </select>
+          ) : ms.ttsVoices.length === 0 ? (
+            <p className="text-[11.5px] leading-relaxed text-text-faint">ยังไม่มีเสียงพากย์ให้เลือกสำหรับโมเดลนี้ค่ะ</p>
+          ) : (
+            <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
+              <select
+                id="tts-voice"
+                className="w-full cursor-pointer appearance-none rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent"
+                aria-label="เลือกเสียงพากย์"
+                value={ms.voiceId ?? ""}
+                onChange={e => selectVoice(e.target.value)}
+              >
+                {ms.ttsVoices.map(v => (
+                  <option key={v.id} value={v.id}>{v.name ?? v.id}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Queue */}
       {ms.queue.length > 0 && (

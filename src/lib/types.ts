@@ -1,4 +1,4 @@
-export type Mode = "home" | "infographic" | "video" | "cinematic" | "audio";
+export type Mode = "home" | "infographic" | "video" | "cinematic" | "audio" | "tts";
 /**
  * สถานะของ GenItem หนึ่งชิ้น — F1 Request Governor เพิ่ม "cancelled" เข้ามาเป็นค่าที่ 4
  *
@@ -35,12 +35,25 @@ export interface ORModel {
   id: string;
   name?: string;
   pricing?: { image?: string };
-  architecture?: { output_modalities?: string[] };
+  architecture?: { output_modalities?: string[]; voices?: (string | TtsVoice)[] };
   // ฟิลด์เฉพาะโมเดลวิดีโอ (จาก /api/v1/videos/models)
   pricing_skus?: Record<string, string | number>;
   supported_durations?: number[];
   supported_aspect_ratios?: string[];
   generate_audio?: boolean;
+  /**
+   * รายชื่อ voice ของโมเดล TTS — ชื่อ field จริงจาก OpenRouter ยังไม่ยืนยัน (โมเดลยังไม่ list ใน
+   * /api/v1/models ตอนเขียนโค้ดนี้) เผื่อไว้ทั้ง top-level และใต้ architecture, ทั้งแบบ string ล้วน
+   * และแบบ object — extractVoices() ใน actions.ts เป็นคนลอง parse ทั้งสองที่ ถ้าไม่มีเลย fallback
+   * ไปใช้ TTS_FALLBACK_VOICES (constants.ts)
+   */
+  voices?: (string | TtsVoice)[];
+}
+
+/** เสียงพากย์หนึ่งตัวของโมเดล TTS — name เป็น optional เพราะ fallback list มีแค่ id (ชื่อเสียงเป็นชื่อเฉพาะอยู่แล้ว) */
+export interface TtsVoice {
+  id: string;
+  name?: string;
 }
 
 /** ประเภทของภาพอ้างอิงที่แนบไปกับ prompt — กำหนดข้อความกำกับที่ส่งให้โมเดล */
@@ -115,6 +128,12 @@ export interface GenItem {
    * ทุกจุดที่อ่านต้องเช็คแบบ truthy (`!!item.favorite`) ห้ามสมมติว่ามีค่าเสมอ
    */
   favorite?: boolean;
+  /**
+   * เสียงพากย์ (voice id) ที่ snapshot ไว้ตอนกดสร้าง — เฉพาะโหมด tts เท่านั้น undefined ในโหมดอื่นทั้งหมด
+   * เก็บไว้ที่ item ตาม pattern เดียวกับ refs/negPrompt เพื่อไม่ให้ retry/regenerate ใช้ voice ผิดตัว
+   * ถ้าผู้ใช้ไปเปลี่ยน dropdown เสียงใน sidebar หลังยิง request นี้ไปแล้ว
+   */
+  ttsVoiceId?: string;
 }
 
 /* ============================================================================
@@ -280,6 +299,17 @@ export interface ModeState {
   bakeOffEnabled: boolean;
   /** id โมเดลที่เลือกไว้สำหรับ Bake-off (สูงสุด MAX_BAKE_OFF_MODELS ตัว) — ยิงอิสระต่อตัว ไม่ผ่านคิว ไม่ถูก MAX_QUEUE จำกัด */
   bakeOffModelIds: string[];
+  /**
+   * สามฟิลด์ต่อไปนี้เฉพาะโหมด tts เท่านั้น (โหมดอื่นมีไว้เฉยๆ ไม่ถูกอ่าน) — แยกสามฟิลด์เพราะแต่ละตัวมีอายุ/
+   * เหตุผลไม่เหมือนกัน รวมเป็นฟิลด์เดียวจะสื่อความหมายผิด:
+   *  - voiceId ผูกกับโมเดลที่เลือกอยู่ (แต่ละโมเดล TTS มี voice list ของตัวเอง) ต้อง reset ทุกครั้งที่เปลี่ยนโมเดล
+   *    ไม่งั้นจะยิง request ด้วย voice ที่โมเดลใหม่ไม่รู้จัก
+   *  - ttsVoices เก็บ options ที่ fetch มาได้ (หรือ fallback) ไว้โชว์ใน dropdown — เปลี่ยนทุกครั้งที่เปลี่ยนโมเดล
+   *  - ttsVoicesLoading กัน UI โชว์ dropdown ว่างเปล่าตอนกำลังโหลด (แทนที่จะเข้าใจผิดว่าโมเดลนี้ไม่มีเสียงให้เลือก)
+   */
+  voiceId: string | null;
+  ttsVoices: TtsVoice[];
+  ttsVoicesLoading: boolean;
 }
 
 /** Prompt Templates / Snippets Library — โครงร่าง prompt พร้อม placeholder แบบ {subject} ให้ผู้ใช้แก้ต่อ */
@@ -364,6 +394,8 @@ export interface AppState {
   videoModels: ORModel[];
   /** โมเดลเสียง (Lyria) — คัดจาก fetch เดียวกับ models ตาม AUDIO_MODEL_IDS + fallback */
   audioModels: ORModel[];
+  /** โมเดล TTS (Gemini 3.1 Flash TTS) — คัดจาก fetch เดียวกับ models ตาม TTS_MODEL_IDS + fallback (ดู TTS_EXTRA_MODELS) */
+  speechModels: ORModel[];
   modelsFailed: boolean;
   videoModelsFailed: boolean;
   mode: Mode;

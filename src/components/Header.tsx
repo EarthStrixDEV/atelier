@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Clapperboard, Cloud, CloudOff, Download, FolderCheck, FolderInput, FolderX, History, Image,
-  KeyRound, Layers, Loader2, Music, PanelLeftClose, PanelLeftOpen, RotateCcw, Send, Settings, Upload, Video, Wallet, X,
+  KeyRound, Layers, Loader2, Mic, Music, PanelLeftClose, PanelLeftOpen, RotateCcw, Send, Settings, Upload, Video, Wallet, X,
 } from "lucide-react";
 import { MODES, modeLabel } from "../lib/constants";
 import type { Mode } from "../lib/types";
@@ -12,6 +12,7 @@ const MODE_ICONS: Record<Mode, typeof Image> = {
   video: Video,
   cinematic: Clapperboard,
   audio: Music,
+  tts: Mic,
 };
 import {
   cancelAll, connectAutoSaveDir, connectDrive, disconnectAutoSaveDir, disconnectDrive, exportSession,
