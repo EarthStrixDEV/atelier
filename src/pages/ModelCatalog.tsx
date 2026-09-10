@@ -61,7 +61,7 @@ export default function ModelCatalog() {
             <ArrowLeft size={14} /> กลับหน้าแรก
           </Link>
           <div className="flex items-center gap-2.5">
-            <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-9 w-9 object-contain" />
+            <img src="/assets/atelier-logo.png" alt="Atelier" className="h-9 w-9 object-contain" />
             <span className="text-[14px] font-semibold tracking-[0.2px]">
               Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">Model Catalog</span>
             </span>

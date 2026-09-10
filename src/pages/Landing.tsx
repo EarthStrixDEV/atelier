@@ -94,7 +94,7 @@ export default function Landing() {
       {/* nav */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2.5">
-          <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[54px] w-[54px] object-contain" />
+          <img src="/assets/atelier-logo.png" alt="Atelier" className="h-[54px] w-[54px] object-contain" />
           <span className="text-[15px] font-semibold tracking-[0.2px]">
             Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">AI media studio</span>
           </span>
@@ -139,7 +139,7 @@ export default function Landing() {
             <div className="hero-card absolute inset-[3%_13%_12%_3%] -rotate-[4deg] overflow-hidden rounded-[2rem] border border-border-strong bg-bg text-text">
               <div className="absolute inset-0 opacity-35 [background-image:radial-gradient(#fff_0.7px,transparent_0.7px)] [background-size:7px_7px]" />
               <span className="absolute left-6 top-6 font-mono text-[10px] uppercase tracking-[.2em]">Atelier / 001</span>
-              <img src="/atelier/assets/atelier-logo.png" alt="" className="absolute left-1/2 top-1/2 w-[68%] -translate-x-1/2 -translate-y-1/2" />
+              <img src="/assets/atelier-logo.png" alt="" className="absolute left-1/2 top-1/2 w-[68%] -translate-x-1/2 -translate-y-1/2" />
               <div className="absolute bottom-6 left-6 right-6 flex items-end justify-between border-t border-white/25 pt-3">
                 <span className="text-xs font-bold uppercase tracking-[.14em]">Make ideas visible</span><Sparkles size={17} />
               </div>

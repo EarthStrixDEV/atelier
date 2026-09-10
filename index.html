@@ -3,19 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/png" href="/atelier/assets/atelier-logo.png">
+<link rel="icon" type="image/png" href="/assets/atelier-logo.png">
 <title>Atelier — AI Media Studio</title>
 </head>
 <body>
 <div id="root"></div>
-<script>
-  // คู่กับ public/404.html — ถ้ามาจาก redirect ให้คืน path เดิมกลับเข้า history ก่อน router mount
-  (function () {
-    var params = new URLSearchParams(location.search);
-    var redirect = params.get("redirect");
-    if (redirect) history.replaceState(null, "", redirect);
-  })();
-</script>
 <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
