@@ -248,8 +248,9 @@ export const EXTRA_MODELS: ORModel[] = [
   {
     id: "openai/gpt-image-2.5-flare",
     name: "OpenAI: GPT Image 2.5",
+    // image-only ผ่าน /api/v1/images โดยเฉพาะ (ต่างจาก openai/gpt-image-2 ที่เป็น image+text ผ่าน chat/completions) — ยืนยันจาก Quick Start ของ OpenRouter เอง
     pricing: {},
-    architecture: { output_modalities: ["image", "text"] },
+    architecture: { output_modalities: ["image"] },
   },
   {
     id: "meta/muse-image",
