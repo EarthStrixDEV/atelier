@@ -21,7 +21,7 @@ function ShimmerBlock() {
     <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className="relative aspect-[4/3] overflow-hidden rounded-card border border-border bg-surface">
-          <div className="absolute inset-0 animate-shimmer bg-[linear-gradient(100deg,transparent_30%,rgba(10,10,10,.06)_50%,transparent_70%)] bg-[length:200%_100%]" />
+          <div className="mono-shimmer absolute inset-0 animate-shimmer bg-[length:200%_100%]" />
         </div>
       ))}
     </div>
@@ -61,7 +61,7 @@ export default function ModelCatalog() {
             <ArrowLeft size={14} /> กลับหน้าแรก
           </Link>
           <div className="flex items-center gap-2.5">
-            <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-9 w-9 object-contain invert" />
+            <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-9 w-9 object-contain" />
             <span className="text-[14px] font-semibold tracking-[0.2px]">
               Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">Model Catalog</span>
             </span>

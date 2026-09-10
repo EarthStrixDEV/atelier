@@ -668,7 +668,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
             <VideoProgress item={item} />
           ) : (
             <>
-              <div className="absolute inset-0 animate-shimmer bg-[linear-gradient(100deg,transparent_30%,rgba(10,10,10,.06)_50%,transparent_70%)] bg-[length:200%_100%]" />
+              <div className="mono-shimmer absolute inset-0 animate-shimmer bg-[length:200%_100%]" />
               <div className="absolute left-1/2 top-1/2 h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 animate-spin rounded-full border-2 border-border-strong border-t-text" />
             </>
           )

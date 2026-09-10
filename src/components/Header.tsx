@@ -124,7 +124,7 @@ function AutoSaveControl() {
         aria-expanded={open}
         onClick={() => setOpen(v => !v)}
       >
-        <span className={"h-[7px] w-[7px] rounded-full " + (connected && s.autoSaveEnabled ? "bg-green-400" : "bg-text-faint")} />
+        <span className={"h-[7px] w-[7px] rounded-full " + (connected && s.autoSaveEnabled ? "bg-text" : "bg-text-faint")} />
         {connected ? <FolderCheck size={12} /> : <FolderInput size={12} />}
         {label}
       </button>
@@ -356,7 +356,7 @@ function DriveControl() {
         aria-expanded={open}
         onClick={() => setOpen(v => !v)}
       >
-        <span className={"h-[7px] w-[7px] rounded-full " + (s.driveConnected ? "bg-green-400" : "bg-text-faint")} />
+        <span className={"h-[7px] w-[7px] rounded-full " + (s.driveConnected ? "bg-text" : "bg-text-faint")} />
         {s.driveConnected ? <Cloud size={12} /> : <CloudOff size={12} />}
         {s.driveConnected ? "Drive เชื่อมต่อแล้ว" : "เชื่อมต่อ Google Drive"}
       </button>
@@ -499,7 +499,7 @@ export default function Header() {
         >
           {s.sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
-        <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[42px] w-[42px] object-contain invert" />
+        <img src="/atelier/assets/atelier-logo.png" alt="Atelier" className="h-[42px] w-[42px] object-contain" />
         <h1 className="text-[15px] font-semibold tracking-[0.2px]">
           Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">AI media studio</span>
         </h1>
@@ -566,7 +566,7 @@ export default function Header() {
           aria-label="ตั้งค่า OpenRouter API Key"
           onClick={() => mutate(st => { st.keyModalOpen = true; })}
         >
-          <span className={"h-[7px] w-[7px] rounded-full " + (s.apiKey ? "bg-green-400" : "bg-text-faint")} />
+          <span className={"h-[7px] w-[7px] rounded-full " + (s.apiKey ? "bg-text" : "bg-text-faint")} />
           <KeyRound size={12} />
           {s.apiKey ? "API Key พร้อมใช้" : "ใส่ API Key"}
         </button>

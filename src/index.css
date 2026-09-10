@@ -1,18 +1,20 @@
 @import "tailwindcss";
 
-/* Black · White · Mint accent — light theme, เขียวมิ้นท์เป็นสีเน้นเดียว */
+/* Pure-black monochrome theme. White is the only high-emphasis action colour;
+ * greys communicate hover, pressed, disabled, and destructive states. */
 @theme {
-  --color-bg: #ffffff;
-  --color-surface: #f7f8f7;
-  --color-surface-2: #eef1ef;
-  --color-border: #e0e3e1;
-  --color-border-strong: #c7cbc8;
-  --color-text: #0a0a0a;
-  --color-text-dim: #5c6360;
-  --color-text-faint: #93998f;
-  --color-accent: #10b981;
-  --color-accent-ink: #ffffff;
-  --color-danger: #dc2626;
+  --color-bg: #000000;
+  --color-surface: #000000;
+  --color-surface-2: #000000;
+  --color-interactive: #181818;
+  --color-border: #303030;
+  --color-border-strong: #5a5a5a;
+  --color-text: #ffffff;
+  --color-text-dim: #b8b8b8;
+  --color-text-faint: #777777;
+  --color-accent: #ffffff;
+  --color-accent-ink: #000000;
+  --color-danger: #a8a8a8;
   --font-sans: "Inter", "Noto Sans Thai", -apple-system, "Segoe UI", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
   --radius-card: 10px;
@@ -24,12 +26,49 @@
   }
 }
 
+html {
+  color-scheme: dark;
+  background: var(--color-bg);
+}
 html, body, #root { height: 100%; }
 body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Preview media in monochrome without changing source or downloaded files. */
+img,
+video {
+  filter: grayscale(1);
+}
+
+@layer base {
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:active:not(:disabled),
+  a:active {
+    background-color: var(--color-interactive);
+  }
+}
+
+::selection {
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+
+select,
+option {
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 
 .hero-grid::before {
@@ -49,18 +88,17 @@ body {
   right: -8rem;
   top: -7rem;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(16,185,129,.14), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-text) 12%, transparent), transparent 68%);
   filter: blur(14px);
 }
-.hero-outline { color: transparent; -webkit-text-stroke: 1.5px rgba(10,10,10,.55); }
+.hero-outline { color: transparent; -webkit-text-stroke: 1.5px color-mix(in srgb, var(--color-text) 62%, transparent); }
+.hero-card { box-shadow: 0 30px 90px color-mix(in srgb, var(--color-text) 9%, transparent); }
+.mono-shimmer { background-image: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--color-text) 12%, transparent) 50%, transparent 70%); }
 .hero-copy { animation: hero-rise .7s cubic-bezier(.2,.8,.2,1) both; }
 .hero-art { animation: hero-rise .8s .12s cubic-bezier(.2,.8,.2,1) both; }
-.hero-float { animation: hero-float 5s ease-in-out infinite; }
-.hero-float-delay { animation-delay: -2.5s; }
 @keyframes hero-rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes hero-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
 @media (prefers-reduced-motion: reduce) {
-  .hero-copy, .hero-art, .hero-float { animation: none; }
+  .hero-copy, .hero-art { animation: none; }
 }
 
 /* Hide scrollbar chrome globally while preserving wheel, trackpad, touch, and keyboard scrolling. */
