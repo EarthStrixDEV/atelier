@@ -105,7 +105,7 @@ export async function loadModels() {
     const fetched = (data.data || []) as ORModel[];
     const list: ORModel[] = fetched.filter(m =>
       (m.architecture?.output_modalities || []).includes("image") &&
-      (!m.id.startsWith("openai/") || m.id === "openai/gpt-image-2") &&
+      (!m.id.startsWith("openai/") || m.id === "openai/gpt-image-2" || m.id === "openai/gpt-image-2.5-flare") &&
       // ตระกูล Nano Banana (Google Gemini image-gen): จำกัดเหลือแค่ 2 ตัวใน NANO_BANANA_ALLOWED_IDS เท่านั้น
       // (เติมกลับผ่าน EXTRA_MODELS ด้านล่างถ้า OpenRouter ยังไม่ list เอง) — กันรุ่น/preview อื่นโผล่มาเพิ่ม
       (!NANO_BANANA_ID_PATTERN.test(m.id) || NANO_BANANA_ALLOWED_IDS.includes(m.id))
