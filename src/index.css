@@ -38,12 +38,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Preview media in monochrome without changing source or downloaded files. */
-img,
-video {
-  filter: grayscale(1);
-}
-
 @layer base {
   button,
   a,

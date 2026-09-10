@@ -178,7 +178,7 @@ Run one prompt across several models at once to compare. Selected in the Sidebar
 
 Tailwind v4 with the theme in `src/index.css` via `@theme`: `--color-bg`, `--color-surface`, `--color-surface-2`, `--color-border`, `--color-border-strong`, `--color-text`, `--color-text-dim`, `--color-text-faint`, `--color-accent`, `--color-accent-ink`, `--color-danger`. Use the mapped utilities (`bg-surface`, `text-text-dim`, `border-border-strong`, …) rather than hardcoding colors.
 
-**The theme is pure-black monochrome** — `#000000` backgrounds and surfaces, white foreground and primary/selected states, and grey levels for borders, secondary text, hover, pressed, disabled, and destructive states. Media is previewed in grayscale through CSS without modifying source or downloaded files. Keep status communication understandable through iconography, labels, borders, and contrast rather than adding semantic colours.
+**The theme is pure-black monochrome** — `#000000` backgrounds and surfaces, white foreground and primary/selected states, and grey levels for borders, secondary text, hover, pressed, disabled, and destructive states. Generated media (images/video) is previewed in its actual colors — the monochrome theme applies to UI chrome only. Keep status communication understandable through iconography, labels, borders, and contrast rather than adding semantic colours.
 
 `index.css` also defines a global focus ring:
 
