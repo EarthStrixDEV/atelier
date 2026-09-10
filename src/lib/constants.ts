@@ -92,7 +92,13 @@ export const MAX_GRILL_QUESTIONS = 10;
 // โมเดลที่แต่ละโหมดอนุญาตให้เลือกได้ (null = ไม่จำกัด ใช้ list เต็ม)
 export const MODE_MODEL_FILTER: Record<Mode, RegExp[] | null> = {
   home: null,
-  infographic: [/^openai\/gpt-image-2$/i, /^google\/gemini-3-pro-image$/i],
+  infographic: [
+    /^openai\/gpt-image-2$/i,
+    /^google\/gemini-3-pro-image$/i,
+    /^openai\/gpt-image-2\.5-flare$/i,
+    /^meta\/muse-image$/i,
+    /^microsoft\/mai-image-2\.6$/i,
+  ],
   video: null, // โหมด video ใช้ list แยก (videoModels) ไม่ผ่าน filter นี้
   cinematic: null, // ใช้ videoModels เดียวกับโหมด video
   audio: null, // โหมด audio ใช้ list แยก (audioModels) ไม่ผ่าน filter นี้
@@ -236,6 +242,24 @@ export const EXTRA_MODELS: ORModel[] = [
   {
     id: "microsoft/mai-image-2.5-pro",
     name: "Microsoft: MAI-Image-2.5 Pro",
+    pricing: {},
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "openai/gpt-image-2.5-flare",
+    name: "OpenAI: GPT Image 2.5",
+    pricing: {},
+    architecture: { output_modalities: ["image", "text"] },
+  },
+  {
+    id: "meta/muse-image",
+    name: "Meta: Muse Image",
+    pricing: {},
+    architecture: { output_modalities: ["image", "text"] },
+  },
+  {
+    id: "microsoft/mai-image-2.6",
+    name: "Microsoft: MAI-Image-2.6",
     pricing: {},
     architecture: { output_modalities: ["image"] },
   },
