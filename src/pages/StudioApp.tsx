@@ -5,6 +5,7 @@ import Gallery from "../components/Gallery";
 import Lightbox from "../components/Lightbox";
 import ExtendTool from "../components/ExtendTool";
 import KeyModal from "../components/KeyModal";
+import SettingsModal from "../components/SettingsModal";
 import ChatPanel from "../components/ChatPanel";
 import GrillPanel from "../components/GrillPanel";
 import ImportPreviewModal from "../components/ImportPreviewModal";
@@ -82,6 +83,7 @@ export default function StudioApp() {
       <Lightbox />
       <ExtendTool />
       <KeyModal />
+      <SettingsModal />
       <ChatPanel />
       <GrillPanel />
       <ImportPreviewModal />

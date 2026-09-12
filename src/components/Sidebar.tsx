@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown, ArrowUp, Clapperboard, Clock, CircleDollarSign, Cpu, GripVertical, Hash, Image, ImageOff, ImagePlus,
-  Layers, Layers3, ListOrdered, ListTree, Music, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, Sparkles,
+  Keyboard, Layers, Layers3, ListOrdered, ListTree, Mic, Music, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, Sparkles,
   TriangleAlert, Trash2, Video, Volume2, X,
 } from "lucide-react";
 import {
-  AUDIO_MODEL_PRICES, COUNTS, DURATIONS, KEYWORDS_BY_MODE, MAX_BAKE_OFF_MODELS, MAX_QUEUE,
+  AUDIO_MODEL_PRICES, COUNTS, DURATIONS, hasPromptBuilder, KEYWORDS_BY_MODE, MAX_BAKE_OFF_MODELS, MAX_QUEUE,
   MAX_REFS_PER_KIND, modelRequiresRefImage, MODE_META, RATIOS, REF_KINDS, isNegativePromptMode, isVideoMode, modeLabel,
 } from "../lib/constants";
 import {
-  addRefImages, addToQueue, applyOptimizedPrompt, canRunBakeOff, clearOptimize, clearRefImages,
+  addRefImages, addToQueue, bakeOffCostBreakdown, canRunBakeOff, clearRefImages,
   combinedHistory, computeItemCost, computeQueueJobCost, currentModel, generate, hasFailedAutoSaves, loadModels,
-  loadVideoModels, modelsForMode, negPromptSupported, openBakeOffConfirm, refSupportLevel, refsSupported,
-  removeFromHistory, removeFromQueue, removeRefImage, reorderQueue, retryFailedAutoSaves, runOptimize, selectModel,
-  setNegPrompt, setPrompt, sortHistoryForDisplay, toggleAllHistoryOpen, toggleBakeOff, toggleBakeOffModel,
-  toggleKeyword, togglePinHistory, usePromptFromCombinedHistory, usePromptFromHistory,
+  loadVideoModels, loadVoicesForModel, modelsForMode, negPromptSupported, openBakeOffConfirm, refSupportLevel, refsSupported,
+  removeFromHistory, removeFromQueue, removeRefImage, reorderQueue, retryFailedAutoSaves, selectModel,
+  selectVoice, setNegPrompt, sortHistoryForDisplay, toggleAllHistoryOpen, toggleBakeOff, toggleBakeOffModel,
+  toggleKeyword, togglePinHistory, usePromptFromCombinedHistory,
 } from "../lib/actions";
 import type { Mode } from "../lib/types";
 import { mutate, useApp } from "../lib/store";
@@ -28,6 +28,7 @@ const HISTORY_MODE_ICONS: Record<Mode, typeof Image> = {
   video: Video,
   cinematic: Clapperboard,
   audio: Music,
+  tts: Mic,
 };
 
 const SIDEBAR_MIN = 240;
@@ -55,6 +56,7 @@ export default function Sidebar() {
   const meta = MODE_META[s.mode];
   const isVideo = isVideoMode(s.mode);
   const isAudio = s.mode === "audio";
+  const isTts = s.mode === "tts";
   const model = currentModel();
   const list = modelsForMode(s.mode);
 
@@ -69,7 +71,16 @@ export default function Sidebar() {
 
   // ค้นหา keyword chip — ล้างเมื่อสลับโหมดกันค้างคำค้นของโหมดก่อนหน้ามาบัง list ของโหมดใหม่
   const [kwSearch, setKwSearch] = useState("");
+  const [bakeOffSearch, setBakeOffSearch] = useState("");
+  const [historyScope, setHistoryScope] = useState<"mode" | "all">("mode");
   useEffect(() => { setKwSearch(""); }, [s.mode]);
+
+  // โหมด tts: โหลด voice list ใหม่ทุกครั้งที่โมเดล (หรือโหมด) เปลี่ยน — ครอบคลุมทั้งเคสสลับเข้าโหมดนี้ครั้งแรก
+  // (switchMode ไม่ได้เรียก loadVoicesForModel เอง) และเคสเปลี่ยนโมเดลใน dropdown (selectModel เรียกซ้ำอยู่แล้ว
+  // แต่เรียกซ้ำจากที่นี่ไม่มีผลข้างเคียง เพราะ loadVoicesForModel ไม่มี fetch จริง แค่ derive จาก model ที่โหลดไว้แล้ว)
+  useEffect(() => {
+    if (isTts && model?.id) void loadVoicesForModel(model.id);
+  }, [isTts, model?.id]);
   const kwQuery = kwSearch.trim().toLowerCase();
   const filteredGroups = useMemo(() => {
     if (!kwQuery) return KEYWORDS_BY_MODE[s.mode];
@@ -154,11 +165,36 @@ export default function Sidebar() {
   const canAttachRefs = refsSupported();
   const hasPrompt = !!ms.prompt.trim();
   const needsRefImage = isVideo && modelRequiresRefImage(model?.id) && !ms.refs[0];
-  const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage;
+  const needsVoice = isTts && !ms.voiceId;
+  const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage && !needsVoice;
   const generatingCount = ms.images.filter(x => x.status === "loading").length;
   // Bake-off (PHASE 14) เปลี่ยนพฤติกรรมปุ่ม Generate หลัก — ยิงผ่าน openBakeOffConfirm (โมดัลยืนยันราคา) แทน generate() ตรงๆ
   const bakeOffActive = ms.bakeOffEnabled;
   const canGenerateOrBakeOff = bakeOffActive ? canRunBakeOff() : canGenerate;
+  // ทั้งสอง scope ใช้รูปทรง CombinedHistoryEntry เดียวกันเพื่อให้ render ทางเดียว —
+  // scope "โหมดนี้" แค่แปะ mode ปัจจุบันเข้าไปแล้วเรียงแบบเดียวกับ combinedHistory (pinned ก่อน แล้วล่าสุด)
+  const historyEntries = historyScope === "all"
+    ? combinedHistory()
+    : sortHistoryForDisplay(ms.history).map(e => ({ ...e, mode: s.mode }));
+  // กรองด้วยทั้งชื่อและ id เพราะผู้ใช้จำ provider (เช่น "google") ได้บ่อยกว่าชื่อเต็มของโมเดล
+  // โมเดลที่ติ๊กไว้แล้วต้องโชว์เสมอ ไม่งั้นพิมพ์ค้นหาแล้วของที่เลือกไว้หายไปจนนึกว่าโดนยกเลิก
+  const bakeOffQuery = bakeOffSearch.trim().toLowerCase();
+  const bakeOffList = bakeOffQuery
+    ? list.filter(m =>
+        ms.bakeOffModelIds.includes(m.id) ||
+        (m.name || "").toLowerCase().includes(bakeOffQuery) ||
+        m.id.toLowerCase().includes(bakeOffQuery))
+    : list;
+  // ยอดประเมินสำหรับโชว์ข้างเช็คลิสต์ — คำนวณเฉพาะตอนเปิด Bake-off เพื่อไม่ให้เสียแรงเปล่าตอนปิดอยู่
+  const bakeOffEstimate = (() => {
+    if (!bakeOffActive) return { total: 0, count: 0, hasUnknown: false };
+    const rows = bakeOffCostBreakdown();
+    return {
+      total: rows.reduce((sum, r) => sum + (r.cost ?? 0), 0),
+      count: rows.length,
+      hasUnknown: rows.some(r => r.cost == null),
+    };
+  })();
 
   let modelMeta = "";
   if (model) {
@@ -234,177 +270,89 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Legacy prompt markup retained temporarily while the shared composer owns rendering. */}
-      {false && <>
-      <div>
-        <label htmlFor="prompt" className={fieldLabel}>Prompt</label>
-        <textarea
-          id="prompt"
-          value={ms.prompt}
-          placeholder={meta.placeholder}
-          onChange={e => setPrompt(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (canGenerate) generate();
-            }
-          }}
-          className="min-h-[110px] w-full resize-y rounded-card border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-faint focus:border-accent"
-        />
-        <button
-          className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-[9px] text-xs font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
-          disabled={!hasPrompt || s.optimize.status === "loading"}
-          onClick={runOptimize}
-        >
-          <Sparkles size={13} />
-          {s.optimize.status === "loading" ? "กำลังจูน prompt…" : "Optimize"}
-        </button>
-      </div>
-
-      {/* Optimize result panel */}
-      {(s.optimize.status === "done" || s.optimize.status === "error") && (
-        <div className="flex flex-col gap-2.5 rounded-[10px] border border-border-strong bg-surface p-3">
-          {s.optimize.status === "error" ? (
-            <>
-              <div className="text-xs leading-normal text-danger">{s.optimize.error}</div>
-              <button className="cursor-pointer rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
-                ปิด
-              </button>
-            </>
-          ) : s.optimize.result && (
-            <>
-              <div className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-text-faint">Prompt ที่จูนแล้ว</div>
-              <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 px-[11px] py-2.5 text-[12.5px] leading-relaxed text-text">
-                {s.optimize.result!.prompt}
-              </div>
-              {s.optimize.result!.keywords.length > 0 && (
-                <>
-                  <div className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-text-faint">Keyword แนะนำ (กดเพื่อเพิ่มเข้า prompt ปัจจุบัน)</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {s.optimize.result!.keywords.map(kw => (
-                      <button
-                        key={kw.text}
-                        className={
-                          "cursor-pointer rounded-full border px-[11px] py-[5px] text-[11.5px] transition-all " +
-                          (hasKeyword(ms.prompt, kw.text)
-                            ? "border-accent bg-accent font-semibold text-accent-ink"
-                            : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
-                        }
-                        onClick={() => toggleKeyword(kw.text)}
-                      >
-                        {kw.text}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-              <div className="flex gap-2">
-                <button className="flex-1 cursor-pointer rounded-lg bg-accent py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90" onClick={applyOptimizedPrompt}>
-                  ใช้ prompt นี้
-                </button>
-                <button className="flex-1 cursor-pointer rounded-lg border border-border py-2 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text" onClick={clearOptimize}>
-                  ยกเลิก
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-      </>}
-
-      {/* Prompt history */}
-      {ms.history.length > 0 && (
-        <details className="kw-group overflow-hidden rounded-lg border border-border bg-surface">
-          <summary className="flex cursor-pointer select-none items-center justify-between px-3 py-[9px] text-[11px] font-semibold tracking-[.5px] text-text-dim transition-colors hover:text-text">
-            <span className="flex items-center gap-1.5"><Clock size={11} /> Prompt History ({ms.history.length})</span>
-          </summary>
-          <div className="flex flex-col gap-1.5 px-3 pb-3 pt-0.5">
-            {sortHistoryForDisplay(ms.history).map(entry => (
-              <div key={entry.text} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 py-[7px] pl-[11px] pr-2">
-                <button
-                  className="min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-left text-[11.5px] text-text-dim hover:text-text"
-                  title={entry.text}
-                  aria-label={"ใช้ prompt เดิม: " + entry.text}
-                  onClick={() => usePromptFromHistory(entry)}
-                >
-                  {entry.text}
-                </button>
-                <button
-                  className={"shrink-0 cursor-pointer px-1 py-0.5 " + (entry.pinned ? "text-accent" : "text-text-faint hover:text-text")}
-                  title={entry.pinned ? "เลิกปักหมุด" : "ปักหมุด"}
-                  aria-label={(entry.pinned ? "เลิกปักหมุด: " : "ปักหมุด: ") + entry.text}
-                  aria-pressed={entry.pinned}
-                  onClick={() => togglePinHistory(s.mode, entry.text)}
-                >
-                  {entry.pinned ? <Pin size={12} /> : <PinOff size={12} />}
-                </button>
-                <button
-                  className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint hover:text-danger"
-                  title="ลบออกจากประวัติ"
-                  aria-label={"ลบออกจากประวัติ: " + entry.text}
-                  onClick={() => removeFromHistory(s.mode, entry.text)}
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-
-      {/* ประวัติทั้งหมด — merged view ข้ามทุกโหมด เรียงตามความล่าสุด (pinned ก่อนเสมอ) */}
+      {/* Prompt history — section เดียวสลับ scope ด้วย chip แทนที่จะแยกเป็นสอง section ที่หน้าตาเหมือนกันเป๊ะ
+          (เดิม "Prompt History" กับ "ประวัติทั้งหมด" วางซ้อนกัน คนใหม่แยกไม่ออกว่าต่างกันตรงไหน) */}
       <div className="rounded-lg border border-border bg-surface">
         <button
           className="flex w-full cursor-pointer select-none items-center justify-between px-3 py-[9px] text-[11px] font-semibold tracking-[.5px] text-text-dim transition-colors hover:text-text"
+          aria-expanded={s.allHistoryOpen}
           onClick={toggleAllHistoryOpen}
         >
-          <span className="flex items-center gap-1.5"><ListOrdered size={11} /> ประวัติทั้งหมด</span>
+          <span className="flex items-center gap-1.5"><Clock size={11} /> Prompt History ({historyEntries.length})</span>
           <span className="text-text-faint">{s.allHistoryOpen ? "ซ่อน" : "แสดง"}</span>
         </button>
         {s.allHistoryOpen && (
-          <div className="flex max-h-[280px] flex-col gap-1.5 overflow-y-auto px-3 pb-3 pt-0.5">
-            {combinedHistory().length === 0 ? (
-              <div className="py-2 text-center text-[11.5px] text-text-faint">ยังไม่มีประวัติ prompt เลยค่ะ</div>
-            ) : combinedHistory().map(entry => {
-              const ModeIcon = HISTORY_MODE_ICONS[entry.mode];
-              return (
-                <div key={entry.mode + "|" + entry.text} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 py-[7px] pl-[9px] pr-2">
-                  <span
-                    className="flex shrink-0 items-center gap-1 rounded-full border border-border-strong px-1.5 py-[3px] text-[9.5px] font-semibold uppercase tracking-[.3px] text-text-faint"
-                    title={modeLabel(entry.mode)}
-                  >
-                    <ModeIcon size={10} /> {modeLabel(entry.mode)}
-                  </span>
-                  <button
-                    className="min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-left text-[11.5px] text-text-dim hover:text-text"
-                    title={entry.text}
-                    onClick={() => usePromptFromCombinedHistory(entry)}
-                  >
-                    {entry.text}
-                  </button>
-                  <button
-                    className={"shrink-0 cursor-pointer px-1 py-0.5 " + (entry.pinned ? "text-accent" : "text-text-faint hover:text-text")}
-                    title={entry.pinned ? "เลิกปักหมุด" : "ปักหมุด"}
-                    onClick={() => togglePinHistory(entry.mode, entry.text)}
-                  >
-                    {entry.pinned ? <Pin size={12} /> : <PinOff size={12} />}
-                  </button>
-                  <button
-                    className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint hover:text-danger"
-                    title="ลบออกจากประวัติ"
-                    onClick={() => removeFromHistory(entry.mode, entry.text)}
-                  >
-                    <X size={12} />
-                  </button>
+          <div className="px-3 pb-3 pt-0.5">
+            <div className="mb-1.5 flex gap-1" role="group" aria-label="ขอบเขตของประวัติ">
+              {([["mode", "โหมดนี้"], ["all", "ทุกโหมด"]] as const).map(([scope, label]) => (
+                <button
+                  key={scope}
+                  className={
+                    "flex-1 cursor-pointer rounded-md border px-2 py-1 text-[10.5px] font-semibold transition-colors " +
+                    (historyScope === scope
+                      ? "border-accent bg-accent/10 text-text"
+                      : "border-border text-text-dim hover:border-border-strong hover:text-text")
+                  }
+                  aria-pressed={historyScope === scope}
+                  onClick={() => setHistoryScope(scope)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="flex max-h-[280px] flex-col gap-1.5 overflow-y-auto">
+              {historyEntries.length === 0 ? (
+                <div className="py-2 text-center text-[11.5px] text-text-faint">
+                  {historyScope === "mode" ? "โหมดนี้ยังไม่มีประวัติ prompt ค่ะ" : "ยังไม่มีประวัติ prompt เลยค่ะ"}
                 </div>
-              );
-            })}
+              ) : historyEntries.map(entry => {
+                const ModeIcon = HISTORY_MODE_ICONS[entry.mode];
+                return (
+                  <div key={entry.mode + "|" + entry.text} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 py-[7px] pl-[9px] pr-2">
+                    {/* badge โหมดมีประโยชน์เฉพาะตอนดูรวมทุกโหมด — ตอนกรองโหมดเดียวมันซ้ำกับ tab ที่เปิดอยู่ */}
+                    {historyScope === "all" && (
+                      <span
+                        className="flex shrink-0 items-center gap-1 rounded-full border border-border-strong px-1.5 py-[3px] text-[9.5px] font-semibold uppercase tracking-[.3px] text-text-faint"
+                        title={modeLabel(entry.mode)}
+                      >
+                        <ModeIcon size={10} /> {modeLabel(entry.mode)}
+                      </span>
+                    )}
+                    <button
+                      className="min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-left text-[11.5px] text-text-dim hover:text-text"
+                      title={entry.text}
+                      aria-label={"ใช้ prompt เดิม: " + entry.text}
+                      onClick={() => usePromptFromCombinedHistory(entry)}
+                    >
+                      {entry.text}
+                    </button>
+                    <button
+                      className={"shrink-0 cursor-pointer px-1 py-0.5 " + (entry.pinned ? "text-accent" : "text-text-faint hover:text-text")}
+                      title={entry.pinned ? "เลิกปักหมุด" : "ปักหมุด"}
+                      aria-label={(entry.pinned ? "เลิกปักหมุด: " : "ปักหมุด: ") + entry.text}
+                      aria-pressed={entry.pinned}
+                      onClick={() => togglePinHistory(entry.mode, entry.text)}
+                    >
+                      {entry.pinned ? <Pin size={12} /> : <PinOff size={12} />}
+                    </button>
+                    <button
+                      className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint hover:text-danger"
+                      title="ลบออกจากประวัติ"
+                      aria-label={"ลบออกจากประวัติ: " + entry.text}
+                      onClick={() => removeFromHistory(entry.mode, entry.text)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Prompt builder */}
-      <div>
+      {/* Prompt builder — tts ไม่มี keyword picker แบบ image prompt (hasPromptBuilder) */}
+      {hasPromptBuilder(s.mode) && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}><ListTree size={12} /> Prompt Builder</label>
         <div className="relative mb-2">
           <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
@@ -483,10 +431,10 @@ export default function Sidebar() {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
-      {/* Attach reference / style / facial — โหมด audio ไม่รองรับภาพอ้างอิง */}
-      {!isAudio && <div>
+      {/* Attach reference / style / facial — โหมด audio/tts ไม่รองรับภาพอ้างอิง */}
+      {!isAudio && !isTts && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}>
           <ImagePlus size={12} /> Attach Reference
           {ms.refs.length > 0 && (
@@ -692,8 +640,33 @@ export default function Sidebar() {
                 <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
                   เลือกโมเดลได้สูงสุด {MAX_BAKE_OFF_MODELS} ตัว — กด Generate จะยิงทุกโมเดลที่เลือกพร้อมกันด้วย prompt เดียวกัน (แยกจากปุ่มเลือกโมเดลด้านบน)
                 </p>
-                <div className="mt-2 flex max-h-[180px] flex-col gap-1 overflow-y-auto">
-                  {list.map(m => {
+                {/* ค้นหาโมเดล — ลิสต์ยาวหลายสิบตัวใน max-h-[180px] เลื่อนหาเองไม่ไหว
+                    ใช้แพทเทิร์นเดียวกับช่องค้นหา keyword ด้านบน */}
+                <div className="relative mt-2">
+                  <Search size={11} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
+                  <input
+                    type="text"
+                    value={bakeOffSearch}
+                    onChange={e => setBakeOffSearch(e.target.value)}
+                    placeholder="ค้นหาโมเดล…"
+                    aria-label="ค้นหาโมเดลในรายการ Bake-off"
+                    className="w-full rounded-md border border-border bg-bg py-1.5 pl-7 pr-7 text-[11.5px] text-text outline-none transition-colors focus:border-accent"
+                  />
+                  {bakeOffSearch && (
+                    <button
+                      className="absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 cursor-pointer place-items-center rounded text-text-faint transition-colors hover:text-text"
+                      aria-label="ล้างคำค้นหาโมเดล"
+                      onClick={() => setBakeOffSearch("")}
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1.5 flex max-h-[180px] flex-col gap-1 overflow-y-auto">
+                  {bakeOffList.length === 0 && (
+                    <p className="px-1 py-2 text-[11px] text-text-faint">ไม่พบโมเดลที่ตรงกับ "{bakeOffSearch}" ค่ะ</p>
+                  )}
+                  {bakeOffList.map(m => {
                     const checked = ms.bakeOffModelIds.includes(m.id);
                     const disabled = !checked && ms.bakeOffModelIds.length >= MAX_BAKE_OFF_MODELS;
                     return (
@@ -717,7 +690,19 @@ export default function Sidebar() {
                     );
                   })}
                 </div>
-                <div className="mt-1.5 text-[10.5px] text-text-faint">{ms.bakeOffModelIds.length}/{MAX_BAKE_OFF_MODELS} เลือกไว้</div>
+                {/* โชว์ยอดรวมตั้งแต่ตอนติ๊กเลือก ไม่ใช่รอไปเซอร์ไพรส์ที่ confirm modal ตอนกด Generate
+                    — ใช้ bakeOffCostBreakdown() ตัวเดียวกับที่ modal ใช้ ตัวเลขจึงตรงกันเสมอ */}
+                <div className="mt-1.5 flex items-center justify-between gap-2 text-[10.5px] text-text-faint">
+                  <span>{ms.bakeOffModelIds.length}/{MAX_BAKE_OFF_MODELS} เลือกไว้</span>
+                  {bakeOffEstimate.count > 0 && (
+                    <span className="font-mono">
+                      ~${bakeOffEstimate.total.toFixed(4)}{bakeOffEstimate.hasUnknown ? "+" : ""} รวม
+                    </span>
+                  )}
+                </div>
+                {bakeOffEstimate.hasUnknown && bakeOffEstimate.count > 0 && (
+                  <div className="mt-0.5 text-[10px] text-text-faint">มีโมเดลที่ไม่ทราบราคา ยอดจริงอาจสูงกว่านี้ค่ะ</div>
+                )}
               </>
             )}
           </div>
@@ -763,8 +748,8 @@ export default function Sidebar() {
         </button>
       )}
 
-      {/* Aspect ratio — ไม่มีผลกับเสียง */}
-      {!isAudio && <div>
+      {/* Aspect ratio — ไม่มีผลกับเสียง/tts */}
+      {!isAudio && !isTts && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}><RectangleHorizontal size={12} /> Aspect Ratio</label>
         <div className="grid grid-cols-5 gap-1.5">
           {RATIOS.map(r => {
@@ -831,8 +816,8 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Count */}
-      <div>
+      {/* Count — tts ไม่มีตัวเลือกจำนวน (สร้างครั้งละ 1 คลิปเสมอ) */}
+      {!isTts && <div>
         <label className={fieldLabel + " flex items-center gap-1.5"}><Hash size={12} /> {meta.countLabel}</label>
         <div className="grid grid-cols-4 gap-1.5">
           {COUNTS.map(c => (
@@ -847,7 +832,39 @@ export default function Sidebar() {
             </button>
           ))}
         </div>
-      </div>
+      </div>}
+
+      {/* Voice Actor (tts) */}
+      {isTts && (
+        <div>
+          <label htmlFor="tts-voice" className={fieldLabel + " flex items-center gap-1.5"}><Mic size={12} /> เสียงพากย์ (Voice Actor)</label>
+          {ms.ttsVoicesLoading ? (
+            <select
+              id="tts-voice"
+              disabled
+              className="w-full cursor-not-allowed rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text-faint outline-none"
+            >
+              <option>กำลังโหลดเสียง…</option>
+            </select>
+          ) : ms.ttsVoices.length === 0 ? (
+            <p className="text-[11.5px] leading-relaxed text-text-faint">ยังไม่มีเสียงพากย์ให้เลือกสำหรับโมเดลนี้ค่ะ</p>
+          ) : (
+            <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
+              <select
+                id="tts-voice"
+                className="w-full cursor-pointer appearance-none rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent"
+                aria-label="เลือกเสียงพากย์"
+                value={ms.voiceId ?? ""}
+                onChange={e => selectVoice(e.target.value)}
+              >
+                {ms.ttsVoices.map(v => (
+                  <option key={v.id} value={v.id}>{v.name ?? v.id}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Queue */}
       {ms.queue.length > 0 && (
@@ -968,6 +985,23 @@ export default function Sidebar() {
       >
         <Plus size={13} /> เพิ่มเข้าคิว (สูงสุด {MAX_QUEUE})
       </button>
+
+      {/* บอกให้รู้ว่ามีคีย์ลัด — เดิมซ่อนอยู่หลัง Shift+? อย่างเดียว ซึ่งไม่มีทางเดาได้ถ้าไม่เคยรู้มาก่อน */}
+      <div className="flex items-center justify-between gap-2 text-[11px] text-text-faint">
+        <span className="flex items-center gap-1">
+          <kbd className="rounded border border-border-strong px-1 py-px font-mono text-[10px]">Ctrl</kbd>
+          <span>+</span>
+          <kbd className="rounded border border-border-strong px-1 py-px font-mono text-[10px]">Enter</kbd>
+          <span>เพื่อ Generate</span>
+        </span>
+        <button
+          className="flex shrink-0 cursor-pointer items-center gap-1 underline decoration-dotted transition-colors hover:text-text"
+          aria-label="ดูคีย์ลัดทั้งหมด"
+          onClick={() => mutate(st => { st.shortcutsModalOpen = true; })}
+        >
+          <Keyboard size={11} /> คีย์ลัดทั้งหมด
+        </button>
+      </div>
 
       <p className="text-[11.5px] leading-relaxed text-text-faint">{meta.hint}</p>
     </aside>

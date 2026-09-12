@@ -78,8 +78,11 @@ export default function CompareModal() {
   return (
     <div className="fixed inset-0 z-190 flex flex-col bg-media-scrim backdrop-blur-lg">
       <div className="flex shrink-0 items-center justify-between px-6 py-4">
+        {/* บอกโหมดที่ใช้อยู่ — layout เปลี่ยนเองตามจำนวนรูป (2 = เลื่อนทับกัน, 3-4 = เรียงข้างกัน)
+            ถ้าไม่บอก ผู้ใช้ที่เคยเทียบ 2 รูปแล้วมาเทียบ 3 รูปจะนึกว่าเครื่องมือพัง */}
         <div className="flex items-center gap-2 text-[13px] text-on-media-dim">
           <Columns2 size={15} /> Compare ({items.length} รูป)
+          <span className="text-on-media-dim/70">· {isSwipe ? "เลื่อนเทียบซ้าย-ขวา" : "ดูเรียงข้างกัน"}</span>
         </div>
         <button
           className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"

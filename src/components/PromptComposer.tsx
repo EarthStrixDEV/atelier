@@ -3,7 +3,7 @@ import {
   BookmarkPlus, Check, ChevronDown, Layers3, LayoutTemplate, PanelBottom, PanelLeft, PenLine,
   Sparkles, Trash2, WandSparkles, Wand2, X, XCircle,
 } from "lucide-react";
-import { INFOGRAPHIC_STRUCTURAL_PRESETS, MODE_META, PROMPT_LENGTH_WARN } from "../lib/constants";
+import { hasPromptBuilder, INFOGRAPHIC_STRUCTURAL_PRESETS, MODE_META, PROMPT_LENGTH_WARN } from "../lib/constants";
 import {
   applyInfographicPreset, applyOptimizedPrompt, canRunBakeOff, cancelAll, clearOptimize, dedupPromptKeywords, deleteUserTemplate,
   generate, insertTemplateText, modelsForMode, openBakeOffConfirm, runOptimize, saveCurrentPromptAsTemplate, setPrompt,
@@ -283,14 +283,16 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
       <div id="prompt-sidebar">
         <div className="mb-[9px] flex items-center justify-between gap-2">
           <label htmlFor="prompt-sidebar-input" className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-text-dim"><PenLine size={12} /> Prompt</label>
+          {/* มี label กำกับ ไม่ใช่ไอคอนเปล่า — ปุ่มนี้เคยเป็นไอคอนอย่างเดียวข้างคำว่า "Prompt"
+              จนดูเหมือนปุ่มหลงทาง ผู้ใช้ส่วนใหญ่ไม่รู้เลยว่าย้ายกล่อง prompt ได้ */}
           <button
             type="button"
-            className="grid h-7 w-7 cursor-pointer place-items-center rounded-md border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
-            title="ย้ายไปกลาง Gallery"
+            className="flex h-7 cursor-pointer items-center gap-1 rounded-md border border-border px-2 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
+            title="ย้ายกล่อง Prompt ไปลอยกลางจอ (กว้างขึ้น เห็น Gallery เต็มตา)"
             aria-label="ย้าย Prompt ไปกลาง Gallery"
             onClick={move}
           >
-            <PanelBottom size={13} />
+            <PanelBottom size={13} /> ย้ายไปกลางจอ
           </button>
         </div>
         <div className="mb-[9px]">
@@ -332,15 +334,17 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             <WandSparkles size={11} /> ล้าง keyword ซ้ำ
           </button>
         </div>
-        <button
-          className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-[9px] text-xs font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
-          disabled={!hasPrompt || s.optimize.status === "loading"}
-          aria-label="Optimize Prompt"
-          onClick={runOptimize}
-        >
-          <Wand2 size={13} />
-          {s.optimize.status === "loading" ? "กำลังจูน Prompt…" : "Optimize"}
-        </button>
+        {hasPromptBuilder(s.mode) && (
+          <button
+            className="mt-2 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-[9px] text-xs font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
+            disabled={!hasPrompt || s.optimize.status === "loading"}
+            aria-label="Optimize Prompt"
+            onClick={runOptimize}
+          >
+            <Wand2 size={13} />
+            {s.optimize.status === "loading" ? "กำลังจูน Prompt…" : "Optimize"}
+          </button>
+        )}
         {generatingCount > 0 && (
           <button
             type="button"
@@ -351,14 +355,16 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             <XCircle size={13} /> ยกเลิกงานที่กำลังสร้าง ({generatingCount})
           </button>
         )}
-        {(s.optimize.status === "done" || s.optimize.status === "error") && <div className="mt-2.5">{optimizePanel}</div>}
+        {hasPromptBuilder(s.mode) && (s.optimize.status === "done" || s.optimize.status === "error") && <div className="mt-2.5">{optimizePanel}</div>}
       </div>
     );
   }
 
+  const isBuilder = hasPromptBuilder(s.mode);
+
   return (
     <div className="flex flex-col gap-2.5">
-      {optimizePanel}
+      {isBuilder && optimizePanel}
       <div className="rounded-2xl border border-border-strong bg-surface/70 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.18)] backdrop-blur-xl">
         <div className="flex items-end gap-2">
           <button
@@ -391,16 +397,18 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
             }}
             className="max-h-40 min-h-[52px] min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-border bg-surface-2 px-3.5 py-3 text-[13.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-faint focus:border-accent"
           />
-          <button
-            type="button"
-            className="mb-1 grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
-            title="Optimize Prompt"
-            aria-label="Optimize Prompt"
-            disabled={!hasPrompt || s.optimize.status === "loading"}
-            onClick={runOptimize}
-          >
-            <Wand2 size={15} className={s.optimize.status === "loading" ? "animate-pulse" : ""} />
-          </button>
+          {isBuilder && (
+            <button
+              type="button"
+              className="mb-1 grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
+              title="Optimize Prompt"
+              aria-label="Optimize Prompt"
+              disabled={!hasPrompt || s.optimize.status === "loading"}
+              onClick={runOptimize}
+            >
+              <Wand2 size={15} className={s.optimize.status === "loading" ? "animate-pulse" : ""} />
+            </button>
+          )}
           <button
             type="button"
             className="mb-1 flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-accent px-4 text-xs font-bold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 max-[520px]:px-3"

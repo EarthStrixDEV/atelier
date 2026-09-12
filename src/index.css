@@ -37,6 +37,9 @@
   --color-media-scrim: rgba(8, 8, 8, 0.94);
   --color-on-media: #ffffff;
   --color-on-media-dim: rgba(255, 255, 255, 0.72);
+  /* --color-interactive: press-state ของ button/a — ต่อธีมใน themes.ts + [data-theme] block ด้านล่าง
+   * ค่า default (paper) เทียบเท่า --color-border-strong เพราะ paper ไม่มี "จอมืด" ให้ press state เข้มขึ้นแบบธีมมืด */
+  --color-interactive: #c7cbc8;
 
   --font-sans: "Inter", "Noto Sans Thai", -apple-system, "Segoe UI", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
@@ -76,6 +79,7 @@
   --color-bg: #ffffff;
   --color-surface: #f7f8f7;
   --color-surface-2: #eef1ef;
+  --color-interactive: #e0e3e1;
   --color-border: #e0e3e1;
   --color-border-strong: #c7cbc8;
   --color-text: #0a0a0a;
@@ -97,6 +101,7 @@
   --color-bg: #0b0c0b;
   --color-surface: #141614;
   --color-surface-2: #1d201d;
+  --color-interactive: #262a26;
   --color-border: #2a2e2b;
   --color-border-strong: #3d423e;
   --color-text: #ededed;
@@ -118,6 +123,7 @@
   --color-bg: #000000;
   --color-surface: #0d0d0d;
   --color-surface-2: #1a1a1a;
+  --color-interactive: #262626;
   --color-border: #6b6b6b;
   --color-border-strong: #a3a3a3;
   --color-text: #ffffff;
@@ -139,6 +145,7 @@
   --color-bg: #f6f0e4;
   --color-surface: #efe7d7;
   --color-surface-2: #e5dbc7;
+  --color-interactive: #d8cdb6;
   --color-border: #d8cdb6;
   --color-border-strong: #bfb094;
   --color-text: #2b2115;
@@ -160,6 +167,7 @@
   --color-bg: #0a1020;
   --color-surface: #111a2e;
   --color-surface-2: #18243d;
+  --color-interactive: #223252;
   --color-border: #243350;
   --color-border-strong: #36486b;
   --color-text: #e6edf7;
@@ -181,6 +189,7 @@
   --color-bg: #15100f;
   --color-surface: #1f1818;
   --color-surface-2: #2a2120;
+  --color-interactive: #362a29;
   --color-border: #3a2e2c;
   --color-border-strong: #544441;
   --color-text: #f0e7df;
@@ -201,6 +210,33 @@ body {
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+@layer base {
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:active:not(:disabled),
+  a:active {
+    background-color: var(--color-interactive);
+  }
+}
+
+::selection {
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+
+select,
+option {
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 
 .hero-grid::before {
@@ -229,6 +265,8 @@ body {
 /* เดิมเป็นค่าดำของธีม light ที่ hardcode ไว้ — เส้นขอบตัวอักษรจึงหายสนิทเมื่อพื้นเป็นสีมืด
  * ผูกกับ --color-text แทน ธีมมืดจะได้เส้นสว่างบนพื้นมืดโดยอัตโนมัติ */
 .hero-outline { color: transparent; -webkit-text-stroke: 1.5px color-mix(in oklab, var(--color-text) 55%, transparent); }
+.hero-card { box-shadow: 0 30px 90px color-mix(in oklab, var(--color-text) 9%, transparent); }
+.mono-shimmer { background-image: linear-gradient(100deg, transparent 30%, color-mix(in oklab, var(--color-text) 12%, transparent) 50%, transparent 70%); }
 .hero-copy { animation: hero-rise .7s cubic-bezier(.2,.8,.2,1) both; }
 .hero-art { animation: hero-rise .8s .12s cubic-bezier(.2,.8,.2,1) both; }
 .hero-float { animation: hero-float 5s ease-in-out infinite; }
@@ -255,3 +293,19 @@ details.kw-group > summary { list-style: none; }
 details.kw-group > summary::-webkit-details-marker { display: none; }
 details.kw-group > summary::after { content: "+"; color: var(--color-text-faint); font-size: 13px; }
 details.kw-group[open] > summary::after { content: "–"; }
+
+/*
+ * Global focus-visible ring (a11y — WCAG 2.1 SC 2.4.7 Focus Visible) — เขียนแบบ "unlayered"
+ * (นอก @layer ใดๆ) ให้ชนะ Tailwind utilities (@layer utilities) เสมอตาม cascade spec โดยไม่ต้อง
+ * ไล่แก้ className="outline-none" ที่กระจายอยู่หลายสิบจุด (Sidebar/PromptComposer/KeyModal/ฯลฯ)
+ * ใช้ outline (ไม่ใช่ box-shadow) กันโดน overflow-hidden ของ card ตัดขอบ — outline ไม่ถูก clip เหมือนกัน
+ * ในบาง browser เก่า แต่ปลอดภัยกว่า box-shadow บน element ที่ parent มี overflow-hidden จริงจัง
+ *
+ * .js-focus-ring-owned = marker สำหรับ element ที่มี focus ring ของตัวเองอยู่แล้ว (เช่น Gallery Card ที่ใช้
+ * ring-2 ring-text ผ่าน roving tabindex ของ Gallery Focus Mode — PHASE 15) exclude ไว้กัน double ring ซ้อนกัน
+ */
+:focus-visible:not(.js-focus-ring-owned) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

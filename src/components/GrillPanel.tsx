@@ -12,8 +12,12 @@ import { ExplainedNote } from "./ExplainedChip";
  * Grill me — LLM สัมภาษณ์ผู้ใช้ทีละคำถามจนข้อมูลพอ แล้วตกผลึกเป็นชุด prompt หลายมุมมอง
  * แผงลอยตำแหน่งเดียวกับ ChatPanel (เปิดพร้อมกันไม่ได้ — openGrill ปิด chat ให้)
  */
+/** จำนวนคำตอบที่ทำให้ prompt เริ่มเจาะจงพอ — ต่ำกว่านี้ยังชวนให้ตอบเพิ่ม ไม่ใช่ลิมิตแข็ง */
+const GRILL_SUGGESTED_ANSWERS = 4;
+
 export default function GrillPanel() {
   const s = useApp();
+  const answeredCount = s.grillMessages.filter(m => m.role === "user").length;
   const [input, setInput] = useState("");
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -41,15 +45,16 @@ export default function GrillPanel() {
   if (!s.grillOpen) {
     return (
       <button
-        className="fixed bottom-[88px] right-6 z-150 grid h-[52px] w-[52px] cursor-pointer place-items-center rounded-full border border-border-strong bg-surface/70 text-text shadow-[0_8px_30px_rgba(0,0,0,.16)] backdrop-blur-xl transition-transform hover:scale-106"
+        className="fixed bottom-[88px] right-6 z-150 flex h-[52px] cursor-pointer items-center justify-center gap-2 rounded-full border border-border-strong bg-surface/70 px-4.5 text-text shadow-[0_8px_30px_rgba(0,0,0,.16)] backdrop-blur-xl transition-transform hover:scale-106 max-[480px]:w-[52px] max-[480px]:px-0"
         title="Grill me — ให้ AI สัมภาษณ์แล้วตกผลึกเป็นชุด prompt"
-        aria-label="เปิด Grill me"
+        aria-label="เปิด Grill me — ให้ AI ช่วยตกผลึกไอเดีย"
         onClick={() => {
           openGrill();
           setTimeout(() => inputRef.current?.focus(), 50);
         }}
       >
-        <Flame size={22} />
+        <Flame size={22} className="shrink-0" />
+        <span aria-hidden="true" className="text-[13px] font-semibold whitespace-nowrap max-[480px]:hidden">ตกผลึกไอเดีย</span>
       </button>
     );
   }
@@ -94,6 +99,15 @@ export default function GrillPanel() {
           </button>
         </div>
       </div>
+
+      {/* บอกว่าตอบไปกี่ข้อแล้ว + ชวนตอบต่อ — เดิมปุ่ม "ตกผลึกเลย" ไม่ได้บอกว่าจบเร็วแล้ว
+          prompt จะกว้างกว่าเดิม ผู้ใช้เลยไม่มีข้อมูลตัดสินใจว่าควรตอบต่อหรือพอ */}
+      {answeredCount > 0 && !s.grillResult && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-4 py-1.5 text-[10.5px] text-text-faint">
+          <span>ตอบไปแล้ว {answeredCount} ข้อ</span>
+          {answeredCount < GRILL_SUGGESTED_ANSWERS && <span>ตอบอีกสักหน่อยจะได้ prompt ที่ตรงใจขึ้นค่ะ</span>}
+        </div>
+      )}
 
       <div ref={bodyRef} className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {!s.grillMessages.length && (

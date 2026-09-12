@@ -1,4 +1,4 @@
-export type Mode = "home" | "infographic" | "video" | "cinematic" | "audio";
+export type Mode = "home" | "infographic" | "video" | "cinematic" | "audio" | "tts";
 /**
  * สถานะของ GenItem หนึ่งชิ้น — F1 Request Governor เพิ่ม "cancelled" เข้ามาเป็นค่าที่ 4
  *
@@ -29,17 +29,33 @@ export type GenStatus = "loading" | "done" | "error" | "cancelled";
 export type CancelReason = "user" | "user-all" | "shutdown";
 export type ImgFormat = "png" | "jpg";
 export type PromptPlacement = "sidebar" | "center";
+export type ToastVariant = "success" | "error" | "info";
+/** ภาษา UI ทั้งแอป (i18n Wave 0) — default เป็น "th" เสมอ ห้าม auto-detect จาก browser locale (ดู loadLocale ใน store.ts) */
+export type Locale = "th" | "en";
 
 export interface ORModel {
   id: string;
   name?: string;
   pricing?: { image?: string };
-  architecture?: { output_modalities?: string[] };
+  architecture?: { output_modalities?: string[]; voices?: (string | TtsVoice)[] };
   // ฟิลด์เฉพาะโมเดลวิดีโอ (จาก /api/v1/videos/models)
   pricing_skus?: Record<string, string | number>;
   supported_durations?: number[];
   supported_aspect_ratios?: string[];
   generate_audio?: boolean;
+  /**
+   * รายชื่อ voice ของโมเดล TTS — ชื่อ field จริงจาก OpenRouter ยังไม่ยืนยัน (โมเดลยังไม่ list ใน
+   * /api/v1/models ตอนเขียนโค้ดนี้) เผื่อไว้ทั้ง top-level และใต้ architecture, ทั้งแบบ string ล้วน
+   * และแบบ object — extractVoices() ใน actions.ts เป็นคนลอง parse ทั้งสองที่ ถ้าไม่มีเลย fallback
+   * ไปใช้ TTS_FALLBACK_VOICES (constants.ts)
+   */
+  voices?: (string | TtsVoice)[];
+}
+
+/** เสียงพากย์หนึ่งตัวของโมเดล TTS — name เป็น optional เพราะ fallback list มีแค่ id (ชื่อเสียงเป็นชื่อเฉพาะอยู่แล้ว) */
+export interface TtsVoice {
+  id: string;
+  name?: string;
 }
 
 /** ประเภทของภาพอ้างอิงที่แนบไปกับ prompt — กำหนดข้อความกำกับที่ส่งให้โมเดล */
@@ -83,6 +99,14 @@ export interface GenItem {
   /** ข้อความ error ล่าสุดของ Auto Save — ใช้แยกข้อความ "permission หมดอายุ" กับ "เขียนไฟล์พลาดชั่วคราว" ตอน retry */
   autoSaveErrMsg?: string;
   /**
+   * สถานะ "Save to Drive" ต่อชิ้น — undefined/"idle" = ยังไม่เคยกดเซฟ, "pending" = กำลังอัพโหลด,
+   * "saved" = อัพโหลดสำเร็จแล้ว, "failed" = อัพโหลดไม่สำเร็จ (token หมดอายุหรือ upload พลาด)
+   * คนละเรื่องกับ autoSaveStatus (เซฟลงเครื่องอัตโนมัติ) — อันนี้กดเซฟทีละไฟล์/หลายไฟล์เอง ไม่ auto
+   */
+  driveSaveStatus?: "idle" | "pending" | "saved" | "failed";
+  /** ข้อความ error ล่าสุดของ Save to Drive */
+  driveSaveErrMsg?: string;
+  /**
    * negative prompt ที่แนบไปตอนยิง request นี้ (snapshot ตอนกด generate — PHASE 14) — undefined/"" = ไม่มี
    * เก็บไว้ที่ item เพื่อให้ retry/regenerate ใช้ค่าเดิมได้แม้ผู้ใช้แก้ negPrompt ใน sidebar ไปแล้ว
    */
@@ -106,6 +130,12 @@ export interface GenItem {
    * ทุกจุดที่อ่านต้องเช็คแบบ truthy (`!!item.favorite`) ห้ามสมมติว่ามีค่าเสมอ
    */
   favorite?: boolean;
+  /**
+   * เสียงพากย์ (voice id) ที่ snapshot ไว้ตอนกดสร้าง — เฉพาะโหมด tts เท่านั้น undefined ในโหมดอื่นทั้งหมด
+   * เก็บไว้ที่ item ตาม pattern เดียวกับ refs/negPrompt เพื่อไม่ให้ retry/regenerate ใช้ voice ผิดตัว
+   * ถ้าผู้ใช้ไปเปลี่ยน dropdown เสียงใน sidebar หลังยิง request นี้ไปแล้ว
+   */
+  ttsVoiceId?: string;
 }
 
 /* ============================================================================
@@ -271,6 +301,17 @@ export interface ModeState {
   bakeOffEnabled: boolean;
   /** id โมเดลที่เลือกไว้สำหรับ Bake-off (สูงสุด MAX_BAKE_OFF_MODELS ตัว) — ยิงอิสระต่อตัว ไม่ผ่านคิว ไม่ถูก MAX_QUEUE จำกัด */
   bakeOffModelIds: string[];
+  /**
+   * สามฟิลด์ต่อไปนี้เฉพาะโหมด tts เท่านั้น (โหมดอื่นมีไว้เฉยๆ ไม่ถูกอ่าน) — แยกสามฟิลด์เพราะแต่ละตัวมีอายุ/
+   * เหตุผลไม่เหมือนกัน รวมเป็นฟิลด์เดียวจะสื่อความหมายผิด:
+   *  - voiceId ผูกกับโมเดลที่เลือกอยู่ (แต่ละโมเดล TTS มี voice list ของตัวเอง) ต้อง reset ทุกครั้งที่เปลี่ยนโมเดล
+   *    ไม่งั้นจะยิง request ด้วย voice ที่โมเดลใหม่ไม่รู้จัก
+   *  - ttsVoices เก็บ options ที่ fetch มาได้ (หรือ fallback) ไว้โชว์ใน dropdown — เปลี่ยนทุกครั้งที่เปลี่ยนโมเดล
+   *  - ttsVoicesLoading กัน UI โชว์ dropdown ว่างเปล่าตอนกำลังโหลด (แทนที่จะเข้าใจผิดว่าโมเดลนี้ไม่มีเสียงให้เลือก)
+   */
+  voiceId: string | null;
+  ttsVoices: TtsVoice[];
+  ttsVoicesLoading: boolean;
 }
 
 /** Prompt Templates / Snippets Library — โครงร่าง prompt พร้อม placeholder แบบ {subject} ให้ผู้ใช้แก้ต่อ */
@@ -355,6 +396,8 @@ export interface AppState {
   videoModels: ORModel[];
   /** โมเดลเสียง (Lyria) — คัดจาก fetch เดียวกับ models ตาม AUDIO_MODEL_IDS + fallback */
   audioModels: ORModel[];
+  /** โมเดล TTS (Gemini 3.1 Flash TTS) — คัดจาก fetch เดียวกับ models ตาม TTS_MODEL_IDS + fallback (ดู TTS_EXTRA_MODELS) */
+  speechModels: ORModel[];
   modelsFailed: boolean;
   videoModelsFailed: boolean;
   mode: Mode;
@@ -376,7 +419,8 @@ export interface AppState {
   };
   /** id ของ item ที่เปิด TimeFrame & Extend tool อยู่ (โหมด cinematic) — null = ปิด */
   extendItemId: number | null;
-  toast: { msg: string; n: number };
+  /** variant กำหนดสี/ไอคอนใน Toast — undefined ของ n=0 เริ่มต้น (ยังไม่เคย toast) ไม่มีผลเพราะ msg ว่างอยู่แล้ว */
+  toast: { msg: string; n: number; variant: ToastVariant };
   sidebarCollapsed: boolean;
   promptPlacement: PromptPlacement;
   /**
@@ -421,6 +465,8 @@ export interface AppState {
   importUnknownFields: Partial<Record<Mode, Record<string, unknown>>>;
   /** true ถ้าเปิดโมดัล cheat-sheet ปุ่มลัด (Shift+?) อยู่ — toggle จาก useKeyboardShortcuts */
   shortcutsModalOpen: boolean;
+  /** true ถ้าเปิด Settings modal อยู่ (storage breakdown / โมเดลผู้ช่วย AI / เพิ่มโมเดลเอง — ย้ายมาจาก Advanced ของ KeyModal) */
+  settingsModalOpen: boolean;
   /** true ถ้าเปิดโมดัลยืนยันค่าใช้จ่ายก่อนยิง Bake-off จริงอยู่ (PHASE 14) — เปิดจากปุ่ม Generate ตอน bakeOffEnabled */
   bakeOffConfirmOpen: boolean;
   /**
@@ -429,7 +475,7 @@ export interface AppState {
    */
   compareItems: GenItem[] | null;
   /**
-   * โมเดลที่ผู้ใช้เพิ่มเองผ่านช่อง "Advanced" ของ KeyModal (JSON array รูปแบบเดียวกับ EXTRA_MODELS/AUDIO_EXTRA_MODELS)
+   * โมเดลที่ผู้ใช้เพิ่มเองผ่านหน้า Settings (JSON array รูปแบบเดียวกับ EXTRA_MODELS/AUDIO_EXTRA_MODELS)
    * persist ผ่าน localStorage แยกจาก apiKey เพราะไม่ใช่ secret — merge เข้า models/audioModels ต่อจาก EXTRA_MODELS เดิม
    */
   userExtraModels: ORModel[];
@@ -451,6 +497,16 @@ export interface AppState {
    * ส่วนปุ่มยืนยันในโมดัลเป็นคนเรียก `generate()` รอบสอง (pattern เดียวกับ bakeOffConfirmOpen)
    */
   spendConfirm?: SpendConfirmRequest | null;
+  /** true ระหว่างที่รอ user ยืนยัน OAuth consent ของ Google Drive (เปิด popup GIS อยู่) */
+  driveConnecting: boolean;
+  /** true ถ้ามี access token ที่ยังใช้ได้อยู่ตอนนี้ (memory-only — ต้องเชื่อมต่อใหม่ทุก reload เหมือน Auto Save) */
+  driveConnected: boolean;
+  /**
+   * ภาษา UI ทั้งแอป (i18n Wave 0) — persist ผ่าน `LOCALE_KEY` ใน localStorage (ดู store.ts)
+   * required ไม่ใช่ optional เพราะ `state` ใน store.ts ประกอบ object literal แบบ synchronous เสมอ
+   * ทุกจุดที่อ่านค่านี้ไม่ต้องเผื่อ undefined
+   */
+  locale: Locale;
 }
 
 
@@ -803,6 +859,12 @@ export interface ThemeTokens {
   accent: string;
   accentInk: string;
   danger: string;
+  /**
+   * press state ของ `button:active`/`a:active` (ดู index.css `@layer base`) — เดิม hardcode
+   * เป็น `#181818` ตอนแอปยังมีธีมเดียว ต้องตามธีมเพราะพื้นเข้ม/อ่อนต่างกันมาก แค่ขยับจาก
+   * surface ทีละขั้นเดียวพอ ไม่ต้องเข้มเท่า border-strong
+   */
+  interactive: string;
 
   /* ── กลุ่มสถานะ (ตามธีม) — มีเพราะ semantic "สำเร็จ/เตือน" ไม่ควรยืม accent หรือ danger ── */
   /**

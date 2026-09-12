@@ -1,6 +1,6 @@
-import type { InfographicPreset, Mode, ORModel, PromptTemplate, RefKind } from "./types";
+import type { InfographicPreset, Mode, ORModel, PromptTemplate, RefKind, TtsVoice } from "./types";
 
-export const MODES: Mode[] = ["home", "infographic", "video", "cinematic", "audio"];
+export const MODES: Mode[] = ["home", "infographic", "video", "cinematic", "audio", "tts"];
 
 /** โหมดที่ generate วิดีโอผ่าน Video API — cinematic คือ video + Extend tool */
 export const isVideoMode = (m: Mode): boolean => m === "video" || m === "cinematic";
@@ -92,10 +92,17 @@ export const MAX_GRILL_QUESTIONS = 10;
 // โมเดลที่แต่ละโหมดอนุญาตให้เลือกได้ (null = ไม่จำกัด ใช้ list เต็ม)
 export const MODE_MODEL_FILTER: Record<Mode, RegExp[] | null> = {
   home: null,
-  infographic: [/^openai\/gpt-image-2$/i, /^google\/gemini-3-pro-image$/i],
+  infographic: [
+    /^openai\/gpt-image-2$/i,
+    /^google\/gemini-3-pro-image$/i,
+    /^openai\/gpt-image-2\.5-flare$/i,
+    /^meta\/muse-image$/i,
+    /^microsoft\/mai-image-2\.6$/i,
+  ],
   video: null, // โหมด video ใช้ list แยก (videoModels) ไม่ผ่าน filter นี้
   cinematic: null, // ใช้ videoModels เดียวกับโหมด video
   audio: null, // โหมด audio ใช้ list แยก (audioModels) ไม่ผ่าน filter นี้
+  tts: null, // โหมด tts ใช้ list แยก (speechModels) ไม่ผ่าน filter นี้
 };
 
 // โหมด video ใช้ endpoint แยก (/api/v1/videos/models) — เรียงตามลำดับใน array นี้
@@ -144,6 +151,32 @@ export const AUDIO_MODEL_PRICES: Record<string, number> = {
   "google/lyria-3-pro-preview": 0.08,
   "google/lyria-3-clip-preview": 0.04,
 };
+
+// โหมด tts: คัดจาก /api/v1/models เดียวกับภาพ/เสียง — เรียงตามลำดับใน array นี้ (pattern เดียวกับ AUDIO_MODEL_IDS)
+export const TTS_MODEL_IDS = ["google/gemini-3.1-flash-tts-preview"];
+
+// fallback เผื่อ /api/v1/models ยังไม่ list โมเดล Gemini TTS นี้ (merge ตาม id ไม่ให้ซ้ำ) — เช็คแล้วว่ายังไม่ list จริง
+export const TTS_EXTRA_MODELS: ORModel[] = [
+  {
+    id: "google/gemini-3.1-flash-tts-preview",
+    name: "Google: Gemini 3.1 Flash TTS",
+    pricing: {},
+    architecture: { output_modalities: ["audio"] },
+  },
+];
+
+/**
+ * รายชื่อ voice ของ Gemini 3.1 Flash TTS (30 ตัว) — มาจาก Google Cloud TTS docs ที่ยืนยันแล้วว่าตรงกับ
+ * ที่ OpenRouter บอกว่าโมเดลนี้มี 30 voices พอดี ใช้เป็น fallback เพราะโมเดลนี้ยังไม่ list ใน
+ * /api/v1/models จริง (เช็คแล้วตอนเขียนโค้ดนี้) — ถ้าวันหนึ่ง API เริ่ม list voices มาเอง (ผ่าน
+ * ORModel.voices / architecture.voices) ให้ field จาก API เป็นหลักเสมอ อันนี้เป็นแค่ fallback สุดท้าย
+ * (ดู extractVoices ใน actions.ts)
+ */
+export const TTS_FALLBACK_VOICES: TtsVoice[] = [
+  "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede", "Autonoe", "Callirrhoe", "Charon", "Despina",
+  "Enceladus", "Erinome", "Fenrir", "Gacrux", "Iapetus", "Kore", "Laomedeia", "Leda", "Orus", "Pulcherrima",
+  "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Sulafat", "Umbriel", "Vindemiatrix", "Zephyr", "Zubenelgenubi",
+].map(id => ({ id }));
 
 // โมเดลที่พี่เอิร์ธอยากได้ ให้ลอยขึ้นบนสุดของ dropdown ถ้ามีบน OpenRouter
 export const PREFERRED = [/nano.banana/i, /grok.*imagine.*quality/i, /grok.*imagine/i, /gpt.*image/i];
@@ -209,6 +242,25 @@ export const EXTRA_MODELS: ORModel[] = [
   {
     id: "microsoft/mai-image-2.5-pro",
     name: "Microsoft: MAI-Image-2.5 Pro",
+    pricing: {},
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "openai/gpt-image-2.5-flare",
+    name: "OpenAI: GPT Image 2.5",
+    // image-only ผ่าน /api/v1/images โดยเฉพาะ (ต่างจาก openai/gpt-image-2 ที่เป็น image+text ผ่าน chat/completions) — ยืนยันจาก Quick Start ของ OpenRouter เอง
+    pricing: {},
+    architecture: { output_modalities: ["image"] },
+  },
+  {
+    id: "meta/muse-image",
+    name: "Meta: Muse Image",
+    pricing: {},
+    architecture: { output_modalities: ["image", "text"] },
+  },
+  {
+    id: "microsoft/mai-image-2.6",
+    name: "Microsoft: MAI-Image-2.6",
     pricing: {},
     architecture: { output_modalities: ["image"] },
   },
@@ -282,6 +334,8 @@ export const KEYWORDS_BY_MODE: Record<Mode, KeywordGroup[]> = {
     ...HOME_KEYWORDS,
   ],
   audio: AUDIO_KEYWORDS,
+  // tts ไม่มี Prompt Builder (hasPromptBuilder) — array ว่างไว้เฉยๆ ให้ type ผ่าน ไม่มี UI ไหนอ่านค่านี้จริง
+  tts: [],
 };
 
 // ---------- prompt templates / snippets library ----------
@@ -311,6 +365,8 @@ export const BUILTIN_TEMPLATES: Record<Mode, PromptTemplate[]> = {
   audio: [
     { id: "audio-song", label: "Song brief", text: "a {genre} song about {topic}, {vocals}, {mood} mood, {tempo} tempo" },
   ],
+  // tts ไม่มี Prompt Builder/Templates (hasPromptBuilder) — array ว่างไว้เฉยๆ ให้ type ผ่าน
+  tts: [],
 };
 
 /** structural preset เฉพาะโหมด infographic — ตั้ง ratio + แทรก instruction + toggle keyword ที่มีอยู่แล้วใน INFOGRAPHIC_KEYWORDS */
@@ -374,13 +430,26 @@ export const MODE_META: Record<Mode, { placeholder: string; empty: string; title
     countLabel: "Songs",
     hint: "Lyria 3 Pro สร้างเพลงเต็ม (~$0.08/เพลง) ส่วน Clip สร้างคลิป 30 วิ (~$0.04/คลิป) — ใช้เวลาราวๆ 1–2 นาทีต่อเพลง Enter เพื่อสั่ง gen ได้เลย",
   },
+  tts: {
+    placeholder: "พิมพ์บทพูดที่ต้องการให้แปลงเป็นเสียง… เช่น Host: ยินดีต้อนรับเข้าสู่รายการค่ะ",
+    empty: "ยังไม่มีเสียงพูด — พิมพ์บทพูดแล้วกด Generate ได้เลยค่ะ",
+    title: "TTS Gallery",
+    countLabel: "Clips",
+    hint: "ไม่มี Prompt Builder เหมือนโหมดอื่น — ที่นี่พิมพ์บทพูดตรงๆ แล้วเลือกเสียงพากย์จากดรอปดาวน์ ไม่ใช่ image prompt",
+  },
 };
 
 export function modeLabel(mode: Mode): string {
   return mode === "audio" ? "Audio"
+    : mode === "tts" ? "TTS"
     : mode === "cinematic" ? "Cinematic"
     : mode === "video" ? "Video"
     : mode === "infographic" ? "Infographic" : "General";
+}
+
+/** true ถ้าโหมดนี้มี Prompt Builder/Keyword picker แบบ image prompt — tts เป็นโหมดเดียวที่ไม่มี เพราะเป็นบทพูดตรงๆ ไม่ใช่ image prompt */
+export function hasPromptBuilder(mode: Mode): boolean {
+  return mode !== "tts";
 }
 
 /* ============================================================================

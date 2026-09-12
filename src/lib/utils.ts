@@ -98,6 +98,31 @@ export function triggerDownload(href: string, filename: string) {
   a.remove();
 }
 
+/**
+ * ฟอร์แมต USD ให้คงเส้นคงวาข้าม Model Catalog (table + grid, ทั้ง 3 domain) — แทนการ inline .toFixed()
+ * แยกๆ กันหลายแบบ ไม่ใช้กับ Sidebar usage bar เดิม (ยังใช้ .toFixed() ของตัวเองต่อไป นอก scope)
+ * จำนวนทศนิยม: ปรับตามขนาดตัวเลขให้ตัวเลขเล็กๆ (เช่น ราคาต่อภาพ 0.000002) ยังอ่านความต่างออก
+ */
+export function fmtUsd(n: number, opts?: { trimTrailingZeros?: boolean }): string {
+  const decimals = n < 0.01 ? 6 : n < 1 ? 3 : 2;
+  let s = n.toFixed(decimals);
+  if (opts?.trimTrailingZeros && s.includes(".")) {
+    s = s.replace(/0+$/, "").replace(/\.$/, "");
+  }
+  return "$" + s;
+}
+
+// สรุป duration เป็นช่วงถ้าต่อเนื่องทีละ 1 (เช่น grok "1,2,...,15" → "1-15 วิ")
+// ถ้าไม่ต่อเนื่อง (เช่น veo "4,6,8") แสดงเป็นลิสต์คั่นจุลภาคแทน — ทั้งสองแบบอ่านง่ายกว่าลิสต์ตัวเลขยาวๆ
+export function fmtDurations(durations: number[]): string {
+  const sorted = [...durations].sort((a, b) => a - b);
+  const isConsecutive = sorted.every((d, i) => i === 0 || d === sorted[i - 1] + 1);
+  if (isConsecutive && sorted.length > 2) {
+    return `${sorted[0]}-${sorted[sorted.length - 1]} วิ`;
+  }
+  return sorted.map(d => `${d}วิ`).join(", ");
+}
+
 // ราคาต่อวินาทีที่ 720p — schema ของ pricing_skus ต่างกันต่อ provider
 // (grok คิดเป็น cents, veo/kling เป็น USD ต่อวินาที, seedance เป็น token คำนวณล่วงหน้าไม่ได้ → null)
 export function videoPricePerSec(m: ORModel, audio: boolean): number | null {
@@ -215,4 +240,81 @@ export function captureVideoFrame(url: string, targetTime?: number | null): Prom
       reject(new Error("โหลดวิดีโอเพื่อจับเฟรมไม่สำเร็จ"));
     };
   });
+}
+
+/** ประเภทของ error ที่เกิดตอน generate — ใช้เลือกข้อความ/ไอคอน และบอกว่ากด "ลองใหม่" ช่วยได้ไหม */
+export type GenErrorKind = "credit" | "rateLimit" | "policy" | "network" | "timeout" | "auth" | "unknown";
+
+export interface GenErrorInfo {
+  kind: GenErrorKind;
+  /** หัวข้อสั้นๆ ที่ผู้ใช้อ่านแล้วรู้ทันทีว่าเกิดอะไร */
+  title: string;
+  /** บอกว่าต้องทำอะไรต่อ — ต้อง actionable ไม่ใช่แค่บรรยายอาการซ้ำ */
+  hint: string;
+  /** true = กดลองใหม่แล้วมีโอกาสสำเร็จโดยไม่ต้องแก้อะไรก่อน */
+  retryable: boolean;
+}
+
+/**
+ * เดาประเภท error จากข้อความดิบที่ได้จาก OpenRouter/fetch — จงใจใช้การ match ข้อความ
+ * เพราะ error หลายจุดใน actions.ts ถูกโยนเป็น string ไปแล้ว (เช่น "HTTP 429") ไม่เหลือ status code
+ * ให้อ่านตรงๆ ลำดับการเช็คสำคัญ: เคสที่เจาะจงกว่าต้องมาก่อนเคสกว้าง
+ */
+export function classifyGenError(raw: string): GenErrorInfo {
+  const s = (raw || "").toLowerCase();
+
+  if (/402|insufficient|not enough credit|quota exceeded|billing/.test(s)) {
+    return {
+      kind: "credit",
+      title: "เครดิต OpenRouter ไม่พอ",
+      hint: "เติมเครดิตที่ openrouter.ai แล้วค่อยกดลองใหม่นะคะ",
+      retryable: false,
+    };
+  }
+  if (/429|rate.?limit|too many requests/.test(s)) {
+    return {
+      kind: "rateLimit",
+      title: "ยิงถี่เกินไป (rate limit)",
+      hint: "รอสักครู่แล้วกดลองใหม่ได้เลยค่ะ ถ้าสร้างทีละหลายรูปลองลดจำนวนลง",
+      retryable: true,
+    };
+  }
+  if (/content policy|safety|moderation|flagged|violat|prohibited|nsfw/.test(s)) {
+    return {
+      kind: "policy",
+      title: "prompt ติดนโยบายเนื้อหา",
+      hint: "โมเดลปฏิเสธ prompt นี้ ลองแก้คำที่สุ่มเสี่ยงแล้วสร้างใหม่ค่ะ — กดลองใหม่เฉยๆ จะได้ผลเดิม",
+      retryable: false,
+    };
+  }
+  if (/401|403|unauthorized|forbidden|invalid api key|no auth/.test(s)) {
+    return {
+      kind: "auth",
+      title: "API key ใช้ไม่ได้",
+      hint: "ตรวจ key ที่ปุ่ม API Key ด้านบนขวา หรือสร้าง key ใหม่ที่ openrouter.ai/keys ค่ะ",
+      retryable: false,
+    };
+  }
+  if (/หมดเวลารอ|timeout|timed out|etimedout/.test(s)) {
+    return {
+      kind: "timeout",
+      title: "รอผลลัพธ์นานเกินไป",
+      hint: "งานอาจยังทำอยู่ที่ฝั่งเซิร์ฟเวอร์ — กดลองใหม่เพื่อเช็คงานเดิมต่อได้ ไม่เสียเงินเพิ่มค่ะ",
+      retryable: true,
+    };
+  }
+  if (/failed to fetch|network|offline|err_internet|connection|502|503|504/.test(s)) {
+    return {
+      kind: "network",
+      title: "เชื่อมต่อไม่สำเร็จ",
+      hint: "เช็คอินเทอร์เน็ตแล้วกดลองใหม่ได้เลยค่ะ",
+      retryable: true,
+    };
+  }
+  return {
+    kind: "unknown",
+    title: "สร้างไม่สำเร็จ",
+    hint: "กดลองใหม่ได้ค่ะ ถ้ายังไม่ได้ลองเปลี่ยนโมเดลดูนะคะ",
+    retryable: true,
+  };
 }

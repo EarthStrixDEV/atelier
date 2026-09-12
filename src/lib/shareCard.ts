@@ -14,15 +14,15 @@ import { isVideoMode } from "./constants";
  * ถ้าเพิ่มสีใหม่ในการ์ด ต้องเพิ่มทั้งที่นี่และใน readThemeColors() พร้อมกัน ไม่งั้น read() คืนค่าว่าง
  */
 const FALLBACK_COLORS = {
-  bg: "#ffffff",
-  surface: "#f7f8f7",
-  surface2: "#eef1ef",
-  border: "#e0e3e1",
-  text: "#0a0a0a",
-  textDim: "#5c6360",
-  textFaint: "#93998f",
-  accent: "#10b981",
-  accentInk: "#ffffff",
+  bg: "#000000",
+  surface: "#000000",
+  surface2: "#000000",
+  border: "#303030",
+  text: "#ffffff",
+  textDim: "#b8b8b8",
+  textFaint: "#777777",
+  accent: "#ffffff",
+  accentInk: "#000000",
 };
 
 /** อ่านสีธีมปัจจุบันจริงๆ ผ่าน getComputedStyle ตอน render การ์ด (ไม่ hardcode ค่า) — auto-match ธีมไหนก็ตามที่ active อยู่ */

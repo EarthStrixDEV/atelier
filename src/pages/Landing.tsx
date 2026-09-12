@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   ArrowRight, Image, Layers, Music, Video, Zap, ShieldCheck, Wand2,
-  Sparkles, Palette, Sun, Camera, Smile, Shirt, Play,
+  Sparkles, Palette, Sun, Camera, Smile, Shirt, Play, Table2,
 } from "lucide-react";
 
 const HIGHLIGHTS = [
@@ -99,7 +99,7 @@ export default function Landing() {
             * หมายเหตุ: โลโก้อีกตัวในการ์ด hero art ด้านล่างจงใจไม่ผูกกับตัวแปรนี้
             * เพราะการ์ดนั้นพื้นมืดถาวร (bg-media-scrim) ทุกธีม โลโก้ขาวจึงถูกต้องอยู่แล้ว */}
           <img
-            src="/atelier/assets/atelier-logo.png"
+            src="/assets/atelier-logo.png"
             alt="Atelier"
             className="h-[54px] w-[54px] object-contain"
             style={{ filter: "invert(var(--logo-invert))" }}
@@ -145,10 +145,10 @@ export default function Landing() {
           </div>
           <div className="hero-art relative mx-auto aspect-[4/5] w-full max-w-[530px]" aria-label="ตัวอย่างพื้นที่สร้างสรรค์ของ Atelier">
             <div className="absolute inset-[7%_8%_8%_8%] rotate-[3deg] rounded-[2rem] border border-border-strong bg-surface-2 shadow-2xl" />
-            <div className="absolute inset-[3%_13%_12%_3%] -rotate-[4deg] overflow-hidden rounded-[2rem] border border-on-media-dim bg-media-scrim text-on-media shadow-[0_30px_90px_rgba(0,0,0,.18)]">
+            <div className="hero-card absolute inset-[3%_13%_12%_3%] -rotate-[4deg] overflow-hidden rounded-[2rem] border border-on-media-dim bg-media-scrim text-on-media">
               <div className="absolute inset-0 opacity-35 [background-image:radial-gradient(var(--color-on-media)_0.7px,transparent_0.7px)] [background-size:7px_7px]" />
               <span className="absolute left-6 top-6 font-mono text-[10px] uppercase tracking-[.2em]">Atelier / 001</span>
-              <img src="/atelier/assets/atelier-logo.png" alt="" className="absolute left-1/2 top-1/2 w-[68%] -translate-x-1/2 -translate-y-1/2" />
+              <img src="/assets/atelier-logo.png" alt="" className="absolute left-1/2 top-1/2 w-[68%] -translate-x-1/2 -translate-y-1/2" />
               <div className="absolute bottom-6 left-6 right-6 flex items-end justify-between border-t border-on-media-dim pt-3">
                 <span className="text-xs font-bold uppercase tracking-[.14em]">Make ideas visible</span><Sparkles size={17} />
               </div>
@@ -174,6 +174,12 @@ export default function Landing() {
               รายชื่อโมเดลดึงสดจาก OpenRouter ทุกครั้งที่เปิดแอป — ไม่ได้ผูกตายตัวกับผู้ให้บริการรายเดียว
               เลือกโมเดลที่เหมาะกับงานแต่ละชิ้นได้อิสระตามโหมดที่ใช้งาน
             </p>
+            <Link
+              to="/models"
+              className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-accent transition-opacity hover:opacity-80"
+            >
+              <Table2 size={14} /> ดูตาราง Model Catalog เต็ม →
+            </Link>
           </div>
           <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {MODEL_GROUPS.map(g => (

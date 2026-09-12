@@ -100,6 +100,8 @@ export interface PersistedGenItem {
    * แต่ในดิสก์เก็บเป็น boolean เสมอ เพื่อให้ evictionOrder() เทียบค่าได้โดยไม่ต้องเผื่อ undefined
    */
   favorite: boolean;
+  /** voice ที่เลือกตอนสร้าง (โหมด tts เท่านั้น) — optional เพราะโหมดอื่น/record เก่า (v1) ไม่มีค่านี้ */
+  ttsVoiceId?: string;
   /**
    * เวอร์ชันของ *รูปร่าง record* ตัวนี้ (ไม่ใช่ DB_VERSION ของ IndexedDB) — ปัจจุบัน = PERSISTED_ITEM_VERSION
    *
@@ -126,20 +128,21 @@ export interface PersistedGenItem {
  * เวอร์ชันปัจจุบันของรูปร่าง PersistedGenItem — bump เมื่อ "ความหมายหรือชุดฟิลด์" ของ record เปลี่ยน
  * (เพิ่มฟิลด์ที่มี default ได้ก็ยัง bump เพื่อให้ migrateRecord() แยก record เก่า/ใหม่ออกจากกันได้ชัด)
  */
-export const PERSISTED_ITEM_VERSION = 1;
+export const PERSISTED_ITEM_VERSION = 2;
 
 /**
  * ปรับ record ที่อ่านขึ้นมาให้เข้ารูปร่างเวอร์ชันปัจจุบัน — คืน null ถ้าใช้ไม่ได้ (ให้ caller ข้ามชิ้นนั้นไป)
  *
- * record ที่เขียนก่อนมีฟิลด์ `version` จะได้ `undefined` กลับมา ถือเป็น v0 และปรับขึ้น v1 ด้วยการเติม
- * default ให้ฟิลด์ที่ขาด (ตอนนี้มีแค่ favorite ที่อาจหายไปในทางทฤษฎี) — ไม่เขียนกลับลงดิสก์ตรงนี้
- * เพราะ read path เป็น readonly transaction record จะถูกเขียนทับด้วยรูปร่างใหม่ตอน saveItem/setFavorite ครั้งถัดไปเอง
+ * record ที่เขียนก่อนมีฟิลด์ `version` จะได้ `undefined` กลับมา ถือเป็น v0 — ไล่ผ่านทุก step ขึ้นจนถึง
+ * PERSISTED_ITEM_VERSION ทีละขั้น (v0→v1→v2…) ไม่ข้ามขั้น ไม่เขียนกลับลงดิสก์ตรงนี้เพราะ read path เป็น
+ * readonly transaction record จะถูกเขียนทับด้วยรูปร่างใหม่ตอน saveItem/setFavorite ครั้งถัดไปเอง
  */
 function migrateRecord(rec: PersistedGenItem): PersistedGenItem | null {
-  const v = rec.version ?? 0;
+  let v = rec.version ?? 0;
   if (v > PERSISTED_ITEM_VERSION) return null; // ผู้ใช้ downgrade แอป — ข้ามไว้ ห้ามลบของเขาทิ้ง
-  if (v === PERSISTED_ITEM_VERSION) return rec;
-  return { ...rec, favorite: !!rec.favorite, version: PERSISTED_ITEM_VERSION };
+  if (v === 0) { rec = { ...rec, favorite: !!rec.favorite, version: 1 }; v = 1; }
+  if (v === 1) { rec = { ...rec, ttsVoiceId: rec.ttsVoiceId, version: 2 }; v = 2; }
+  return rec;
 }
 
 /** เมทาดาต้าของ item ที่โหลดกลับมา — เหมือน record แต่แปลง blob เป็น object URL ให้พร้อมใช้ */
@@ -338,6 +341,7 @@ export async function saveItem(item: GenItem): Promise<string | null> {
     // อ่านจาก item จริง ไม่ hardcode false — ผู้ใช้อาจกดดาวไว้ก่อน item ถูกเซฟ (เช่น เซฟตอน done
     // ของงานที่กดดาวไว้ตั้งแต่ยัง loading) ถ้าเขียน false ทับ eviction จะตัดของที่ปักหมุดทิ้ง
     favorite: !!item.favorite,
+    ttsVoiceId: item.ttsVoiceId,
     version: PERSISTED_ITEM_VERSION,
     // หมายเหตุ: refs / jobId / errMsg / autoSaveStatus / autoSaveErrMsg ไม่ถูกคัดลอกมาโดยเจตนา (ดูหัวไฟล์)
   };

@@ -82,6 +82,8 @@ const paper: ThemeTokens = {
   accent: "#10b981",
   accentInk: "#ffffff",
   danger: "#dc2626",
+  /** เท่ากับ borderColor — paper ไม่มี "จอมืด" ให้ press state เข้มขึ้นแบบธีมมืด */
+  interactive: "#e0e3e1",
 
   /* สามตัวนี้เป็นของใหม่ ไม่มีใน index.css เดิม จึงเลือกได้อิสระ — เลือกโทนเข้มพอที่จะอ่านออก
    * บนพื้นขาว (success 3.77, warning 5.02, info 5.93) ไม่ใช่สีสดที่จางหายบนพื้นสว่าง */
@@ -119,6 +121,7 @@ const ink: ThemeTokens = {
   accent: "#34d399",
   accentInk: "#04231a",
   danger: "#f87171",
+  interactive: "#262a26",
   success: "#34d399",
   warning: "#fbbf24",
   info: "#60a5fa",
@@ -163,6 +166,7 @@ const contrast: ThemeTokens = {
   accent: "#ffe600",
   accentInk: "#000000",
   danger: "#ff6b6b",
+  interactive: "#262626",
   success: "#4ade80",
   warning: "#fbbf24",
   info: "#7dd3fc",
@@ -193,6 +197,7 @@ const sepia: ThemeTokens = {
   accent: "#b45309",
   accentInk: "#fff8ec",
   danger: "#b91c1c",
+  interactive: "#d8cdb6",
   success: "#4d7c0f",
   warning: "#a16207",
   info: "#0e7490",
@@ -223,6 +228,7 @@ const midnight: ThemeTokens = {
   accent: "#38bdf8",
   accentInk: "#04121f",
   danger: "#fb7185",
+  interactive: "#223252",
   success: "#34d399",
   warning: "#fbbf24",
   info: "#7dd3fc",
@@ -254,6 +260,7 @@ const nocturne: ThemeTokens = {
   accent: "#f0b429",
   accentInk: "#1c1205",
   danger: "#f87171",
+  interactive: "#362a29",
   success: "#5cc98c",
   warning: "#f0b429",
   info: "#7fb8e8",
@@ -374,6 +381,7 @@ export const CSS_VAR_BY_TOKEN: Record<keyof ThemeTokens, string> = {
   accent: "--color-accent",
   accentInk: "--color-accent-ink",
   danger: "--color-danger",
+  interactive: "--color-interactive",
   success: "--color-success",
   warning: "--color-warning",
   info: "--color-info",

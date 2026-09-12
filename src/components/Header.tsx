@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Clapperboard, Download, FolderCheck, FolderInput, FolderX, History, Image,
-  KeyRound, Layers, Loader2, Music, PanelLeftClose, PanelLeftOpen, RotateCcw, Send, Upload, Video, Wallet, X,
+  Clapperboard, Cloud, CloudOff, Download, FolderCheck, FolderInput, FolderX, History, Image,
+  KeyRound, Layers, Loader2, Mic, Music, PanelLeftClose, PanelLeftOpen, RotateCcw, Send, Settings, Upload, Video, Wallet, X,
 } from "lucide-react";
 import { MODES, modeLabel } from "../lib/constants";
 import type { Mode } from "../lib/types";
@@ -12,11 +12,12 @@ const MODE_ICONS: Record<Mode, typeof Image> = {
   video: Video,
   cinematic: Clapperboard,
   audio: Music,
+  tts: Mic,
 };
 import {
-  cancelAll, connectAutoSaveDir, disconnectAutoSaveDir, exportSession, getSchedulerStats, getSpendLedger,
-  importSession, isAutoSaveSupported, reconnectSavedAutoSaveDir, resetSpendLedger, setSpendCap, switchMode,
-  toggleAutoSaveEnabled,
+  cancelAll, connectAutoSaveDir, connectDrive, disconnectAutoSaveDir, disconnectDrive, exportSession,
+  getSchedulerStats, getSpendLedger, importSession, isAutoSaveSupported, isDriveSaveConfigured,
+  reconnectSavedAutoSaveDir, resetSpendLedger, setSpendCap, switchMode, toggleAutoSaveEnabled,
 } from "../lib/actions";
 import { loadExportLog, mutate, toast, useApp } from "../lib/store";
 import ThemePicker from "./ThemePicker";
@@ -341,6 +342,65 @@ function SpendGuardControl() {
   );
 }
 
+/** เชื่อมต่อ Google Drive สำหรับปุ่ม "Save to Drive" — ซ่อนไปเลยถ้ายังไม่ได้ตั้ง VITE_GOOGLE_CLIENT_ID */
+function DriveControl() {
+  const s = useApp();
+  const [open, setOpen] = useState(false);
+  if (!isDriveSaveConfigured()) return null;
+
+  return (
+    <div className="relative">
+      <button
+        className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-text-dim transition-colors hover:border-border-strong"
+        title="เชื่อมต่อ Google Drive สำหรับ Save to Drive"
+        aria-label="ตั้งค่า Google Drive"
+        aria-expanded={open}
+        onClick={() => setOpen(v => !v)}
+      >
+        <span className={"h-[7px] w-[7px] rounded-full " + (s.driveConnected ? "bg-text" : "bg-text-faint")} />
+        {s.driveConnected ? <Cloud size={12} /> : <CloudOff size={12} />}
+        {s.driveConnected ? "Drive เชื่อมต่อแล้ว" : "เชื่อมต่อ Google Drive"}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[260px] rounded-[10px] border border-border-strong bg-surface p-3 shadow-[0_12px_40px_rgba(0,0,0,.16)]">
+            {s.driveConnected ? (
+              <>
+                <div className="text-[12px] leading-relaxed text-text-dim">
+                  เชื่อมต่อ Google Drive แล้วค่ะ — ผลลัพธ์ที่กด "Save to Drive" จะถูกอัพโหลดขึ้นโฟลเดอร์ "Atelier Output"
+                </div>
+                <button
+                  className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
+                  aria-label="ยกเลิกการเชื่อมต่อ Google Drive"
+                  onClick={() => { disconnectDrive(); setOpen(false); }}
+                >
+                  <CloudOff size={12} /> ยกเลิกการเชื่อมต่อ
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="text-[12px] leading-relaxed text-text-dim">
+                  เชื่อมต่อ Google Drive เพื่อเซฟผลลัพธ์ขึ้นโฟลเดอร์ "Atelier Output" ได้จากปุ่ม Save to Drive บนแต่ละการ์ด
+                  (ต้องเชื่อมต่อใหม่ทุกครั้งที่เปิดแอป)
+                </div>
+                <button
+                  className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={s.driveConnecting}
+                  aria-label="เชื่อมต่อ Google Drive"
+                  onClick={connectDrive}
+                >
+                  <Cloud size={12} /> {s.driveConnecting ? "กำลังเชื่อมต่อ…" : "เชื่อมต่อ Google Drive"}
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * ตัวบ่งชี้งานที่กำลังรัน + ปุ่มยกเลิกทั้งหมด (T3) — โผล่เฉพาะตอนมีงาน loading อยู่จริง ไม่งั้นซ่อนหายไป
  * ไม่กิน space ใน header ตอนว่าง
@@ -445,7 +505,7 @@ export default function Header() {
           * เพราะถ้าเขียนเงื่อนไขที่นี่ ทุกครั้งที่เพิ่มธีมใหม่จะต้องกลับมาแก้ component นี้ด้วย
           * (drift ทันที) — ปล่อยให้ CSS cascade ตัดสินจาก [data-theme] ที่เดียวจบ */}
         <img
-          src="/atelier/assets/atelier-logo.png"
+          src="/assets/atelier-logo.png"
           alt="Atelier"
           className="h-[42px] w-[42px] object-contain"
           style={{ filter: "invert(var(--logo-invert))" }}
@@ -501,7 +561,16 @@ export default function Header() {
           }}
         />
         <AutoSaveControl />
+        <DriveControl />
         <ThemePicker />
+        <button
+          className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-full border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
+          title="ตั้งค่า"
+          aria-label="เปิดหน้าตั้งค่า — storage, โมเดลผู้ช่วย AI, เพิ่มโมเดลเอง"
+          onClick={() => mutate(st => { st.settingsModalOpen = true; })}
+        >
+          <Settings size={14} />
+        </button>
         <button
           className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-text-dim transition-colors hover:border-border-strong"
           title="ตั้งค่า OpenRouter API Key"
