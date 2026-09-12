@@ -104,7 +104,7 @@ function GridRow({
 function VirtualGridDevReadout({ mounted, total, mode }: { mounted: number; total: number; mode: Mode }) {
   if (!import.meta.env.DEV) return null;
   return (
-    <div className="pointer-events-none absolute bottom-2 right-2 z-30 rounded-md border border-border-strong bg-[rgba(10,10,10,.82)] px-2.5 py-1 font-mono text-[10.5px] text-white/80 backdrop-blur-sm">
+    <div className="pointer-events-none absolute bottom-2 right-2 z-30 rounded-md border border-border-strong bg-media-scrim/80 px-2.5 py-1 font-mono text-[10.5px] text-on-media-dim backdrop-blur-sm">
       [dev] mounted {mounted}/{total} cards ({mode})
     </div>
   );
@@ -536,12 +536,12 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
       }) : undefined}
     >
       <div className="relative w-full bg-surface-2" style={{ aspectRatio: (isAud || isTts) ? "2 / 1" : ratioCSS(item.ratio) }}>
-        <span className="pointer-events-none absolute left-2 top-2 z-1 max-w-[calc(100%-16px)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-white/15 bg-[rgba(10,10,10,.72)] px-[9px] py-[3px] font-mono text-[9.5px] text-white backdrop-blur-sm" title={item.model}>
+        <span className="pointer-events-none absolute left-2 top-2 z-1 max-w-[calc(100%-16px)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-on-media-dim bg-media-scrim/80 px-[9px] py-[3px] font-mono text-[9.5px] text-on-media backdrop-blur-sm" title={item.model}>
           {item.modelName}
         </span>
         {item.bakeOffGroupId != null && (
           <span
-            className="pointer-events-none absolute left-2 top-[26px] z-1 flex items-center gap-1 rounded-full border border-accent/50 bg-[rgba(10,10,10,.72)] px-[9px] py-[3px] font-mono text-[9px] text-accent backdrop-blur-sm"
+            className="pointer-events-none absolute left-2 top-[26px] z-1 flex items-center gap-1 rounded-full border border-accent/50 bg-media-scrim/80 px-[9px] py-[3px] font-mono text-[9px] text-accent backdrop-blur-sm"
             title="ส่วนหนึ่งของ Bake-off — เปรียบเทียบหลายโมเดลจาก prompt เดียวกัน"
           >
             <Layers3 size={9} /> Bake-off
@@ -576,8 +576,8 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
               className={
                 "grid h-6 w-6 cursor-pointer place-items-center rounded-md border transition-all " +
                 (focused
-                  ? "border-text bg-[rgba(10,10,10,.72)] text-text opacity-100"
-                  : "border-white/15 bg-[rgba(10,10,10,.72)] text-white opacity-0 backdrop-blur-sm group-hover:opacity-100")
+                  ? "border-on-media bg-media-scrim/80 text-on-media opacity-100"
+                  : "border-on-media-dim bg-media-scrim/80 text-on-media opacity-0 backdrop-blur-sm group-hover:opacity-100")
               }
               title="โฟกัสการ์ดนี้ (ใช้ลูกศรเลื่อนไปการ์ดข้างๆ, Enter เปิด Lightbox)"
               aria-label={"โฟกัสการ์ด: " + item.prompt}
@@ -590,7 +590,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
                 "grid h-6 w-6 cursor-pointer place-items-center rounded-md border transition-all " +
                 (selected
                   ? "border-accent bg-accent text-accent-ink opacity-100"
-                  : "border-white/15 bg-[rgba(10,10,10,.72)] text-white opacity-0 backdrop-blur-sm group-hover:opacity-100")
+                  : "border-on-media-dim bg-media-scrim/80 text-on-media opacity-0 backdrop-blur-sm group-hover:opacity-100")
               }
               title="เลือกเพื่อดาวน์โหลดหลายรูป"
               aria-pressed={selected}
@@ -606,7 +606,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
                 // ปุ่มที่ favorite แล้วต้องเห็นตลอดแม้ไม่ hover ไม่งั้นผู้ใช้ไล่หาของที่ mark ไว้บนกริดไม่เจอ
                 (favorite
                   ? "border-accent bg-accent text-accent-ink opacity-100"
-                  : "border-white/15 bg-[rgba(10,10,10,.72)] text-white opacity-0 backdrop-blur-sm group-hover:opacity-100")
+                  : "border-on-media-dim bg-media-scrim/80 text-on-media opacity-0 backdrop-blur-sm group-hover:opacity-100")
               }
               title={favorite ? "เอาออกจากรายการโปรด" : "เพิ่มเข้ารายการโปรด"}
               aria-pressed={favorite}
@@ -623,10 +623,10 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
             className={
               "absolute bottom-2 left-2 z-1 grid h-5 w-5 place-items-center rounded-full border backdrop-blur-sm " +
               (item.autoSaveStatus === "saved"
-                ? "border-accent/40 bg-[rgba(10,10,10,.72)] text-accent"
+                ? "border-accent/40 bg-media-scrim/80 text-accent"
                 : item.autoSaveStatus === "failed"
-                ? "border-danger/40 bg-[rgba(10,10,10,.72)] text-danger"
-                : "border-white/15 bg-[rgba(10,10,10,.72)] text-white")
+                ? "border-danger/40 bg-media-scrim/80 text-danger"
+                : "border-on-media-dim bg-media-scrim/80 text-on-media")
             }
             title={
               item.autoSaveStatus === "saved" ? "Auto Save: เซฟไฟล์ลงเครื่องแล้ว"
@@ -646,10 +646,10 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
               "absolute z-1 grid h-5 w-5 place-items-center rounded-full border backdrop-blur-sm " +
               (item.autoSaveStatus && item.autoSaveStatus !== "idle" ? "bottom-2 left-8" : "bottom-2 left-2") + " " +
               (item.driveSaveStatus === "saved"
-                ? "border-accent/40 bg-[rgba(10,10,10,.72)] text-accent"
+                ? "border-accent/40 bg-media-scrim/80 text-accent"
                 : item.driveSaveStatus === "failed"
-                ? "border-danger/40 bg-[rgba(10,10,10,.72)] text-danger"
-                : "border-white/15 bg-[rgba(10,10,10,.72)] text-white")
+                ? "border-danger/40 bg-media-scrim/80 text-danger"
+                : "border-on-media-dim bg-media-scrim/80 text-on-media")
             }
             title={
               item.driveSaveStatus === "saved" ? "Save to Drive: อัพโหลดขึ้น Google Drive แล้ว"
@@ -935,7 +935,7 @@ function StoryboardStrip() {
                       <X size={14} />
                     </div>
                   )}
-                  <span className="absolute bottom-1 left-1 rounded-full bg-black/60 px-1.5 py-[1px] font-mono text-[9px] text-white">#{i + 1}</span>
+                  <span className="absolute bottom-1 left-1 rounded-full bg-media-scrim/70 px-1.5 py-[1px] font-mono text-[9px] text-on-media">#{i + 1}</span>
                 </button>
                 {i < chain.scenes.length - 1 && <ChevronDown size={12} className="shrink-0 -rotate-90 text-text-faint" />}
               </div>

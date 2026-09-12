@@ -1,13 +1,23 @@
 import { useSyncExternalStore } from "react";
-import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Locale, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, SpendLedger, ToastVariant } from "./types";
+import type { AppState, ChatMsg, ExportLogEntry, HistoryEntry, Locale, Mode, ModeState, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, ResolvedThemeId, SpendLedger, ThemeId, ToastVariant } from "./types";
 import { SPEND_LEDGER_KEY } from "./types";
 import { MAX_CHAT_HISTORY, MAX_EXPORT_LOG, MAX_USER_TEMPLATES, modeLabel, MODES } from "./constants";
 import { PERMISSION_KEY as NOTIFY_PERMISSION_ASKED_KEY } from "./notify";
+import { DEFAULT_THEME } from "./themes";
 
 const HISTORY_KEY_PREFIX = "atelier_history_";
 const CHAT_HISTORY_KEY = "atelier_chat_history";
 const TEMPLATES_KEY_PREFIX = "atelier_templates_";
 export const PROMPT_PLACEMENT_KEY = "atelier_prompt_placement";
+/**
+ * ธีม UI ที่ผู้ใช้เลือก (F2) — เก็บ id ดิบรวมถึง "system" ไม่ resolve ก่อนเขียน
+ * เพราะคนที่เลือก System แล้วสลับ OS theme ทีหลังต้องตามได้ ถ้าเก็บค่าที่ resolve แล้วจะกลายเป็น explicit choice ค้างไว้
+ *
+ * ⚠️ ค่านี้ถูกเขียนซ้ำอีกที่ใน index.html (inline script กัน FOUC) โดยตั้งใจ — index.html ไม่ผ่าน bundler จึง import
+ * ค่านี้ไม่ได้ ถ้าแก้ชื่อ key หรือรายชื่อธีมที่นี่ **ต้องแก้ที่ index.html ด้วย** ไม่งั้นจะเกิด FOUC เงียบๆ ที่ dev ไม่เห็น
+ * (เพราะเครื่อง dev มีค่าใน localStorage อยู่แล้ว)
+ */
+export const THEME_KEY = "atelier_theme";
 /** ภาษา UI ทั้งแอป (i18n Wave 0) — ดู loadLocale/saveLocale ท้ายไฟล์ */
 export const LOCALE_KEY = "atelier_locale";
 /** job ledger สำหรับ survive-reload — เขียนทันทีที่ได้ jobId (หรือเริ่มยิง request ที่ไม่มี jobId) ดู actions.ts */
@@ -88,6 +98,7 @@ export interface StorageKeyBreakdownEntry {
 function labelForStorageKey(key: string): string {
   if (key === CHAT_HISTORY_KEY) return "ประวัติแชท Chat with Atelier";
   if (key === PROMPT_PLACEMENT_KEY) return "ตำแหน่งช่อง Prompt";
+  if (key === THEME_KEY) return "ธีมหน้าตาแอปที่เลือกไว้";
   if (key === LOCALE_KEY) return "ภาษาที่ใช้แสดงผล UI";
   if (key === PENDING_JOBS_KEY) return "รายการงานค้าง (job ledger)";
   if (key === QUEUE_NONEMPTY_KEY) return "flag คิวค้างตอนปิดแท็บ";
@@ -144,6 +155,14 @@ export function clearStorageKey(key: string) {
   }
   if (key === PROMPT_PLACEMENT_KEY) {
     mutate(s => { s.promptPlacement = "sidebar"; });
+    return;
+  }
+  if (key === THEME_KEY) {
+    // ธีมมี mirror ทั้งใน AppState และบน DOM (data-theme บน <html>) — ลบ key แล้วต้อง sync ทั้งสองที่
+    // ไม่งั้นผู้ใช้จะเห็นธีมเดิมค้างบนจอทั้งที่ค่าถูกลบไปแล้ว และครั้งถัดไปที่ setTheme จะทับกลับลง localStorage
+    // เหมือนไม่เคยลบ (เคสเดียวกับ SPEND_LEDGER_KEY ด้านล่าง)
+    mutate(s => { s.theme = DEFAULT_THEME; });
+    applyThemeAttr(DEFAULT_THEME);
     return;
   }
   if (key === LOCALE_KEY) {
@@ -212,6 +231,59 @@ function loadPromptPlacement(): PromptPlacement {
   } catch {
     return "sidebar";
   }
+}
+
+/**
+ * ธีม default ของผู้ใช้ที่ยังไม่เคยเลือก — Paper (light) ไม่ใช่ System โดยเจตนา (workflow decisions.e)
+ * ผู้ใช้เดิมที่ตั้ง OS เป็น dark ต้องไม่เปิดแอปมาแล้วเจอธีมมืดทันทีทั้งที่ไม่ได้ขอ Paper มีค่าเท่ากับ index.css เดิมเป๊ะ
+ * จึงเป็นค่าเดียวที่แปลว่า "ไม่มีอะไรเปลี่ยน" สำหรับคนที่ไม่เคยแตะ picker
+ *
+ * re-export จาก themes.ts ไม่ประกาศค่าซ้ำ — themes.ts เป็นเจ้าของค่าสีและ default อยู่แล้ว
+ * (โบว์ audit LOW-1) การประกาศ "paper" ซ้ำที่นี่คือจุด drift ที่ไม่มี test ไหนจับได้
+ */
+export { DEFAULT_THEME };
+
+/** รายชื่อธีมที่รู้จักทั้งหมด — ใช้ตัวนี้ตัวเดียวเป็นเกณฑ์ sanitize ไม่ไล่เทียบ string เป็นรายตัวกระจัดกระจาย */
+const KNOWN_THEMES: readonly ThemeId[] = ["system", "paper", "ink", "contrast", "sepia", "midnight", "nocturne"];
+
+/**
+ * ค่าที่อ่านจาก localStorage เชื่อไม่ได้ — ผู้ใช้แก้มือได้ผ่าน DevTools และอาจเป็นชื่อธีมจากเวอร์ชันที่ถูกลบไปแล้ว
+ * รับเฉพาะ string ที่อยู่ใน KNOWN_THEMES เท่านั้น นอกนั้น (null/ตัวเลข/object/ชื่อมั่ว/ธีมที่เลิกใช้) คืน DEFAULT_THEME
+ * ห้าม throw — ธีมเสียต้องไม่ทำให้แอปเปิดไม่ขึ้น
+ */
+export function sanitizeThemeId(raw: unknown): ThemeId {
+  return typeof raw === "string" && (KNOWN_THEMES as readonly string[]).includes(raw)
+    ? (raw as ThemeId)
+    : DEFAULT_THEME;
+}
+
+/** อ่านธีมที่เซฟไว้ — try/catch เพราะ localStorage ถูกปิดได้ (private mode) ตาม pattern loadPromptPlacement */
+export function loadTheme(): ThemeId {
+  try {
+    return sanitizeThemeId(localStorage.getItem(THEME_KEY));
+  } catch {
+    return DEFAULT_THEME;
+  }
+}
+
+/**
+ * เขียนผ่าน writeLocalStorage เพื่อให้ quota warning เป็นระบบเดียวกับ persistence ตัวอื่น
+ * ไม่ใช่ localStorage.setItem ตรงๆ ที่จะกลืน QuotaExceededError แล้วผู้ใช้ไม่รู้ว่าธีมไม่ถูกเซฟ
+ */
+export function saveTheme(id: ThemeId) {
+  writeLocalStorage(THEME_KEY, id);
+}
+
+/**
+ * เขียน data-theme ลง <html> — เวอร์ชันย่อสำหรับ clearStorageKey เท่านั้น รับเฉพาะธีมที่ resolve แล้ว (ไม่ใช่ "system")
+ *
+ * ทำไมอยู่ที่นี่ไม่ใช่ actions.ts: store.ts ห้าม import actions.ts (actions import store อยู่แล้ว = วงกลม)
+ * แต่ clearStorageKey ต้องคืนธีมบนจอทันทีโดยไม่ให้ผู้ใช้ reload ตัวเต็ม (applyTheme/resolveTheme ที่จัดการ
+ * "system" + matchMedia) เป็นของ T6 ใน actions.ts และเรียกตัวนี้ต่อได้ — ที่นี่ใช้ DEFAULT_THEME ซึ่งเป็น paper
+ * (ค่า concrete อยู่แล้ว) จึงไม่ต้องพึ่ง resolve logic
+ */
+export function applyThemeAttr(id: ResolvedThemeId) {
+  document.documentElement.dataset.theme = id;
 }
 
 /**
@@ -755,6 +827,8 @@ export const state: AppState = {
   toast: { msg: "", n: 0, variant: "info" },
   sidebarCollapsed: false,
   promptPlacement: loadPromptPlacement(),
+  // ค่าดิบตามที่ผู้ใช้เลือก (อาจเป็น "system") — การ resolve เป็นธีมจริงเป็นหน้าที่ของ applyTheme/resolveTheme
+  theme: loadTheme(),
   lbFormat: "png",
   autoSaveEnabled: false,
   autoSaveDirName: null,

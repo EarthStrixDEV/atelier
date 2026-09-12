@@ -49,13 +49,13 @@ function SwipeCompare({ a, b }: { a: string; b: string }) {
         onMouseDown={e => { e.preventDefault(); draggingRef.current = true; }}
         onTouchStart={() => { draggingRef.current = true; }}
       >
-        <div className="h-full w-[2px] bg-white/80 shadow-[0_0_8px_rgba(0,0,0,.5)]" />
-        <div className="absolute grid h-8 w-8 place-items-center rounded-full border border-white/60 bg-black/60 text-white backdrop-blur">
+        <div className="h-full w-[2px] bg-on-media/80 shadow-[0_0_8px_rgba(0,0,0,.5)]" />
+        <div className="absolute grid h-8 w-8 place-items-center rounded-full border border-on-media-dim/60 bg-media-scrim/70 text-on-media backdrop-blur">
           <Columns2 size={14} />
         </div>
       </div>
-      <span className="absolute left-2 top-2 rounded-full border border-white/20 bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white">ก่อน</span>
-      <span className="absolute right-2 top-2 rounded-full border border-white/20 bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white">หลัง</span>
+      <span className="absolute left-2 top-2 rounded-full border border-on-media-dim bg-media-scrim/70 px-2 py-0.5 text-[10px] font-semibold text-on-media">ก่อน</span>
+      <span className="absolute right-2 top-2 rounded-full border border-on-media-dim bg-media-scrim/70 px-2 py-0.5 text-[10px] font-semibold text-on-media">หลัง</span>
     </div>
   );
 }
@@ -76,16 +76,16 @@ export default function CompareModal() {
   const isSwipe = items.length === 2;
 
   return (
-    <div className="fixed inset-0 z-190 flex flex-col bg-[rgba(5,5,5,.94)] backdrop-blur-lg">
+    <div className="fixed inset-0 z-190 flex flex-col bg-media-scrim backdrop-blur-lg">
       <div className="flex shrink-0 items-center justify-between px-6 py-4">
         {/* บอกโหมดที่ใช้อยู่ — layout เปลี่ยนเองตามจำนวนรูป (2 = เลื่อนทับกัน, 3-4 = เรียงข้างกัน)
             ถ้าไม่บอก ผู้ใช้ที่เคยเทียบ 2 รูปแล้วมาเทียบ 3 รูปจะนึกว่าเครื่องมือพัง */}
-        <div className="flex items-center gap-2 text-[13px] text-white/70">
+        <div className="flex items-center gap-2 text-[13px] text-on-media-dim">
           <Columns2 size={15} /> Compare ({items.length} รูป)
-          <span className="text-white/45">· {isSwipe ? "เลื่อนเทียบซ้าย-ขวา" : "ดูเรียงข้างกัน"}</span>
+          <span className="text-on-media-dim/70">· {isSwipe ? "เลื่อนเทียบซ้าย-ขวา" : "ดูเรียงข้างกัน"}</span>
         </div>
         <button
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/25 px-4 py-2 text-[12.5px] text-white transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+          className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
           onClick={closeCompare}
         >
           Close <X size={13} />
@@ -100,9 +100,9 @@ export default function CompareModal() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               {items.map(item => (
-                <div key={item.id} className="rounded-lg border border-white/15 bg-white/5 p-3 text-[11.5px] text-white/70">
-                  <div className="mb-1 line-clamp-2 text-white/90">{item.prompt}</div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-white/50">
+                <div key={item.id} className="rounded-lg border border-on-media-dim bg-on-media/10 p-3 text-[11.5px] text-on-media-dim">
+                  <div className="mb-1 line-clamp-2 text-on-media">{item.prompt}</div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-on-media-dim">
                     <span>{item.modelName}</span>
                     <span>·</span>
                     <span>{item.ratio}</span>
@@ -118,9 +118,9 @@ export default function CompareModal() {
                 <div className="min-h-0 flex-1 overflow-hidden rounded-lg bg-surface-2" style={{ aspectRatio: ratioCSS(item.ratio) }}>
                   <img src={item.url!} alt={item.prompt} className="h-full w-full object-contain" />
                 </div>
-                <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-[11.5px] text-white/70">
-                  <div className="mb-1 line-clamp-2 text-white/90">{item.prompt}</div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-white/50">
+                <div className="rounded-lg border border-on-media-dim bg-on-media/10 p-3 text-[11.5px] text-on-media-dim">
+                  <div className="mb-1 line-clamp-2 text-on-media">{item.prompt}</div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-on-media-dim">
                     <span>{item.modelName}</span>
                     <span>·</span>
                     <span>{item.ratio}</span>

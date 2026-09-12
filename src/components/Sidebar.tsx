@@ -458,18 +458,18 @@ export default function Sidebar() {
               <div className="group relative aspect-video overflow-hidden bg-surface-2">
                 <img src={ms.refs[0].dataUrl} alt={ms.refs[0].name} className="h-full w-full object-cover" />
                 <RefCropPreview ref_={ms.refs[0]} targetRatio={ms.ratio} />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2.5 pt-8">
-                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-white" title={ms.refs[0].name}>{ms.refs[0].name}</span>
+                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-media-scrim to-transparent px-3 pb-2.5 pt-8">
+                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-on-media" title={ms.refs[0].name}>{ms.refs[0].name}</span>
                   <button
                     type="button"
-                    className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[10.5px] font-semibold text-white backdrop-blur transition-colors hover:border-danger hover:text-danger"
+                    className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-on-media-dim bg-media-scrim/70 px-2.5 py-1 text-[10.5px] font-semibold text-on-media backdrop-blur transition-colors hover:border-danger hover:text-danger"
                     aria-label={"ลบภาพอ้างอิง " + ms.refs[0].name}
                     onClick={() => removeRefImage(ms.refs[0])}
                   >
                     <Trash2 size={11} /> ลบภาพ
                   </button>
                 </div>
-                <span className="absolute left-2.5 top-2.5 rounded-full border border-white/20 bg-black/60 px-2 py-1 text-[9.5px] font-semibold uppercase tracking-[.12em] text-white backdrop-blur">First frame</span>
+                <span className="absolute left-2.5 top-2.5 rounded-full border border-on-media-dim bg-media-scrim/70 px-2 py-1 text-[9.5px] font-semibold uppercase tracking-[.12em] text-on-media backdrop-blur">First frame</span>
               </div>
             ) : (
               <label className="flex cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-transparent px-4 py-7 text-center transition-colors hover:border-border-strong hover:bg-surface-2">

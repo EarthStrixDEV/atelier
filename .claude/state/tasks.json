@@ -1,819 +1,564 @@
 {
-  "sprint": "feat/agent-team-sprint-01",
-  "designedAt": "2026-08-20",
+  "sprint": "feat/theme-system",
+  "designedAt": "2026-08-22",
   "designedBy": "พลอย (Ploy) — Lead Planner",
-  "buildGate": "npm run build (tsc --noEmit strict + vite build) — เป็น gate อัตโนมัติเดียวที่มี ไม่มี test/lint",
+  "buildGate": "npm run build (tsc --noEmit strict + vite build) — ไม่มี test runner/lint ในโปรเจกต์นี้ ดังนั้น gate เรื่องสีคือ T16 grep gate และ T17 QA matrix",
   "tasks": [
     {
       "id": "T1",
       "featureId": "F1",
-      "title": "นิยาม contract ของ Request Governor — signal, slot, cancel semantics",
-      "layer": "api",
+      "title": "Token contract — นิยาม ThemeId, ThemeTokens type และรายชื่อ token 18 ตัวให้ครบ ก่อนใครแตะ CSS",
+      "layer": "infra",
       "assignee": "นุ่น (Noon) — API Contract Engineer",
       "chainDepth": "full",
       "dependsOn": [],
-      "securitySensitive": true,
+      "securitySensitive": false,
       "perfSensitive": false,
       "status": "done",
+      "rationale": "ทุก task ที่เหลืออ้างชื่อ token จากที่นี่ ถ้าชื่อเปลี่ยนทีหลัง cleanup 120 จุดต้องรื้อใหม่ จึงต้อง freeze ก่อน",
       "acceptanceCriteria": [
-        "src/lib/types.ts มี type CancelReason ที่แยก user-cancel ออกจาก shutdown อย่างน้อย 2 ค่า",
-        "GenItem มีฟิลด์ใหม่สำหรับสถานะยกเลิก และ GenStatus ครอบคลุมเคส cancelled โดยไม่ทำให้ที่เดิมที่ switch บน status พังตอน tsc",
-        "มี comment ระบุ invariant เป็นลายลักษณ์อักษรว่า abort ระหว่าง poll วิดีโอต้องคง item.jobId ไว้เสมอ ห้ามเซ็ต null อ้างอิง actions.ts:1177 requestVideo",
-        "ระบุ signature ที่ตกลงแล้วของ runRequest ว่ารับ signal เข้ามาอย่างไร และ requestVideo/requestAudio/requestViaChat/requestViaImageAPI ทั้ง 4 ตัวรับ signal ตัวเดียวกัน",
-        "npm run build ผ่าน (ขั้นนี้เป็น type-only ยังไม่มี logic)"
+        "src/lib/types.ts มี `export type ThemeId` ที่มีสมาชิกครบ 7 ค่าตรงกับ workflow.json paletteDesign.themes: system, paper, ink, contrast, sepia, midnight, nocturne",
+        "มี `export interface ThemeTokens` ที่มี key ครบ 18 ตัว = 11 ตัวเดิมจาก index.css:5-15 (bg, surface, surface2, borderColor, borderStrong, text, textDim, textFaint, accent, accentInk, danger) บวก 7 ตัวใหม่ (success, warning, info, overlay, mediaScrim, onMedia, onMediaDim)",
+        "ThemeTokens ทุก field เป็น required (ไม่มี optional) เพื่อให้ tsc จับได้ทันทีถ้าธีมไหนนิยามไม่ครบ",
+        "มี comment ระบุเป็นลายลักษณ์อักษรว่า mediaScrim/onMedia/onMediaDim เป็น theme-invariant (ค่าเท่ากันทุกธีม) พร้อมเหตุผลว่าเป็นบริบทบนภาพ อ้าง gapAnalysis G2",
+        "มี comment ระบุว่าชื่อ CSS custom property ต้องขึ้นต้น --color- เพื่อให้ Tailwind v4 gen utility ให้ และ map ระหว่างชื่อ field ใน TS กับชื่อ CSS var ถูกเขียนไว้ชัดเจนหนึ่งที่",
+        "ไม่แตะไฟล์อื่นนอกจาก src/lib/types.ts",
+        "npm run build ผ่าน (ขั้นนี้เป็น type-only ยังไม่มี runtime code)"
       ],
       "filesLikelyTouched": [
         "src/lib/types.ts"
-      ],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "GenStatus += cancelled; CancelReason(user|user-all|shutdown); cancelReason/cancelledAt on GenItem; MAX_CONCURRENT_REQUESTS=4; jobId invariant + 5 signatures documented. build pass. types.ts only."
+      ]
     },
     {
       "id": "T2",
       "featureId": "F1",
-      "title": "semaphore จำกัด concurrency + AbortController registry ใน actions.ts",
-      "layer": "logic",
-      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
+      "title": "Mapping table — ตารางแปลง hardcoded color ทุกจุดเป็น token (deliverable ที่ cleanup task ทุกตัวใช้อ้าง)",
+      "layer": "infra",
+      "assignee": "นุ่น (Noon) — API Contract Engineer",
       "chainDepth": "full",
       "dependsOn": [
         "T1"
       ],
-      "securitySensitive": true,
-      "perfSensitive": true,
+      "securitySensitive": false,
+      "perfSensitive": false,
       "status": "done",
+      "rationale": "นี่คือสิ่งเดียวที่กัน sub-agent 5 ตัวตีความสีต่างกัน ถ้าไม่มีตารางนี้ ผลลัพธ์จะไม่สม่ำเสมอและ R1 จะเกิดแน่นอน",
       "acceptanceCriteria": [
-        "constants.ts มี MAX_CONCURRENT_REQUESTS เป็นค่าคงที่ export ไม่ hardcode ตัวเลขลอยใน actions.ts",
-        "generate() ที่ actions.ts:881 และ runBakeOff() ที่ actions.ts:986 ไม่เรียก batch.forEach(runRequest) ตรงๆ อีกต่อไป ทั้งคู่ผ่าน scheduler ตัวเดียวกัน",
-        "ยิง batch 30 ชิ้น (queue 5 job x count 6) แล้วนับ fetch ที่ inflight พร้อมกันจริงใน devtools ไม่เกิน MAX_CONCURRENT_REQUESTS ณ เวลาใดก็ตาม",
-        "งานที่เหลือใน batch ยังถูกยิงต่อจนครบเมื่อ slot ว่าง ไม่มีงานค้างไม่ถูกยิงเลย ตรวจโดยนับ item ที่ status เปลี่ยนจาก loading ครบทุกชิ้น",
-        "ทุก fetch ใน requestVideo/requestAudio/requestViaChat/requestViaImageAPI ส่ง signal จริง ตรวจด้วย grep ว่าไม่มี fetch( ตัวไหนใน actions.ts ที่ไม่มี signal",
-        "cancelItem(item) ทำให้ item หยุดจริงภายใน 1 วินาที และ item.jobId ของงานวิดีโอที่ถูก cancel ยังไม่เป็น null",
-        "npm run build ผ่าน"
+        "สร้าง src/lib/themeTokens.md (หรือ comment block ใน themes.ts) ที่มีตาราง 3 คอลัมน์: pattern เดิม, token ใหม่, บริบทที่ใช้ได้",
+        "ตารางครอบคลุมทุก pattern ที่สแกนเจอจริงอย่างน้อยครบ 9 กลุ่มนี้: bg-black/50 (modal overlay), bg-[rgba(5,5,5,.94)] (full-screen viewer), bg-[rgba(10,10,10,.72)] และ bg-[rgba(10,10,10,.82)] (badge บนภาพ), bg-black/60 และ bg-black/65 และ bg-black/70 (control บนภาพ), text-white และ text-white/50|60|70|80|90 (ตัวหนังสือบนสื่อ), border-white/15|20|25|40|60|85 (เส้นขอบบนสื่อ), bg-white/5 และ bg-white/80 (surface บนสื่อ), bg-green-400 (status dot), from-black/85 (gradient บนภาพ)",
+        "ทุกแถวระบุชัดว่าเป็นบริบท on-media (ห้าม map ไป text/surface) หรือ app-surface (map ไป token ธีมปกติ) — นี่คือข้อที่กัน R1 โดยตรง",
+        "มี allowlist ระบุชัดว่าอะไร**ไม่ต้องแก้**: box-shadow rgba(0,0,0,*) ทุกจุด (เป็นเงา ไม่ใช่สี surface), FALLBACK_COLORS ใน shareCard.ts:6-16, token definition ใน index.css เอง, Landing.tsx:139 hero art card ที่ตั้งใจให้มืดถาวร",
+        "ระบุรายชื่อไฟล์และเลขบรรทัดของทุกจุดที่ต้องแก้ แบ่งกลุ่มตาม task T9-T13 ให้ dev เปิดไปแก้ได้ตรงๆ ไม่ต้องสแกนเอง",
+        "ไม่แก้โค้ด .tsx ใดๆ ในขั้นนี้ (เป็น document task ล้วน)"
       ],
       "filesLikelyTouched": [
-        "src/lib/actions.ts",
-        "src/lib/constants.ts"
-      ],
-      "completedAt": "2026-08-20",
-      "result": "scheduleRequest() module-level semaphore (cap app-wide, not per-batch); sole caller of runRequest. inflightControllers Map + abortableSleep. signal in 6/6 fetches across 4 request fns. finalizeCancelled never touches jobId. cancelItem/cancelAll/isCancellable exported. Verified by LC: build green, AC2/AC5/invariant confirmed by grep.",
-      "qaNote": "AC3/AC6 proven via Node harness replicating scheduler+registry logic (peak in-flight 4/4, cancel latency 1ms, jobId preserved), not real browser fetch. End-to-end needs T3 button."
+        "src/lib/themeTokens.md"
+      ]
     },
     {
       "id": "T3",
       "featureId": "F1",
-      "title": "ปุ่มยกเลิกงานที่กำลังรัน บน Header + PromptComposer",
-      "layer": "ui",
-      "assignee": "เจน (Jane) — Backend Endpoint Engineer",
+      "title": "themes.ts — นิยามค่าสีจริงทั้ง 6 palette พร้อม contrast budget ที่วัดแล้ว",
+      "layer": "infra",
+      "assignee": "นุ่น (Noon) — API Contract Engineer",
       "chainDepth": "full",
       "dependsOn": [
-        "T2"
+        "T1"
       ],
       "securitySensitive": false,
       "perfSensitive": false,
       "status": "done",
+      "rationale": "แยกจาก T1 เพราะ T1 คือ shape ส่วนนี้คือ value การเลือกสีต้องผ่าน contrast budget ซึ่งเป็นงานคนละแบบกับการนิยาม type",
       "acceptanceCriteria": [
-        "เมื่อมี item ที่ status เป็น loading อย่างน้อย 1 ชิ้น จะมีตัวบ่งชี้จำนวนงานที่รันอยู่และจำนวนที่รอคิวใน Header",
-        "กดปุ่มยกเลิกทั้งหมดแล้ว item ที่ยังไม่เริ่มยิงถูกเอาออกจาก scheduler ไม่ถูกยิงเลย ตรวจว่าไม่มี request ใหม่โผล่ใน network tab หลังกด",
-        "ห้ามแตะ src/components/Gallery.tsx และ src/components/Sidebar.tsx ในงานนี้ ตรวจด้วย git diff --stat ว่าสองไฟล์นี้ไม่อยู่ในรายการ",
-        "เรียก toast(msg) แบบ 1 argument เท่านั้น ห้ามส่ง argument ที่สอง",
+        "src/lib/themes.ts export `THEMES: Record<Exclude<ThemeId,\"system\">, ThemeTokens>` ครบ 6 ธีม tsc บังคับให้ครบทุก field อยู่แล้ว",
+        "ธีม paper มีค่า hex ตรงกับ src/index.css:5-15 ทุกตัวแบบ byte-identical — ตรวจได้ด้วยการ diff ค่าทีละตัว (bg=#ffffff, surface=#f7f8f7, surface-2=#eef1ef, border=#e0e3e1, border-strong=#c7cbc8, text=#0a0a0a, text-dim=#5c6360, text-faint=#93998f, accent=#10b981, accent-ink=#ffffff, danger=#dc2626)",
+        "mediaScrim/onMedia/onMediaDim มีค่าเท่ากันทุกธีมทั้ง 6 (ตรวจได้ด้วยการเทียบ string)",
+        "ทุกธีมมี comment ระบุค่า contrast ratio ที่วัดได้จริงอย่างน้อย 5 คู่: text/bg, textDim/bg, textFaint/bg, accentInk/accent, onMedia/mediaScrim",
+        "ทุกธีมผ่านเกณฑ์: text/bg อย่างน้อย 7:1, textDim/bg อย่างน้อย 4.5:1, textFaint/bg อย่างน้อย 3:1, accentInk/accent อย่างน้อย 4.5:1, onMedia/mediaScrim อย่างน้อย 4.5:1",
+        "ธีม contrast ต้องเข้มกว่าเกณฑ์ปกติ: text/bg อย่างน้อย 15:1 และ textFaint/bg อย่างน้อย 4.5:1 (ไม่ใช่ 3:1)",
+        "แต่ละธีมมี field ระบุ colorScheme เป็น light หรือ dark เพื่อใช้กับ CSS color-scheme property (ดู decisions.b extraGuard)",
         "npm run build ผ่าน"
       ],
       "filesLikelyTouched": [
-        "src/components/Header.tsx",
-        "src/components/PromptComposer.tsx",
-        "src/lib/store.ts"
-      ],
-      "reassignedBy": "Loop Controller (ดู workflow.json revisions)",
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "Header RunningJobsControl pill (active/waiting from getSchedulerStats, polls 1s only while busy) + two-step confirm cancel-all; PromptComposer per-mode cancel without confirm. Gallery/Sidebar untouched.",
-      "followUp": "dropFromNotifyBatch self-fired summary uses generic \"งานทั้งหมด N ชิ้น\" instead of คลิป/เพลง/scene because the fn has no GenItem to derive the unit label. Deliberate fallback, flagged by เจน, not a bug."
+        "src/lib/themes.ts",
+        "src/lib/types.ts"
+      ]
     },
     {
       "id": "T4",
       "featureId": "F1",
-      "title": "QA — concurrency cap, cancel และ invariant กันจ่ายซ้ำ",
+      "title": "index.css — เพิ่ม 7 token ใหม่ใน @theme และเพิ่ม block [data-theme] ครบ 6 ธีม + แก้ hero class ที่ hardcode",
       "layer": "infra",
-      "assignee": "แพร (Prae) — QA Lead",
+      "assignee": "ออม (Aom) — Frontend UI Engineer",
       "chainDepth": "full",
       "dependsOn": [
         "T3"
       ],
       "securitySensitive": false,
-      "perfSensitive": true,
+      "perfSensitive": false,
       "status": "done",
+      "rationale": "ยืนยันจาก dist แล้วว่า @theme ปกติ emit var ลง :root และ utility อ้าง var() อยู่แล้ว จึง override ด้วย [data-theme] ได้เลย ไม่ต้องรื้อเป็น @theme inline (ดู factCheck corrections ข้อ 1)",
       "acceptanceCriteria": [
-        "ยืนยันด้วย network tab จริงว่า inflight ไม่เกิน cap ตอนยิง queue 5 job x count 6",
-        "ยกเลิกงานวิดีโอกลางคัน แล้วกดลองใหม่ ต้อง resume ด้วย jobId เดิม ไม่มี POST /api/v1/videos ใหม่เกิดขึ้น ตรวจใน network tab",
-        "ยกเลิกแล้ว retry ได้ปกติ ไม่มี item ค้างสถานะ loading ถาวร",
-        "รายงานผลเป็นรายข้อ ผ่าน/ไม่ผ่าน พร้อม screenshot หรือ network log ประกอบข้อที่เกี่ยวกับเงิน"
+        "@theme ใน index.css มี custom property ครบ 18 ตัว (เดิม 11 บวกใหม่ 7) ค่าเท่ากับธีม paper ใน themes.ts ทุกตัว",
+        "มี block [data-theme=\"ink\"], [data-theme=\"contrast\"], [data-theme=\"sepia\"], [data-theme=\"midnight\"], [data-theme=\"nocturne\"] ที่ override ครบทั้ง 18 ตัว และ [data-theme=\"paper\"] ที่ override ครบเช่นกัน (เพื่อให้สลับกลับมา paper ได้เมื่อ attribute ถูกตั้งไว้แล้ว)",
+        "ทุก block มี `color-scheme: light` หรือ `dark` ตรงกับ field ใน themes.ts เพื่อให้ native scrollbar/form control ตามธีม",
+        ".hero-glow (index.css:52) เลิกใช้ rgba(16,185,129,.14) เปลี่ยนเป็น color-mix หรือ var ที่อิง --color-accent เพื่อให้ glow เปลี่ยนตาม accent ของธีม",
+        ".hero-outline (index.css:55) เลิกใช้ -webkit-text-stroke rgba(10,10,10,.55) เปลี่ยนเป็นค่าที่อิง --color-text",
+        "เพิ่ม custom property --logo-invert (ค่า 1 สำหรับธีม light, 0 สำหรับธีม dark) ในทุก block ธีม เพื่อให้ T14 ใช้แก้บั๊กโลโก้",
+        "ยืนยันด้วยตาว่าค่า default (ไม่มี data-theme บน html) ยังเหมือนแอปเดิมทุกประการ",
+        "npm run build ผ่าน และเปิด dist ตรวจว่า .bg-surface ยัง compile เป็น var(--color-surface) ไม่ใช่ hex (ป้องกันการรื้อผิดทาง)"
       ],
-      "filesLikelyTouched": [],
-      "startedAt": "2026-08-20",
-      "methodNote": "No browser available (verified). Static+harness only; unverifiable AC go to browserQaDebt.",
-      "completedAt": "2026-08-20",
-      "verdict": "AC1 PASS / AC2,AC3 PASS at logic layer but FAIL at UX layer / AC4 PASS",
-      "result": "Harness transpiled REAL actions.ts via ts.transpileModule, stubbed only fetch+browser globals. AC1: 30 items -> peak concurrent fetch exactly 4, total fetches exactly 30, stats return to zero. AC2: cancel mid-poll -> jobId survives -> retry() issues ZERO new POST /api/v1/videos, polls same job id, completes. AC3: 12 items (4 inflight + 8 queued) -> cancelAll -> 12 cancelled, 0 stuck loading, all 12 retry to done.",
-      "p0": "Independently confirmed the SAME defect as โบว์ T5-F1: Gallery.tsx CardImpl has no cancelled branch. grep \"cancelled\" across src/components + src/pages = 0 matches. Card renders as empty grey box; role/onClick/onKeyDown bound to done?...:undefined so it is not even clickable. retry() reachable only from status===error at Gallery.tsx:558 and :319. Fix tracked as T20.",
-      "browserQaDebt": [
-        "B1 (do first, confirms P0): video mode count 1 -> Generate -> wait for POST /api/v1/videos 200 + GET polling -> hit cancel in PromptComposer -> LOOK AT THE CARD. Pass = shows ยกเลิกแล้ว + ลองใหม่ button. Fail = grey empty card, not clickable.",
-        "B2 (after T20 fix): repeat B1, note job id from POST response, click ลองใหม่. Pass = NO second POST /api/v1/videos (count stays 1) and GET /api/v1/videos/<same id> resumes. Fail = second POST = double charge.",
-        "B3: home mode, เพิ่มเข้าคิว 5 times, count=6 -> Generate -> Network waterfall. Pass = never more than 4 pending bars at once, exactly 30 requests total. Cross-check Header RunningJobsControl numbers match.",
-        "B4: do B3 steps then hit ยกเลิกทั้งหมด within ~1s. Pass = total requests clearly under 30 (~4-8) because queued items dropped before firing."
-      ],
-      "harnessNote": "Reusable regression harness kept in scratchpad (loader/env/harness + ac1/ac2/ac3/edge/dbl). Transpiles real code so it breaks if actions.ts regresses. Project tree left clean.",
-      "note": "Logic AC all pass; P0 that failed UX layer is fixed by T20 and re-audited PASS by T5."
+      "filesLikelyTouched": [
+        "src/index.css"
+      ]
     },
     {
       "id": "T5",
-      "featureId": "F1",
-      "title": "Security review — abort ไม่ทำให้จ่ายซ้ำหรือ key รั่ว (blocking)",
-      "layer": "infra",
-      "assignee": "โบว์ (Bow) — Security & Dependency Auditor",
+      "featureId": "F2",
+      "title": "Theme persistence layer — localStorage key + load/save/sanitize ตาม pattern เดิมของ store.ts",
+      "layer": "state",
+      "assignee": "ฟ้า (Fah) — Database Engineer",
       "chainDepth": "full",
       "dependsOn": [
-        "T4"
+        "T1"
       ],
-      "securitySensitive": true,
+      "securitySensitive": false,
       "perfSensitive": false,
       "status": "done",
+      "rationale": "persistence ผิดจะกระทบ KeyModal Advanced ที่ list key ทุกตัวและคำนวณขนาด storage (store.ts:86-118) ต้องเข้าระบบเดิมให้ครบ ไม่ใช่แค่ setItem เฉยๆ",
       "acceptanceCriteria": [
-        "ตรวจทุก path ที่เซ็ต item.jobId = null ใน actions.ts แล้วยืนยันว่าไม่มี path ไหนถูก trigger จาก abort",
-        "ยืนยันว่า pending job ledger (store.ts PENDING_JOBS_KEY) ยังมี entry ของงานที่ถูก cancel ค้างอยู่ ไม่ถูก removePendingJob ตอน abort",
-        "ยืนยันว่าไม่มี state ของ AbortController ถูกเขียนลง localStorage หรือ sessionStorage",
-        "ให้ verdict ชัดเจน blocking หรือ pass ถ้า blocking ต้องระบุไฟล์:บรรทัดที่ต้องแก้"
+        "src/lib/store.ts มี `export const THEME_KEY = \"atelier_theme\"` ตาม prefix atelier_ เดิม (STORAGE_KEY_PREFIX ที่ store.ts:43)",
+        "มี loadTheme(): ThemeId ที่ทำตาม pattern loadPromptPlacement (store.ts:202-208) คือ try/catch แล้ว fallback — ค่าที่ไม่อยู่ในรายชื่อ ThemeId ที่รู้จักต้องคืน \"paper\" ไม่ใช่ throw และไม่ใช่ \"system\" (ตาม decisions.e)",
+        "มี saveTheme(id) ที่เขียนผ่าน writeLocalStorage (store.ts:50) เพื่อให้ quota warning ทำงานเป็นระบบเดียวกัน ไม่ใช่ localStorage.setItem ตรงๆ",
+        "labelForStorageKey (store.ts:86) มีเคสของ THEME_KEY คืน label ภาษาไทยที่อ่านรู้เรื่อง ไม่ตกไปที่ `return key` ท้ายฟังก์ชัน",
+        "clearStorageKey (store.ts:125) มีเคสของ THEME_KEY ที่ mutate state กลับเป็น paper และ apply ธีมกลับทันที — ตรวจได้ด้วยการลบ key จาก Advanced ของ KeyModal แล้ว UI ต้องกลับเป็น Paper เดี๋ยวนั้นโดยไม่ต้อง reload",
+        "AppState มี field theme: ThemeId ที่ init ด้วย loadTheme() วางอยู่ใกล้ sidebarCollapsed/promptPlacement (types.ts:380-384) เพื่อสื่อว่าเป็น global UI preference ระดับเดียวกัน",
+        "ทดสอบจริง: ตั้งค่ามั่วใน localStorage เช่น atelier_theme=\"banana\" แล้ว reload ต้องได้ Paper ไม่ใช่หน้าขาว",
+        "npm run build ผ่าน"
       ],
-      "filesLikelyTouched": [],
-      "startedAt": "2026-08-20",
-      "verdict": "PASS (re-audit)",
-      "findings": [
-        "F1 HIGH Gallery.tsx:540/551/578 — no cancelled branch in CardImpl; retry() only reachable from error branch. Paid video job keeps jobId per INVARIANT but user cannot reach it -> must regenerate -> pays twice. Violates contract at types.ts:15.",
-        "F2 MEDIUM actions.ts:1656-1658 — retryWithOverride drops jobId (correct: model change cannot resume) but gives NO warning/confirm that this is a new paid submit. Free retry button sits 4px away.",
-        "F3 LOW actions.ts:1151/1164 — cancelItem/isCancellable are dead exports; no per-item cancel UI exists.",
-        "F4 LOW types.ts:29 — CancelReason \"shutdown\" never used; StudioApp handleUnload does not call cancelAll(\"shutdown\").",
-        "F5 LOW Gallery.tsx:775 — StatusFilter lacks \"cancelled\"; cancelled items vanish from every filter except ทั้งหมด, compounding F1."
-      ],
-      "passedAC": [
-        "AC1 jobId=null 10 sites audited none abort-triggerable",
-        "AC2 ledger keeps cancelled entries",
-        "AC3 no AbortController state in storage"
-      ],
-      "completedAt": "2026-08-20",
-      "reAuditResult": "F1+F5 closed. Money chain verified end-to-end: finalizeCancelled keeps jobId -> catch-return skips removePendingJob -> ledger intact -> card shows ทำต่อ -> retry() preserves jobId -> requestVideo resumed=true skips POST /videos entirely. All 3 edge cases correct (queued/non-video/has-jobId). No money or a11y regression. Cancelled card cannot reach RetryOverridePanel (gated on status===error) so F2 risk is closed for cancelled items.",
-      "newFinding": "F6 LOW cardPropsEqual missing jobId/cancelReason — FIXED by Loop Controller (was latent, but T8 rehydrate could make it reachable)."
+      "filesLikelyTouched": [
+        "src/lib/store.ts",
+        "src/lib/types.ts"
+      ]
     },
     {
       "id": "T6",
       "featureId": "F2",
-      "title": "ออกแบบ schema IndexedDB สำหรับเก็บผลลัพธ์ + นโยบาย cap/eviction",
-      "layer": "db",
-      "assignee": "ฟ้า (Fah) — Database Engineer",
+      "title": "applyTheme() + System resolution + matchMedia subscription (StrictMode-safe)",
+      "layer": "state",
+      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
       "chainDepth": "full",
-      "dependsOn": [],
-      "securitySensitive": true,
+      "dependsOn": [
+        "T3",
+        "T5"
+      ],
+      "securitySensitive": false,
       "perfSensitive": true,
       "status": "done",
+      "rationale": "จุดที่ leak ได้จริง main.tsx ใช้ StrictMode (ยืนยันแล้ว) ซึ่ง double-invoke effect ถ้า subscribe ผิดที่จะได้ listener ซ้อน",
       "acceptanceCriteria": [
-        "สร้าง object store ใหม่แยกจาก store handles เดิมใน fsAccess.ts ห้ามใส่ปนกัน และต้อง bump DB version พร้อม onupgradeneeded ที่สร้าง store ใหม่โดยไม่ทำลาย autoSaveDir handle เดิม",
-        "ระบุ cap เป็นตัวเลขคงที่ export ได้ ทั้งจำนวนชิ้นสูงสุดต่อโหมดและขนาดรวมสูงสุด",
-        "ระบุนโยบาย eviction เป็นลายลักษณ์อักษรว่าตัดชิ้นไหนก่อน และ item ที่ favorite ต้องไม่ถูก evict ก่อน item ที่ไม่ favorite",
-        "เปิดแอปเวอร์ชันเก่าที่มี autoSaveDir handle อยู่แล้ว แล้ว upgrade ต้องไม่ทำให้ปุ่มเชื่อมต่อ directory เดิมหาย ตรวจผ่าน checkSavedAutoSaveDir",
+        "มี applyTheme(id: ThemeId) ที่เซ็ต document.documentElement.dataset.theme เป็นชื่อธีมที่ resolve แล้ว (ไม่เคยเป็นค่า \"system\") — ตรวจได้ด้วย DevTools ว่า html มี data-theme=\"ink\" ไม่ใช่ data-theme=\"system\"",
+        "มี resolveTheme(id) ที่แปลง \"system\" เป็น \"ink\" เมื่อ matchMedia prefers-color-scheme dark ตรง และเป็น \"paper\" เมื่อไม่ตรง ส่วน id อื่นคืนตัวเอง",
+        "มี setTheme(id) ที่ mutate state ผ่าน mutate() (ห้ามแก้ state ตรงๆ ตามกฎ store.ts:710), เรียก saveTheme, และเรียก applyTheme — สามอย่างครบในที่เดียว",
+        "matchMedia change listener ถูก subscribe ครั้งเดียวที่ระดับ module (นอก React component) หรือถ้าอยู่ใน effect ต้องมี cleanup ที่ removeEventListener ครบ — ตรวจได้ด้วยการ mount/unmount StudioApp ซ้ำแล้วนับ listener ไม่เพิ่ม",
+        "เมื่อ state.theme เป็น \"system\" และผู้ใช้สลับ OS theme ระหว่างที่แอปเปิดอยู่ ธีมต้องเปลี่ยนสดโดยไม่ต้อง reload — ทดสอบจริงด้วยการสลับ OS theme",
+        "เมื่อ state.theme ไม่ใช่ \"system\" การสลับ OS theme ต้องไม่มีผลอะไรเลย (ธีมที่ผู้ใช้เลือกไว้ชนะเสมอ)",
         "npm run build ผ่าน"
       ],
       "filesLikelyTouched": [
-        "src/lib/galleryStore.ts",
-        "src/lib/constants.ts"
-      ],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "New separate DB atelier_gallery v1 (fsAccess.ts untouched, 0 lines). Store items keyPath key=mode:savedAt:rand (GenItem.id unusable, store.ts:445 seq resets to 0). Allowlist record shape excludes refs/apiKey/jobId/errMsg/autoSave*. Caps 60/mode, 500MB total, 80MB/item. Eviction: non-favorite first then FIFO. 10 exported fns. Own files typecheck EXIT=0.",
-      "qaNote": "AC5 (full build) not green at handoff — 2 unused-import errors from T2 in-flight, not from T6. Verified independently."
+        "src/lib/actions.ts",
+        "src/lib/store.ts"
+      ]
     },
     {
       "id": "T7",
       "featureId": "F2",
-      "title": "review contract PersistedGenItem ที่ T6 วางแล้ว + ปิด integration gap favorite + วาง signature ให้ T8",
-      "layer": "api",
-      "assignee": "นุ่น (Noon) — API Contract Engineer",
-      "chainDepth": "full",
-      "dependsOn": [
-        "T6"
-      ],
-      "securitySensitive": true,
-      "perfSensitive": false,
-      "status": "done",
-      "acceptanceCriteria": [
-        "types.ts มี interface PersistedGenItem ที่ระบุฟิลด์ชัดเจน ไม่ใช่ Partial<GenItem> ลอยๆ",
-        "PersistedGenItem ต้องไม่มีฟิลด์ refs และไม่มี jobId พร้อม comment อธิบายเหตุผลว่า refs เป็น data URL ภาพผู้ใช้และ jobId ผูกกับ session",
-        "ระบุว่า blob ถูกเก็บเป็น Blob object ตรงๆ ไม่ใช่ data URL string พร้อมเหตุผลเรื่องขนาด",
-        "มี field version ในตัว record เพื่อรองรับ migration ในอนาคต",
-        "npm run build ผ่าน",
-        "saveItem ต้องอ่าน item.favorite จาก GenItem จริง ไม่ hardcode false (galleryStore.ts:266) — กดดาวแล้วเซฟลง IDB ต้องได้ favorite=true ไม่งั้น eviction จะตัดของที่ผู้ใช้ปักหมุดทิ้ง",
-        "signature ที่ T8 ต้อง implement ระบุไว้ชัด: rehydrate flow (loadItems -> registerBlobUrl -> bump s.seq), จุดที่เรียก saveItem ใน runRequest, และจุดที่ sync setFavorite ตอน toggleFavorite"
-      ],
-      "filesLikelyTouched": [
-        "src/lib/types.ts"
-      ],
-      "revisedBy": "Loop Controller (ดู workflow.json revisions)",
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "PersistedGenItem stays in galleryStore.ts + type-only re-export from types.ts (single source, no cycle under isolatedModules). favorite gap CLOSED at galleryStore.ts:317 (!!item.favorite). version field + PERSISTED_ITEM_VERSION + migrateRecord() wired into loadItems (lazy per-record, downgrade-safe: unknown version skipped not deleted). HANDOFF block for T8 at :470-529. Verified by LC."
-    },
-    {
-      "id": "T8",
-      "featureId": "F2",
-      "title": "logic save/load/evict + rehydrate blob URL เข้า registry เดิม",
-      "layer": "logic",
-      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
-      "chainDepth": "full",
-      "dependsOn": [
-        "T7"
-      ],
-      "securitySensitive": true,
-      "perfSensitive": true,
-      "status": "done",
-      "acceptanceCriteria": [
-        "item ที่ status done ถูกเขียนลง IndexedDB โดย hook หลัง autoSaveItem ใน runRequest ที่ actions.ts:1036 ไม่ใช่ก่อนหน้า",
-        "การเขียนเป็น fire-and-forget ไม่ block UI และ error ตอนเขียนไม่ทำให้ item กลายเป็น error ตรวจโดยจงใจทำให้ quota เต็มแล้ว item ยังแสดงผลปกติ",
-        "ตอน boot โหลดกลับมาแล้วสร้าง blob URL ใหม่ทุกชิ้น และเรียก registerBlobUrl จาก blobUrls.ts ทุก URL ที่สร้าง ตรวจว่า releaseAllBlobUrls ตอนปิดแท็บ revoke ได้ครบ",
-        "เกิน cap แล้ว eviction ทำงานจริง จำนวน record ใน store ไม่โตเกิน cap ตรวจผ่าน devtools Application tab",
-        "item ที่ favorite ไม่ถูก evict ตราบใดที่ยังมี item ที่ไม่ favorite ให้ตัด",
-        "npm run build ผ่าน"
-      ],
-      "filesLikelyTouched": [
-        "src/lib/galleryStore.ts",
-        "src/lib/actions.ts"
-      ],
-      "handoffFromT6": [
-        "API: isGalleryPersistEnabled/setGalleryPersistEnabled(off=wipes immediately)/saveItem/loadItems/setFavorite/deleteItem/clearMode/clearAllPersistedItems/evictIfNeeded/getGalleryUsage",
-        "loadItems() already creates object URLs — YOU must call registerBlobUrl(item.id, item.url) or they never get revoked",
-        "rehydrate must bump s.seq past restored ids (pattern at actions.ts:249) because store.ts:445 resets seq to 0 each reload",
-        "INTEGRATION GAP found by Loop Controller: galleryStore.ts:266 hardcodes favorite:false on save and does NOT read item.favorite, which DOES exist on GenItem now (added by T12/Aom). Left as-is it means: user stars an item -> persisted as false -> eviction discards the pinned item. T8 must wire GenItem.favorite -> PersistedGenItem.favorite on save, and call setFavorite() when the user toggles a persisted item.",
-        "saveItem is a no-op when opt-in is off or item is not done; it never throws"
-      ],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "Save hook at actions.ts:1268 (verified AFTER autoSaveItem:1264). Rehydrate at :221 piggybacks reconcilePendingJobs (only fn StudioApp calls on mount — StudioApp.tsx untouched), not awaited so paid video resume is not delayed. No extra evictIfNeeded call (saveItem does it); throttled instead via galleryPersistChain serialization so a 30-item batch evicts sequentially not 30 concurrent full-scans. registerBlobUrl + seq bump + setFavorite-per-fingerprint-group all wired. Dedupe by id OR fingerprint, revokes skipped URLs. Harness 67/67 on real transpiled code.",
-      "harnessNote": "Sliced the real wiring block and toggleFavorite out of actions.ts by string slice rather than reimplementing; includes a negative test proving the per-group setFavorite assertion is meaningful (single-fire gives 1/3)."
-    },
-    {
-      "id": "T9",
-      "featureId": "F2",
-      "title": "boot restore + opt-in toggle + ปุ่มล้างข้อมูลที่เก็บไว้",
-      "layer": "ui",
-      "assignee": "เบล (Bell) — Frontend Integration Engineer",
-      "chainDepth": "full",
-      "dependsOn": [
-        "T8"
-      ],
-      "securitySensitive": true,
-      "perfSensitive": false,
-      "status": "superseded",
-      "acceptanceCriteria": [
-        "feature เป็น opt-in ค่าเริ่มต้นปิด ผู้ใช้ที่ไม่เคยเปิดต้องไม่มีอะไรถูกเขียนลง IndexedDB เลย ตรวจใน Application tab ว่า store ว่าง",
-        "เปิด toggle แล้วสร้างรูป ปิดแท็บ เปิดใหม่ รูปยังอยู่ใน gallery และเปิด lightbox ดูได้จริง",
-        "มีปุ่มล้างข้อมูลที่เก็บไว้ทั้งหมด กดแล้ว store ว่างจริงและ gallery ปัจจุบันไม่พัง",
-        "restore ตอน boot ต้องไม่ชนกับ reconcilePendingJobs ที่ actions.ts:215 ทดสอบเคสที่มีทั้ง job ค้างและ item ที่ persist ไว้พร้อมกัน ต้องไม่มี item id ซ้ำใน gallery",
-        "ห้ามแตะ Sidebar.tsx และ KeyModal.tsx ตรวจด้วย git diff --stat",
-        "npm run build ผ่าน"
-      ],
-      "filesLikelyTouched": [
-        "src/pages/StudioApp.tsx",
-        "src/lib/store.ts",
-        "src/components/Header.tsx"
-      ],
-      "completedAt": "2026-08-20",
-      "result": "Superseded: boot restore done in T8 (actions.ts:221 rehydrateGallery + dedupe by id OR fingerprint), opt-in toggle + clear button + usage readout done in T21 (KeyModal Advanced). T9 AC also forbade touching KeyModal.tsx which conflicts with where the UI actually had to go."
-    },
-    {
-      "id": "T10",
-      "featureId": "F2",
-      "title": "QA — persistence รอด reload จริงและ eviction ไม่กินของที่ favorite",
+      "title": "FOUC guard — inline blocking script ใน index.html head",
       "layer": "infra",
-      "assignee": "แพร (Prae) — QA Lead",
+      "assignee": "เจน (Jane) — Backend Endpoint Engineer",
       "chainDepth": "full",
       "dependsOn": [
-        "T22",
-        "T14"
+        "T5"
       ],
       "securitySensitive": false,
       "perfSensitive": true,
       "status": "done",
+      "rationale": "client-only ห้ามมี backend จึงกัน FOUC ได้ทางเดียวคือ sync script ก่อน paint index.html มี inline script pattern อยู่แล้วที่บรรทัด 11-18",
       "acceptanceCriteria": [
-        "สร้างรูป 5 ชิ้น reload แล้วยังครบ 5 ชิ้นและกดดาวน์โหลดได้จริง",
-        "สร้างวิดีโอ 1 ชิ้น reload แล้ว video element เล่นได้จริง ไม่ใช่ blob URL ที่ตายแล้ว",
-        "ยิงจนเกิน cap แล้วตรวจว่า record ไม่โตเกิน cap และ item ที่ favorite ยังอยู่ครบ",
-        "ปิด toggle แล้วล้างข้อมูล ตรวจว่า IndexedDB store ว่างจริงใน Application tab",
-        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน",
-        "boot ที่มีทั้ง pending video job และ persisted item พร้อมกัน ต้องไม่มี item id ซ้ำใน gallery (ย้ายมาจาก T9 — dedupe logic อยู่ที่ actions.ts rehydrateGallery)",
-        "ผู้ใช้ที่ไม่เคยเปิด toggle ต้องไม่มีอะไรถูกเขียนลง IndexedDB เลย (ย้ายมาจาก T9)"
+        "index.html มี inline script ใน <head> ที่อ่าน localStorage key เดียวกับ THEME_KEY แล้วเซ็ต document.documentElement.dataset.theme ก่อน <script type=\"module\" src=\"/src/main.tsx\">",
+        "script resolve ค่า \"system\" เองด้วย window.matchMedia ก่อน paint — ทดสอบด้วย OS dark บวก atelier_theme=\"system\" ต้องไม่เห็น flash ขาวเลย",
+        "script ห่อด้วย try/catch — localStorage ถูกปิด (private mode บางเบราว์เซอร์) ต้องไม่ทำให้แอปไม่โหลด ตกไปใช้ธีม default เงียบๆ",
+        "ค่าที่อ่านไม่ตรงรายชื่อธีมที่รู้จัก ต้องไม่เซ็ต attribute (ปล่อยให้ @theme default = paper ทำงาน) ไม่ใช่เซ็ตค่ามั่วลง DOM",
+        "มี comment ใน index.html ชี้ไปที่ THEME_KEY ใน store.ts และ comment ใน store.ts ชี้กลับมาที่ index.html ระบุว่าค่านี้ duplicate โดยตั้งใจเพราะ index.html ไม่ผ่าน bundler (กัน R3)",
+        "ทดสอบ FOUC จริง: clear localStorage ทั้งหมด ตั้งธีม ink แล้ว hard reload (Ctrl+Shift+R) ด้วย network throttle Slow 3G — ต้องไม่เห็นพื้นขาวแม้เฟรมเดียว",
+        "npm run build ผ่าน และ dist/index.html ยังมี script นี้อยู่ (vite ไม่ตัดทิ้ง)"
       ],
-      "filesLikelyTouched": [],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "verdict": "48/48 in harness; AC2 and AC6 carry caveats",
-      "result": "Images restore with live URLs, persistKeys refilled, seq bumped. Video stored as a real Blob (video/mp4) and rehydrate mints a FRESH object URL, so structurally not a dead blob URL — but <video> actually playing needs a browser. Over cap: 70 items -> <=60 kept, the 3 oldest favourites all survive, non-favourites evicted oldest-first. Never-enabled user: 5 generates + forget + syncFavorite + rehydrate = 0 IndexedDB ops. Favourite pressed while loading then saved at done lands as favorite:true (the T7 gap is still closed). Quota full: saveItem no-ops silently, item stays done. No blob leaks — dedupe path revokes 5/5.",
-      "findings": [
-        "HIGH actions.ts:1465/1472 — s.seq is bumped INSIDE rehydrateGallery, i.e. AFTER the await on IndexedDB I/O. reconcilePendingJobs fires rehydrateGallery without awaiting (deliberate, so a paid video resume is not delayed), so during that window s.seq is still 0 and a user pressing Generate gets id 1,2,3... colliding with the very records about to be restored, which are then dropped by the id dedupe. Measured: 10 on disk + 1 new = 9 restored, toast says 6 of 10. NOT permanent (records are never deleted; a clean reload restores 10/10) but the user has no way to know to reload, and if they clear the gallery in that session the invisible items are not cleared from disk.",
-        "LOW actions.ts:1331 — persistKeys is not cleared when opt-in is turned off; 4 stale entries remain. Not a leak (memory only, no PII, just mode:timestamp:rand) and setFavorite self-heals via persistKeys.delete.",
-        "INFO store.ts:519 + actions.ts:1465 — the favoriteKeyOf dedupe clause is DEAD: records have no status field (stripped by the allowlist) so favoriteKeyOf(record) is always \"x\" while restored items are \"d\". They can never match. Accidental benefit: a count=3 same-prompt batch restores all 3 — making this clause work would eat the batch down to 1. Recommend DELETING the clause rather than fixing it."
+      "filesLikelyTouched": [
+        "index.html",
+        "src/lib/store.ts"
+      ]
+    },
+    {
+      "id": "T8",
+      "featureId": "F3",
+      "title": "Theme picker UI ใน Header — popover เลือกธีม 7 ตัวพร้อม swatch",
+      "layer": "ui",
+      "assignee": "ออม (Aom) — Frontend UI Engineer",
+      "chainDepth": "short",
+      "dependsOn": [
+        "T6"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "done",
+      "rationale": "presentational ล้วน มี pattern popover ให้ลอก 3 ตัวใน Header เดียวกัน (ExportControl:32, AutoSaveControl:110, SpendGuardControl:250)",
+      "acceptanceCriteria": [
+        "Header.tsx มี component ThemeControl ที่ใช้ pattern popover เดียวกับ ExportControl/AutoSaveControl คือ useState(open) บวก backdrop `fixed inset-0 z-40` บวก panel `absolute right-0 top-[calc(100%+6px)] z-50` — ไม่คิด pattern ใหม่",
+        "popover list ธีมครบ 7 ตัวตามลำดับ System, Paper, Ink, High Contrast, Sepia, Midnight, Nocturne โดย System อยู่บนสุด",
+        "แต่ละแถวมี swatch แสดงสีจริงของธีมนั้น (อย่างน้อย bg บวก surface บวก accent) เพื่อให้เลือกได้โดยไม่ต้องลองทีละอัน — swatch ต้อง derive จาก THEMES ใน themes.ts ไม่ hardcode สีซ้ำใน component",
+        "ธีมที่เลือกอยู่มี visual indicator ที่ไม่ได้อาศัยสีอย่างเดียว (เช่นไอคอน check) เพื่อให้ high-contrast/ตาบอดสีก็เห็น",
+        "ปุ่มและทุกแถวมี aria-label ภาษาไทย และปุ่มหลักมี aria-expanded ตาม pattern เดิมใน Header",
+        "แถว System แสดงว่ากำลัง resolve เป็นอะไรอยู่ (เช่น ตามระบบ (มืด)) ไม่ใช่แค่คำว่า System ลอยๆ",
+        "คลิกเลือกแล้วธีมเปลี่ยนทันทีทั้งแอปโดยไม่ reload และ popover ปิด",
+        "reload แล้วธีมที่เลือกยังอยู่",
+        "ทุกสีใน component นี้ใช้ token ห้ามมี hex/rgba/tailwind palette class ใหม่",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/components/Header.tsx"
+      ]
+    },
+    {
+      "id": "T9",
+      "featureId": "F4",
+      "title": "Sweep 1 — modal overlay ทั้ง 6 ไฟล์ (bg-black/50 จุดเดียวต่อไฟล์)",
+      "layer": "cleanup",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "short",
+      "dependsOn": [
+        "T2",
+        "T4"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "done",
+      "rationale": "6 ไฟล์แต่จุดเดียวกันหมด mechanical มาก รวมเป็น task เดียวคุ้มกว่าแตก 6 task ที่แต่ละตัวแก้บรรทัดเดียว",
+      "acceptanceCriteria": [
+        "แก้ bg-black/50 เป็น token overlay ที่ระบุใน T2 mapping table ครบทั้ง 6 จุด: BakeOffConfirmModal.tsx:21, ExtendTool.tsx:54, ImportPreviewModal.tsx:30, KeyModal.tsx:364, ShortcutsModal.tsx:16, SpendGuardModal.tsx:78",
+        "grep `bg-black/50` ในทั้ง 6 ไฟล์ต้องเหลือ 0",
+        "ตรวจด้วยตาในธีม paper และ ink ว่า modal ทั้ง 6 ยังแยกจากพื้นหลังได้ชัด — ธีมมืดคือเคสเสี่ยงเพราะ scrim ดำบนพื้นดำ",
+        "ไม่แตะโค้ดอื่นในไฟล์เหล่านี้นอกจากบรรทัด overlay (diff ต้องเล็กมาก 6 บรรทัด)",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/components/BakeOffConfirmModal.tsx",
+        "src/components/ExtendTool.tsx",
+        "src/components/ImportPreviewModal.tsx",
+        "src/components/KeyModal.tsx",
+        "src/components/ShortcutsModal.tsx",
+        "src/components/SpendGuardModal.tsx"
+      ]
+    },
+    {
+      "id": "T10",
+      "featureId": "F4",
+      "title": "Sweep 2 — Lightbox.tsx (on-media context หนักสุด ~35 จุด)",
+      "layer": "cleanup",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "short",
+      "dependsOn": [
+        "T2",
+        "T4"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "done",
+      "rationale": "ไฟล์เดียวแต่จุดเยอะสุดและเป็นบริบท on-media ล้วน แยก task เพื่อไม่ให้ context บวมรวมกับไฟล์อื่น",
+      "acceptanceCriteria": [
+        "แก้ครบทุกจุดใน Lightbox.tsx: bg-[rgba(20,20,20,.96)] (L21), bg-[rgba(5,5,5,.94)] (L98), bg-[rgba(10,10,10,.7)] (L181, L203), และ text-white / text-white/50|60|70 / border-white/15|20|25|40 / bg-white/5 ทุกจุด",
+        "ทุกจุดต้อง map ไป token กลุ่ม on-media หรือ media-scrim ตาม T2 mapping table — ห้าม map ไป text/surface เด็ดขาด (นี่คือข้อที่กัน R1)",
+        "grep `-white` และ `rgba(` ใน Lightbox.tsx ต้องเหลือ 0 ยกเว้น box-shadow rgba ที่อยู่ใน allowlist ของ T2",
+        "ตรวจด้วยตาในธีม paper: Lightbox ต้องยังเป็นพื้นมืดและตัวหนังสือขาว ไม่ใช่กลายเป็นพื้นขาวตัวหนังสือดำ (ถ้ากลายเป็นขาว แปลว่า map ผิดเป็น surface/text)",
+        "ตรวจว่าปุ่ม prev/next (L181, L203) hover แล้วยังเปลี่ยนเป็น accent ตามเดิม",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/components/Lightbox.tsx"
       ]
     },
     {
       "id": "T11",
-      "featureId": "F2",
-      "title": "Security review — ไม่มี secret หรือภาพ ref หลุดลงดิสก์ถาวร (blocking)",
-      "layer": "infra",
-      "assignee": "โบว์ (Bow) — Security & Dependency Auditor",
-      "chainDepth": "full",
+      "featureId": "F4",
+      "title": "Sweep 3 — CompareModal.tsx + RefCropPreview.tsx (on-media context ชุดที่ 2)",
+      "layer": "cleanup",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "short",
       "dependsOn": [
-        "T10"
+        "T2",
+        "T4"
       ],
-      "securitySensitive": true,
+      "securitySensitive": false,
       "perfSensitive": false,
       "status": "done",
+      "rationale": "สองไฟล์นี้เป็น on-media เหมือน Lightbox จัดให้ dev คนเดียวกันทำต่อเนื่อง จะได้ตีความ token ชุดเดียวกันสม่ำเสมอ",
       "acceptanceCriteria": [
-        "dump record จริงจาก IndexedDB แล้วยืนยันว่าไม่มีฟิลด์ refs ไม่มี apiKey ไม่มี jobId",
-        "ยืนยันว่า opt-in default เป็นปิดจริงในโค้ด ไม่ใช่แค่ใน UI",
-        "ยืนยันว่าปุ่มล้างข้อมูลลบครบทั้ง record และ blob ไม่เหลือ orphan",
-        "ให้ verdict blocking หรือ pass พร้อมไฟล์:บรรทัดถ้า blocking"
+        "CompareModal.tsx แก้ครบ: bg-[rgba(5,5,5,.94)] (L79), bg-white/80 (L52), bg-black/60 (L53, L57, L58), border-white/15|20|25|60, text-white, text-white/50|70|90, bg-white/5 ทุกจุด",
+        "RefCropPreview.tsx แก้ครบ: bg-black/65 (L69, L70, L74, L75), border-white/85 (L80), bg-black/70 บวก border-white/20 บวก text-white (L88)",
+        "ทุกจุด map ไป token กลุ่ม on-media/media-scrim ตาม T2 — ห้าม map ไป text/surface",
+        "grep `-white` และ `-black` ในสองไฟล์นี้ต้องเหลือ 0",
+        "ตรวจด้วยตาในธีม paper: crop overlay ของ RefCropPreview ต้องยังมืดพอที่จะเห็นกรอบครอบตัด ถ้าโปร่งเกินไปแปลว่า map ผิด",
+        "ตรวจว่า divider เส้นกลางของ CompareModal (L52) ยังเห็นชัดบนภาพทั้งสองฝั่งในทุกธีม",
+        "npm run build ผ่าน"
       ],
-      "filesLikelyTouched": [],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "verdict": "PASS — no security blocking",
-      "result": "45/45. Record dumped from a real saveItem() through an instrumented IndexedDB stub = exactly 18 allowlisted fields. Fed an item carrying apiKey \"sk-or-LEAKED\", jobId \"job-SECRET-12345\", refs data URL and an errMsg with a filesystem path, then deep-scanned the record JSON — none of those strings appear. Allowlist still holds after T7/T8/T22: injected a brandNewSecretField into GenItem and it did not reach disk. opt-in off means ZERO IndexedDB ops (measured), and any flag value other than exactly \"1\" counts as off. Disabling wipes records including favourited ones (correct for privacy), clears the flag, leaves no atelier_gallery_* keys. No new dependencies (package.json diff vs main is empty).",
-      "privacyOpinion": "prompt/negPrompt on disk is acceptable — it is metadata the card cannot render without, and atelier_prompt_history already stores prompts in localStorage with NO opt-in at all, so F2 adds no new attack surface; it sits behind a default-off toggle that genuinely wipes. FNV-1a of the prompt is theoretically reversible but irrelevant: favoriteKeyOf already stores p.slice(0,24) as PLAINTEXT, so the hash was never a security boundary. Do NOT switch to SubtleCrypto — it would break the sync render path for nothing. DO add a line to the KeyModal label saying prompts are stored too."
+      "filesLikelyTouched": [
+        "src/components/CompareModal.tsx",
+        "src/components/RefCropPreview.tsx"
+      ]
     },
     {
       "id": "T12",
-      "featureId": "F3",
-      "title": "filter toolbar + ปุ่ม favorite บนการ์ด (UI)",
-      "layer": "ui",
+      "featureId": "F4",
+      "title": "Sweep 4 — Gallery.tsx (badge บนภาพปนกับ surface ปกติ ต้องแยกให้ถูก)",
+      "layer": "cleanup",
       "assignee": "ออม (Aom) — Frontend UI Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [],
+      "chainDepth": "short",
+      "dependsOn": [
+        "T2",
+        "T4"
+      ],
       "securitySensitive": false,
       "perfSensitive": true,
       "status": "done",
+      "rationale": "1114 บรรทัดและเป็นไฟล์เดียวที่มีทั้ง badge บนภาพ (on-media) และ card surface ปกติ (app-surface) ปนกัน จึงเป็นไฟล์ที่ map ผิดง่ายที่สุด ต้องแยก task และให้คนที่เห็นภาพรวม UI ทำ",
       "acceptanceCriteria": [
-        "มีแถบ filter เหนือ VirtualGrid ใน Gallery() ประกอบด้วยช่องค้นหา prompt, chip กรองตามสถานะ done/error/loading, chip favorite only และตัวเลือกเรียงใหม่สุด/เก่าสุด",
-        "ปุ่ม favorite อยู่บนการ์ดและสถานะ on/off ต่างกันชัดเจนด้วยสีหรือไอคอนที่ต่างกัน ไม่ใช่แค่ opacity",
-        "ใช้ utility จาก theme เดิมเท่านั้น เช่น bg-surface text-text-dim border-border-strong ห้าม hardcode hex สี",
-        "แถบ filter ไม่ scroll หายไปพร้อม grid ตรวจโดย scroll ลงแล้วแถบยังอยู่",
-        "git diff --stat ต้องไม่มี Sidebar.tsx และไม่มี KeyModal.tsx",
+        "แก้ครบทุกจุดใน Gallery.tsx: bg-[rgba(10,10,10,.82)] (L104), bg-[rgba(10,10,10,.72)] (L436, L441, L476, L477, L490, L506, L523, L525, L526), bg-black/60 (L801), text-white และ text-white/80, border-white/15 ทุกจุด",
+        "shimmer gradient ที่ L545 `bg-[linear-gradient(100deg,transparent_30%,rgba(10,10,10,.06)_50%,transparent_70%)]` ต้องเปลี่ยนเป็นค่าที่อิง token — ในธีมมืด rgba(10,10,10,.06) มองไม่เห็นเลย ทำให้ loading state หายไปเงียบๆ (นี่คือ regression ที่ตาจับยากถ้าไม่ตั้งใจดู)",
+        "badge/overlay ที่อยู่ทับบนภาพ (L104 model badge, L436 model chip, L441 accent chip, L476-526 action buttons, L801 scene number) ต้อง map ไป token กลุ่ม on-media เท่านั้น",
+        "grep `-white` และ `rgba(` ใน Gallery.tsx ต้องเหลือ 0 ยกเว้น box-shadow rgba ใน allowlist",
+        "ตรวจด้วยตาในธีม paper: badge model ที่มุมซ้ายบนของการ์ดต้องยังอ่านออกบนภาพสีอ่อน ถ้าตัวหนังสือหายแปลว่า map เป็น text แทน on-media",
+        "ตรวจว่า shimmer ยังเห็นได้ทั้งธีม paper และ ink ตอน generate",
+        "ตรวจว่า virtualization ยังทำงาน (scroll gallery ที่มี 50+ item แล้วไม่กระตุก) — perfSensitive เพราะไฟล์นี้มี VirtualGrid",
         "npm run build ผ่าน"
       ],
       "filesLikelyTouched": [
-        "src/components/Gallery.tsx",
-        "src/lib/types.ts"
-      ],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "Filter toolbar (search/status chips/fav chip/sort) + favorite button on Card + favorite?:boolean in GenItem. openFiltered() closes lightbox index seam. build pass, 2 files, protected zones untouched."
+        "src/components/Gallery.tsx"
+      ]
     },
     {
       "id": "T13",
-      "featureId": "F3",
-      "title": "derived filtered list + แก้ index mapping ของ lightbox + wire resetModeGallery",
-      "layer": "logic",
-      "assignee": "เบล (Bell) — Frontend Integration Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T12"
-      ],
-      "securitySensitive": false,
-      "perfSensitive": true,
-      "status": "done",
-      "acceptanceCriteria": [
-        "รายการที่ส่งเข้า VirtualGrid เป็น useMemo ที่ dep ครบ ไม่คำนวณใหม่ทุก render ตอน filter ไม่เปลี่ยน",
-        "เปิด lightbox จากการ์ดขณะ filter เปิดอยู่ ต้องเปิดรูปที่คลิกจริง ไม่ใช่รูปอื่น และปุ่มถัดไป/ก่อนหน้าเดินอยู่ในชุดที่กรองแล้วเท่านั้น",
-        "toggleFavorite ผ่าน mutate() เสมอ ไม่มีการแก้ state ตรงๆ โดยไม่เรียก mutate",
-        "resetModeGallery ถูกเรียกจากปุ่มใน UI จริง ตรวจด้วย grep resetModeGallery ต้องเจอมากกว่า 1 จุด และปุ่มนี้ข้าม item ที่ favorite",
-        "ล้าง gallery แล้ว blob URL ถูก revoke ตรวจว่า item ที่ favorite ยังเล่นวิดีโอได้อยู่",
-        "filter ไม่ทำให้ virtualization พัง ตรวจ dev readout ว่า mounted ยังน้อยกว่า total ตอนมี item เยอะ",
-        "ห้ามแตะ useEffect scrollToRow บรรทัดราว 766-773 และห้ามแตะ Card หรือ useGalleryFocus",
-        "npm run build ผ่าน",
-        "กด Enter บนการ์ดขณะ filter เปิดอยู่ (roving tabindex path ที่ useGalleryFocus.onEnterKey — Gallery.tsx:154) ต้องเปิดรูปที่โฟกัสจริง ไม่ใช่รูปอื่น และต้องแก้โดยไม่แก้ internals ของ useGalleryFocus",
-        "favorite ต้อง persist ข้าม reload — กดดาวแล้ว reload ต้องยังติดดาวอยู่ และ session snapshot ต้องพา favorite ไปด้วย โดยอ่านแบบ !!item.favorite ทุกจุด (snapshot เก่าไม่มีฟิลด์นี้ต้องไม่พัง)"
-      ],
-      "filesLikelyTouched": [
-        "src/components/Gallery.tsx",
-        "src/lib/actions.ts"
-      ],
-      "handoffFromT12": [
-        "filter state = local useState in Gallery(): query, statusFilter, favOnly, sortOrder + resetFilters(); reset on mode switch via effect [s.mode]",
-        "SEAM STILL OPEN: useGalleryFocus.onEnterKey at Gallery.tsx:154 calls openLightbox(index) directly — with filters active this opens the WRONG image. Must route through the same visibleIndex->id->realIndex mapper as openFiltered. useGalleryFocus is a11y-branch territory: prefer passing a mapper as prop over editing the hook internals.",
-        "favorite is NOT persisted yet and NOT in session snapshot — user stars an item, reloads, it is gone. Looks like a bug to the user. T13 must persist it.",
-        "favorite is optional by design: always read as !!item.favorite; old snapshots lack the field",
-        "ms.selected keys on id (not index) so it is already filter-safe"
-      ],
-      "scopeNote": "AC 2 ข้อท้ายเพิ่มโดย Loop Controller หลัง T12 — ออม (T12) flag ไว้ว่าเป็น seam ที่ยังเปิดค้างและ verify แล้วว่าเป็นของจริง",
-      "completedAt": "2026-08-20",
-      "result": "Favorites persisted as FINGERPRINT (mode/prompt/model/ratio/duration/audio) in atelier_favorites_<mode>, NOT id — item.id proven unstable (store.ts:445 seq=0 each reload). Works even with F2 opt-in off. onEnterKey=onOpen alias closes Enter seam without touching useGalleryFocus. setLightboxScope() keeps arrow-nav inside filtered set without touching Lightbox.tsx. resetModeGallery revived, skips favorites, revokes only deleted blobs.",
-      "verificationDebt": [
-        "AC2 lightbox opens correct image while filtered",
-        "AC5 favorited video still plays after clear",
-        "AC6 virtualization still mounts subset",
-        "AC9 Tab into grid + real Enter key",
-        "AC10 star then F5 persists"
-      ],
-      "qaNote": "5 AC proven via Node logic harness replicating real code, NOT a browser (Chrome extension unavailable to the agent). Bell explicitly declined to claim full pass. แพร must verify these 5 on a real browser.",
-      "tradeoff": "favoriteKeyOf groups items with identical prompt/model/ratio/duration/audio — starring one stars the whole group. Deliberate: makes UI match post-reload reality instead of surprising the user later. Verified by LC at actions.ts toggleFavorite + store.ts favoriteKeyOf."
-    },
-    {
-      "id": "T14",
-      "featureId": "F3",
-      "title": "QA — filter, favorite, lightbox index และ virtualization",
-      "layer": "infra",
-      "assignee": "แพร (Prae) — QA Lead",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T13"
-      ],
-      "securitySensitive": false,
-      "perfSensitive": true,
-      "status": "done",
-      "acceptanceCriteria": [
-        "สร้าง item อย่างน้อย 12 ชิ้น กรองด้วยคำค้น แล้วคลิกการ์ดที่ 3 ของผลลัพธ์ ต้องเปิดรูปที่ 3 ของผลลัพธ์นั้นจริง",
-        "กด favorite แล้วเปิด chip favorite only เห็นเฉพาะที่กดไว้",
-        "กดล้าง gallery แล้ว item ที่ favorite ยังอยู่ครบ",
-        "ตรวจ dev readout ว่า mounted น้อยกว่า total ตอนกรองแล้วยังมีผลลัพธ์เยอะ",
-        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน"
-      ],
-      "filesLikelyTouched": [],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "verdict": "All 5 AC PASS — nothing blocks F3 merge. 44/49 harness (5 failures are BUGCHECKs designed to fail if the bug is real; all 5 are real).",
-      "result": "Harness transpiled real Gallery.tsx/actions.ts/store.ts verbatim (constants pulled from source, not hardcoded). AC1 openFiltered round-trips every index in both sort orders. AC3 clear keeps exactly the starred ones, removed count correct, revokes only deleted. AC9 proven statically: onEnterKey=onOpen=openFiltered are literally the same function, Card calls both with the same index.",
-      "bugsFound": [
-        "P1 actions.ts:2166 — starring one item stars every item with the same fingerprint. Bell architecture is CORRECT (fingerprint cannot distinguish siblings) and the comment says so, but the UI gives the user NO hint the star belongs to a group. UX bug: user will think the app is broken. Cheapest fix = toast on first multi-toggle.",
-        "P1 actions.ts:2140 — addToGallery calls isRememberedFavorite on EVERY new item, and NOTHING prunes orphan fingerprints (saveFavorites has one caller). Star an item, let it leave the gallery still starred (reload/evict), regenerate the same prompt -> new item is starred without the user touching it. Confirmed by LC.",
-        "P2 actions.ts:2163 + store.ts:474 — favoriteKeyOf has no status field, so a cancelled card inherits the star from its done twin and then SURVIVES ล้างแกลเลอรี. clearableCount in the confirm box reads lower than what the user sees on screen.",
-        "P2 store.ts:475 — favoriteKeyOf embeds the RAW prompt and the 300 cap counts KEYS not BYTES. Measured: 2000-char prompts x 300 x 5 modes = 5.96MB, over quota. The app own Optimizer/Grill produce long prompts. On overflow writeLocalStorage swallows it and OTHER keys (history/templates/snapshot) fail too. Fix = hash the prompt."
-      ],
-      "lcCorrection": "แพร reported the separator as \u0000; it is actually a plain space (store.ts:475). Does not change the quota finding, but adds a key-collision risk since prompts contain spaces.",
-      "aPreexisting": "Gallery.tsx:419 tabIndex={done ? -1 : undefined} means NO card ever gets tabIndex=0, so Tab cannot enter the grid at all — contradicts the roving-tabindex description in CLAUDE.md. git log -S traces it to commit 2805173, BEFORE this sprint. Not caused by F3."
-    },
-    {
-      "id": "T15",
       "featureId": "F4",
-      "title": "contract ของ SpendLedger + นิยามจุด gate ใน generate()",
-      "layer": "api",
-      "assignee": "นุ่น (Noon) — API Contract Engineer",
-      "chainDepth": "full",
+      "title": "Sweep 5 — Sidebar.tsx + Header.tsx (status dot) + Landing.tsx + utils.ts",
+      "layer": "cleanup",
+      "assignee": "เบล (Bell) — Frontend Integration Engineer",
+      "chainDepth": "short",
       "dependsOn": [
-        "T2"
+        "T2",
+        "T4"
       ],
       "securitySensitive": false,
       "perfSensitive": false,
       "status": "done",
+      "rationale": "จุดกระจัดกระจายที่เหลือ แต่ละไฟล์จุดน้อย รวมเป็น task เดียวได้โดย context ไม่บวม และมีเคสพิเศษที่ต้องคิด (green-400 กับ hero art ที่ต้องคงความมืด)",
       "acceptanceCriteria": [
-        "types.ts มี interface SpendLedger ที่มีอย่างน้อย ยอดสะสม, เวลาที่เริ่มนับ, และเพดานที่ผู้ใช้ตั้ง",
-        "ระบุเป็นลายลักษณ์อักษรว่า gate แทรกที่บรรทัดไหนของ generate() และต้องอยู่หลัง refImageMissing check แต่ก่อน mutate ที่สร้าง item เพื่อไม่ให้มี item ค้างใน gallery ตอนผู้ใช้กดยกเลิกที่ modal",
-        "ระบุว่า gate ต้องไม่ซ้อนกับ BakeOffConfirmModal เดิม path Bake-off ผ่าน modal เดียวไม่ใช่สองชั้น",
-        "ยืนยันว่าจุดที่เลือกไม่ทับกับบรรทัดที่ T2 แก้ อ้างเลขบรรทัดจริงหลัง T2 merge แล้ว",
+        "Sidebar.tsx แก้ครบ: from-black/85 (L513), text-white (L514, L517, L524), bg-black/50 (L517), bg-black/60 (L524), border-white/20 (L517, L524) — ทั้งหมดเป็น overlay บนภาพ ref ต้อง map ไป on-media",
+        "Header.tsx แก้ bg-green-400 ทั้ง 2 จุด (L126 auto-save dot, L500 api-key dot) เป็น token success ที่เพิ่มใน T1 — ไม่ใช่ map ไป accent เพราะ accent เปลี่ยนตามธีมและบางธีม accent ไม่ใช่สีที่สื่อความว่าพร้อมใช้",
+        "Landing.tsx: text-white (L139) และ border-white/25 (L143) ที่อยู่ในการ์ด hero art ต้อง map ไป on-media (การ์ดนี้มืดถาวรโดยเจตนา ดู G5) และ bg-[#0a0a0a] (L139) ต้องคงความมืดไว้แต่เปลี่ยนเป็น token media-scrim เพื่อไม่ให้เป็น hex ลอย",
+        "Landing.tsx: การ์ด hero art ต้องมี border ที่แยกตัวจากพื้นหลังได้ในธีม ink/contrast (ตอนนี้ใช้ border-border-strong ซึ่งในธีมมืดอาจกลืน) — ตรวจด้วยตาว่าการ์ดไม่หายไปกับพื้น (กัน R6)",
+        "utils.ts:79 `ctx.fillStyle = \"#fff\"` — ต้อง**ไม่แก้** และเพิ่ม comment ยืนยันว่านี่คือพื้นหลังของไฟล์ JPG ที่ผู้ใช้ดาวน์โหลด (JPG ไม่มี alpha) ไม่ใช่สี UI ถ้าเปลี่ยนตามธีม ผู้ใช้ธีมมืดจะได้ไฟล์ JPG พื้นดำโดยไม่ได้ตั้งใจ",
+        "grep `-white`, `-black`, `green-400` ในไฟล์ที่แก้ต้องเหลือ 0",
         "npm run build ผ่าน"
       ],
       "filesLikelyTouched": [
-        "src/lib/types.ts"
+        "src/components/Sidebar.tsx",
+        "src/components/Header.tsx",
+        "src/pages/Landing.tsx",
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "id": "T14",
+      "featureId": "F5",
+      "title": "แก้บั๊กโลโก้ invert — โลโก้หายในธีมมืด (grep สีจับไม่ได้)",
+      "layer": "ui",
+      "assignee": "ออม (Aom) — Frontend UI Engineer",
+      "chainDepth": "short",
+      "dependsOn": [
+        "T4"
       ],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "SpendLedger{totalUsd,unknownCostCount,startedAt,capUsd?} + SpendConfirmRequest + AppState.spendLedger?/spendConfirm? (optional by necessity — T16 adds initial values in store.ts). Reuses Bake-off state-flag pattern exactly: gate sets state.spendConfirm and returns, confirm button re-enters generate() in bypass mode. generate() stays SYNC — both callers (Sidebar.tsx:249, shortcuts.ts:39) are fire-and-forget and would leak a floating promise if made async.",
-      "gateDecision": "Gate at actions.ts:869. Noon CHANGED this from the originally planned :862 after reading real code: :861 refImageMissing sits INSIDE the else branch, so a gate there would let the QUEUE path (:853-856, the largest possible batch) bypass it entirely — exactly the case the feature exists to stop. :869 is the first line where jobs[] is assembled in both branches. Verified by LC against HEAD.",
-      "countingRule": "Count when the request was actually FIRED, not when it returned: done=yes, loading=yes but ONLY once past the governor queue (counting on enqueue would let 30 items pass the gate at total=0), cancelled+jobId=yes (OpenRouter already charged), cancelled without jobId=no, error+jobId=yes (retry resumes). One GenItem.id may add to totalUsd once ever — never re-scan the gallery and re-sum, since eviction would silently shrink the total.",
-      "handoffToT16": [
-        "Add initial spendLedger value in store.ts (~:500) — T15 could not touch that file",
-        "CRITICAL: the queue branch already did ms.queue = [] at actions.ts:855 BEFORE the gate runs. If the user cancels in the modal you MUST restore the queue from the snapshotted jobs[] or their queue vanishes silently.",
-        "capUsd 0 means STRICTEST (ask every time), undefined means feature off. Never write capUsd || DEFAULT or if (!capUsd) return — 0 is falsy and would collapse the strictest case into the off case.",
-        "null cost goes to unknownCostCount, never adds 0 to totalUsd, and the gate must NOT read it as free-so-allow — a batch with unknown-cost items always prompts (reason: unknown-cost)",
-        "runBakeOff must still RECORD into the ledger even though it is not gated (not gated != not counted)"
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "done",
+      "rationale": "เป็น theme assumption ที่ซ่อนอยู่ในรูปของ CSS filter ไม่ใช่สี ถ้าไม่มี task เฉพาะจะตกหล่นแน่นอนเพราะไม่มี grep ไหนจับได้ (ดู gapAnalysis G1 และ R2)",
+      "acceptanceCriteria": [
+        "Header.tsx:442 และ Landing.tsx:97 เลิกใช้ class `invert` ตรงๆ เปลี่ยนไปใช้กลไกที่อิง --logo-invert ที่ T4 เพิ่มไว้ (เช่น class .brand-logo ใน index.css ที่ใช้ filter: invert(var(--logo-invert)))",
+        "grep `invert` ใน src/components และ src/pages ต้องเหลือ 0 (หรือเหลือเฉพาะที่อิง var)",
+        "ตรวจด้วยตาครบ 6 ธีม: โลโก้ต้องมองเห็นได้ชัดเจนทุกธีม ไม่กลืนกับพื้นหลัง — โดยเฉพาะ ink, midnight, nocturne, contrast ที่พื้นมืด",
+        "ตรวจทั้ง 2 ที่: โลโก้ใน Header ของหน้า /studio และโลโก้ใน Landing ของหน้า /",
+        "โลโก้ตัวที่ 3 ใน Landing.tsx:141 (อยู่ในการ์ด hero art ที่มืดถาวร) ต้อง**ไม่**ถูกผูกกับ --logo-invert เพราะการ์ดนั้นมืดเสมอไม่ว่าธีมอะไร — ต้องคงพฤติกรรมเดิม",
+        "npm run build ผ่าน"
       ],
-      "bakeOffProof": "Bake-off structurally cannot double-prompt: it never goes through generate() at all — both callers branch before it (Sidebar.tsx:159, shortcuts.ts:39) and confirmBakeOff calls runBakeOff directly."
+      "filesLikelyTouched": [
+        "src/components/Header.tsx",
+        "src/pages/Landing.tsx",
+        "src/index.css"
+      ]
+    },
+    {
+      "id": "T15",
+      "featureId": "F5",
+      "title": "shareCard fallback sync + แก้ CLAUDE.md ที่ระบุ Dark theme only ผิด",
+      "layer": "cleanup",
+      "assignee": "เจน (Jane) — Backend Endpoint Engineer",
+      "chainDepth": "short",
+      "dependsOn": [
+        "T3",
+        "T4"
+      ],
+      "securitySensitive": false,
+      "perfSensitive": false,
+      "status": "done",
+      "rationale": "shareCard อ่าน CSS var อยู่แล้วจึงตามธีมฟรี (ดู factCheck corrections ข้อ 3) เหลือแค่ sync fallback และแก้เอกสารที่ล้าสมัย งานเล็กแต่ถ้าไม่มีเจ้าภาพจะตกหล่น",
+      "acceptanceCriteria": [
+        "shareCard.ts FALLBACK_COLORS (L6-16) มีค่าตรงกับธีม paper ใน themes.ts ทุกตัว — ตรวจด้วยการ diff",
+        "ไม่แก้ readThemeColors() logic (L18-36) — มันทำงานถูกอยู่แล้ว การแก้คือการถอย",
+        "ถ้า share card ใช้ token ใหม่เพิ่ม ต้องเพิ่มใน FALLBACK_COLORS ด้วยให้ครบ ไม่ปล่อยให้ read() คืน string ว่าง",
+        "ทดสอบจริง: สลับไปธีม ink แล้ว export share card ของผลงานจริงหนึ่งชิ้น เปิดไฟล์ PNG ที่ได้ ต้องเป็นการ์ดพื้นมืดตัวหนังสือสว่าง ไม่ใช่พื้นขาว และตัวหนังสือต้องอ่านออก (กัน R4)",
+        "ทดสอบซ้ำกับธีม contrast และ sepia อีก 2 ธีม",
+        "CLAUDE.md แก้ประโยคสุดท้ายของหัวข้อ Styling ที่เขียนว่า `Dark theme only` — เปลี่ยนเป็นคำอธิบายระบบธีมใหม่ที่ถูกต้อง (ธีมเลือกได้ 7 ตัว, default = Paper light, กลไก data-theme, ห้าม hardcode สี)",
+        "CLAUDE.md เพิ่มบรรทัดชี้ว่า token มี 18 ตัวและอยู่ที่ไหน (themes.ts / index.css) เพื่อให้คนถัดไปไม่กลับไป hardcode",
+        "npm run build ผ่าน"
+      ],
+      "filesLikelyTouched": [
+        "src/lib/shareCard.ts",
+        "CLAUDE.md"
+      ]
     },
     {
       "id": "T16",
-      "featureId": "F4",
-      "title": "logic สะสมยอดข้ามโหมด + ตรวจเพดานก่อนยิง",
-      "layer": "logic",
-      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
-      "chainDepth": "full",
+      "featureId": "F6",
+      "title": "Grep gate — พิสูจน์ว่ากวาดหมดจริงด้วยคำสั่งที่รันซ้ำได้",
+      "layer": "qa",
+      "assignee": "แพร (Prae) — QA Lead",
+      "chainDepth": "short",
       "dependsOn": [
+        "T9",
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14",
         "T15"
       ],
       "securitySensitive": false,
       "perfSensitive": false,
       "status": "done",
+      "rationale": "gate เดียวที่เป็นกลไกจริง ไม่ใช่ความเห็น เพราะ npm run build จับสีไม่ได้เลย (ดู gapAnalysis G4)",
       "acceptanceCriteria": [
-        "มีฟังก์ชันคำนวณยอดสะสมข้ามทั้ง 5 โหมดโดยใช้ computeItemCost เดิม ไม่เขียนสูตรราคาใหม่ซ้ำ",
-        "item ที่ราคาคำนวณไม่ได้ต้องถูกนับเป็นไม่ทราบราคา ไม่ใช่นับเป็น 0 เงียบๆ และตัวเลขที่แสดงต้องมีเครื่องหมายบอกว่าไม่ครบ",
-        "ยอดสะสมและเพดาน persist ผ่าน writeLocalStorage จาก store.ts เท่านั้น ไม่เรียก localStorage.setItem ตรงๆ เพื่อให้ได้ quota handling เดิม",
-        "คีย์ที่ใช้ขึ้นต้นด้วย atelier_ เพื่อให้ estimateAtelierStorageBytes และปุ่มล้างใน storage breakdown มองเห็น",
-        "ประเมินราคา batch ที่กำลังจะยิงแล้วเทียบเพดาน คืนผลว่าต้องถามหรือไม่ต้องถาม",
-        "เพดานเป็น 0 หรือไม่ได้ตั้ง แปลว่าปิด feature ไม่ถามเลย",
-        "npm run build ผ่าน"
+        "รันแล้วได้ 0: grep -rEn '\\b(text|bg|border|from|to|via|ring|fill|stroke|divide|placeholder)-(white|black)(/[0-9]{1,3})?\\b' src/components src/pages",
+        "รันแล้วได้ 0: grep -rEn '\\b(text|bg|border|from|to|via|ring|fill|stroke)-(red|green|blue|amber|emerald|yellow|orange|sky|rose|slate|zinc|neutral|stone|gray|indigo|violet|purple|teal|cyan|lime|fuchsia|pink)-[0-9]{2,3}\\b' src/",
+        "รันแล้วเหลือเฉพาะรายการใน allowlist ของ T2: grep -rEn '#[0-9a-fA-F]{3,8}\\b|rgba?\\(' src/components src/pages — ทุกบรรทัดที่เหลือต้องเป็น box-shadow rgba เท่านั้น และต้อง list ออกมาให้เห็นว่ามีกี่บรรทัด บรรทัดไหนบ้าง",
+        "รันแล้วได้ 0: grep -rn 'invert' src/components src/pages | grep -v 'var(--logo-invert)'",
+        "src/index.css: grep hex ต้องเหลือเฉพาะใน @theme และ block [data-theme=...] เท่านั้น ไม่มีในส่วน .hero-* อีก",
+        "npm run build ผ่าน",
+        "รายงานผลเป็นตาราง: คำสั่ง / จำนวนที่เจอ / ผ่านหรือไม่ — ถ้าข้อไหนไม่ผ่านต้องระบุไฟล์และบรรทัด แล้วตีกลับไปที่ task ต้นทาง ไม่ใช่แก้เอง"
       ],
-      "filesLikelyTouched": [
-        "src/lib/actions.ts",
-        "src/lib/store.ts",
-        "src/lib/constants.ts"
-      ],
-      "startedAt": "2026-08-20",
-      "partialProgress": {
-        "at": "2026-08-20",
-        "note": "Agent terminated by API connection error mid-task, NOT by a work failure. Verified state below by Loop Controller.",
-        "done": [
-          "store.ts COMPLETE: freshSpendLedger() (capUsd omitted = undefined = feature off for new users), loadSpendLedger() with sanitize (rejects NaN/negative/wrong-type so they cannot silently make every gate comparison false), saveSpendLedger() export, spendLedger: loadSpendLedger() wired into initial state at store.ts:565, storage-breakdown label + delete-key handler that also resets in-memory state (otherwise the next autosave would write the deleted total straight back)"
-        ],
-        "remaining": [
-          "actions.ts NOT STARTED: ledger accumulation at the governor hand-off point, the gate at :869, bypass mode, queue restore on cancel, runBakeOff recording, exported API for T17"
-        ],
-        "buildState": "green at time of failure"
-      },
-      "completedAt": "2026-08-20",
-      "result": "recordSpend() at actions.ts:1123 inside scheduleRequest run() — the single point in the whole app where a request leaves the governor queue and goes in-flight. Covers every paying path (generate/runBakeOff/retry/regenerate/resume) without checking status anywhere; items dropped while still queued never reach it, matching the counting rule exactly. spendCountedIds Set dedupes so the total is monotonic under eviction. Gate at :875-887 after both jobs[] branches, before addToHistory. capUsd checked with === undefined throughout (no falsy guard anywhere in F4).",
-      "selfFoundBug": "มายด์ลิน caught and fixed his own bug during review: first version of confirmSpend restored the queue ALWAYS, so the second generate() pass took the queue branch, making parentId = !ms.queue.length ? ... : null evaluate to null — Refine this would silently lose its parent link (and refiningParentId was already cleared in pass one). Fixed by snapshotting parentId and carrying it across via pendingSpendParentId, restoring the queue only when fromQueue. Verified by LC.",
-      "qaNote": "59/59 across two harnesses transpiling real extracted code (25/25 gate+ledger, 34/34 real generate() + confirm/cancel state machine)."
+      "filesLikelyTouched": []
     },
     {
       "id": "T17",
-      "featureId": "F4",
-      "title": "modal ยืนยันงบ + badge ยอดสะสมบน Header",
-      "layer": "ui",
-      "assignee": "ออม (Aom) — Frontend UI Engineer",
-      "chainDepth": "full",
-      "dependsOn": [
-        "T16"
-      ],
-      "securitySensitive": false,
-      "perfSensitive": false,
-      "status": "done",
-      "acceptanceCriteria": [
-        "modal ใหม่แยกไฟล์ ไม่แก้ BakeOffConfirmModal.tsx เดิม ตรวจด้วย git diff --stat",
-        "modal แสดงยอดที่กำลังจะจ่าย ยอดสะสมปัจจุบัน และเพดานที่ตั้งไว้ ครบทั้ง 3 ตัวเลข",
-        "กดยกเลิกที่ modal แล้วต้องไม่มี item ใหม่โผล่ใน gallery เลย และไม่มี request ยิงออก",
-        "Header แสดงยอดสะสมข้ามโหมดและกดเข้าไปตั้งเพดานได้",
-        "ห้ามแตะ Sidebar.tsx และ SettingsModal.tsx ตรวจด้วย git diff --stat",
-        "เรียก toast(msg) แบบ 1 argument เท่านั้น",
-        "npm run build ผ่าน"
-      ],
-      "filesLikelyTouched": [
-        "src/components/SpendGuardModal.tsx",
-        "src/components/Header.tsx",
-        "src/pages/StudioApp.tsx"
-      ],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "SpendGuardModal.tsx (new, 145 lines) cloned from BakeOffConfirmModal structure. 3 numbers in a divide-y block + projected total as a 4th row that turns danger when over cap. reasonCopy() exhaustive switch gives each of already-over/over-cap/unknown-cost its own icon, heading and body. Unknown count shown in TWO places so it can never be silent, inside a paragraph that always labels the figures as estimates not a real bill. SpendGuardControl pill in Header shows ALWAYS (not hidden at /usr/bin/bash) because it is the only entry point to the cap setting — hiding it would mean only users who already know the feature exists can find it. Cap set via popover cloned from ExportControl. Reset ledger uses the two-step confirm pattern from RunningJobsControl rather than a modal-on-popover.",
-      "designNote": "Autofocus goes to the CANCEL button, not confirm (via the KeyModal setTimeout pattern): this modal interrupts right after the user pressed Generate, so someone reflexively hitting Enter must not thereby approve a spend unread.",
-      "browserDebt": [
-        "header right-group may overflow on narrow screens — no wrap/breakpoint there and this pill is always visible",
-        "popover 300px right-0 clipping",
-        "focus ring inside popover",
-        "modal layout per reason variant"
-      ]
-    },
-    {
-      "id": "T18",
-      "featureId": "F4",
-      "title": "QA — gate ทำงานถูกจังหวะและไม่ถามซ้ำซ้อนกับ Bake-off",
-      "layer": "infra",
+      "featureId": "F6",
+      "title": "QA matrix — 8 surface x 3 ธีมตัวแทน + regression ของฟีเจอร์เดิมที่ห้ามพัง",
+      "layer": "qa",
       "assignee": "แพร (Prae) — QA Lead",
-      "chainDepth": "full",
+      "chainDepth": "short",
       "dependsOn": [
-        "T17"
-      ],
-      "securitySensitive": false,
-      "perfSensitive": false,
-      "status": "done",
-      "acceptanceCriteria": [
-        "ตั้งเพดานต่ำมากแล้วกด generate ต้องเด้ง modal และกดยกเลิกแล้ว gallery ไม่มี item ใหม่",
-        "กดยืนยันแล้วงานยิงจริงและยอดสะสมเพิ่มขึ้นตามจำนวนที่สร้างเสร็จ",
-        "เปิด Bake-off แล้วกด generate ต้องเห็น modal ยืนยันชั้นเดียวเท่านั้น ไม่ใช่สองชั้นซ้อน",
-        "reload แล้วยอดสะสมยังอยู่",
-        "รายงานผลรายข้อ ผ่าน/ไม่ผ่าน",
-        "ตั้งเพดานเป็น 0 = เข้มที่สุด ต้องถามทุกครั้ง (ไม่ใช่ปิดฟีเจอร์) — ยืนยันว่า 0 ไม่ถูก falsy-collapse",
-        "ไม่ได้ตั้งเพดาน (undefined) = ปิดฟีเจอร์ ต้องไม่ถามเลยแม้ batch ราคาสูงมาก"
-      ],
-      "filesLikelyTouched": [],
-      "startedAt": "2026-08-20",
-      "acAmendedBy": "Loop Controller — AC เดิมขัดกับ contract T15/T16 (ดู workflow.json revisions)",
-      "completedAt": "2026-08-20",
-      "verdict": "All 7 AC PASS, but found 1 BLOCKER + 2 MAJOR + 1 MINOR outside the AC paths. 36/45 harness (failures are the confirmed bugs).",
-      "blockerFixed": "BLOCKER bypassSpendGate leak — confirmSpend sets the flag then calls generate(), but generate() had 3 early returns (:846 apiKey, :869 !prompt||!model, :870 refImageMissing) BEFORE the line that cleared it, so the flag stuck true forever and the NEXT batch fired with no prompt at all. Repro was 100%: open modal, clear the prompt box (modal does not block it), hit confirm -> silent no-op -> type a new prompt, count 10 -> 10 items fire ungated. FIXED by Loop Controller: read+clear moved to the first line of generate(), parentId now reads the local bypassed. Verified: build green, no reader of the raw flag remains.",
-      "remainingBugs": [
-        "MAJOR actions.ts:2551 — confirmSpend restores the queue into pending.mode (correct) but the second generate() pass reads via cur() = CURRENT mode. Switch modes while the modal is open, hit confirm -> scheduled=0, queue sits untouched in the origin mode, no toast. User paid attention and nothing happened. Queue is NOT lost (MAJOR not BLOCKER). Cancel+switch-mode restores correctly.",
-        "MAJOR actions.ts:2522 — pendingSpendJobs is a single module-level slot and shortcuts.ts:39 Ctrl+Enter calls generate() without checking state.spendConfirm (Sidebar:956 does not disable either). Open modal on home queue, switch to video, Ctrl+Enter -> pendingSpendJobs overwritten -> the home queue is gone permanently.",
-        "MINOR actions.ts:2461 — spendCountedIds dedupes by item.id but retryWithOverride (:1878) reuses the id while genuinely firing a NEW paid request. Measured: /usr/bin/bash.01 item retried onto a /usr/bin/bash.50 model leaves the ledger at 0.01 though 0.51 was spent. Plain retry() same. Ledger drifts LOW for heavy retry users, so the gate lets them through after they are already over cap — opposite of the monotonic intent."
-      ],
-      "observation": "unknown-cost gate fires even when the total is far below cap — correct per contract, but users on token-based/free models will be prompted every single time and may just turn the feature off. Worth a product decision."
-    },
-    {
-      "id": "T19",
-      "featureId": "F1",
-      "title": "ปิดบั๊ก notify batch ค้างถาวรเมื่อมี item ถูก cancel",
-      "layer": "logic",
-      "assignee": "เจน (Jane) — Backend Endpoint Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T2"
-      ],
-      "securitySensitive": false,
-      "perfSensitive": false,
-      "status": "done",
-      "origin": "พบโดยมายด์ลิน (T2) ระหว่างทำ semaphore — verified by Loop Controller ที่ notify.ts:140",
-      "problem": "beginNotifyBatch(batch.length) ล็อก total ตั้งแต่ต้น แต่ cancelled path ไม่เรียก notifyJobSettled (ถูกตามกฎ contract ข้อ 4) ทำให้ settled ไม่มีวันถึง total -> entry ค้างใน batches ถาวร และ batch นั้นไม่ยิงสรุปตอนจบ (ยกเลิก 1 คลิปจาก 5 = อีก 4 คลิปเสร็จแล้วเงียบ)",
-      "acceptanceCriteria": [
-        "notify.ts มี API ลด total ของ batch (เช่น dropFromNotifyBatch(batchId)) และ cancelled path เรียกใช้",
-        "ยกเลิก 1 ชิ้นจาก batch 5 ชิ้น แล้วอีก 4 ชิ้นเสร็จ ต้องยังยิงสรุปตอนจบจริง",
-        "item ที่ถูก cancel ต้องไม่ถูกนับเป็น failed และต้องไม่เด้ง notification งานล้มเหลว",
-        "batches map ต้องไม่มี entry ค้างหลัง batch จบ",
-        "npm run build ผ่าน"
-      ],
-      "filesLikelyTouched": [
-        "src/lib/notify.ts",
-        "src/lib/actions.ts"
-      ],
-      "startedAt": "2026-08-20",
-      "completedAt": "2026-08-20",
-      "result": "dropFromNotifyBatch(batchId) in notify.ts, called from BOTH runRequest cancelled path AND scheduleRequest drop() (queued items never reach runRequest — missing that leaves the batch stuck anyway). Edge cases: total<=0 delete silently, settled>=total fire immediately, null no-op.",
-      "qaNote": "Harness transpiled the REAL notify.ts via ts.transpileModule (not a reimplementation) — 18/18 pass incl. regression that real errors still report failures."
-    },
-    {
-      "id": "T20",
-      "featureId": "F1",
-      "title": "เพิ่ม cancelled branch ใน CardImpl + chip ยกเลิกแล้วใน filter (แก้ F1+F5 ของโบว์)",
-      "layer": "ui",
-      "assignee": "ออม (Aom) — Frontend UI Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T5"
-      ],
-      "securitySensitive": true,
-      "perfSensitive": false,
-      "status": "done",
-      "origin": "BLOCKING finding F1+F5 จาก โบว์ (T5) — verified by Loop Controller",
-      "acceptanceCriteria": [
-        "CardImpl มี branch item.status === \"cancelled\" ที่ render สถานะยกเลิกชัดเจน ไม่ใช่การ์ดว่าง",
-        "branch นั้นมีปุ่มที่เรียก retry(item) ได้จริง — ผู้ใช้กดต่องานเดิมได้โดยไม่ต้อง generate ใหม่",
-        "ถ้าเป็น video ที่ยังมี item.jobId ต้องมีข้อความบอกว่ากดต่อได้ไม่เสียเงินเพิ่ม (ใช้โทนเดียวกับ timeout path ที่ actions.ts:1448)",
-        "StatusFilter += \"cancelled\" และ STATUS_CHIPS มี chip \"ยกเลิกแล้ว\" — cancelled item ต้องกรองเจอ",
-        "ไม่แตะ useGalleryFocus, GridRow, useEffect scrollToRow — ตรวจด้วย git diff",
-        "ไม่แตะ Sidebar.tsx / KeyModal.tsx / SettingsModal.tsx / Lightbox.tsx",
-        "npm run build ผ่าน"
-      ],
-      "filesLikelyTouched": [
-        "src/components/Gallery.tsx"
-      ],
-      "completedAt": "2026-08-20",
-      "result": "CardImpl cancelled branch at Gallery.tsx:589-615 (Ban icon, neutral tone not danger, message varies by cancelReason). Button label switches on jobId: ทำต่อ (resume, paid) vs สร้างใหม่ (never fired). Money note gated on item.jobId only. StatusFilter+STATUS_CHIPS += cancelled. 38 insert / 2 delete, 4 hunks. Verified by LC: retry() clears cancelReason/cancelledAt but preserves jobId so requestVideo resumed=!!jobId works.",
-      "browserDebt": [
-        "card layout at 240px column (text overflow)",
-        "click-to-resume end-to-end with real API key",
-        "chip filters correctly on UI",
-        "Tab focus-visible on the new button"
-      ]
-    },
-    {
-      "id": "T21",
-      "featureId": "F2",
-      "title": "UI opt-in toggle + ปุ่มล้าง + แสดงพื้นที่ใช้ ของ Gallery Persistence (KeyModal Advanced)",
-      "layer": "ui",
-      "assignee": "ออม (Aom) — Frontend UI Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T8"
-      ],
-      "securitySensitive": true,
-      "perfSensitive": false,
-      "status": "done",
-      "origin": "มายด์ลิน (T8) flag: F2 ปิดสนิท ไม่มี UI เปิด — verified by Loop Controller",
-      "acceptanceCriteria": [
-        "KeyModal Advanced section มี toggle เปิด/ปิด Gallery Persistence ที่เรียก setGalleryPersistEnabled จริง",
-        "ข้อความอธิบายชัดว่าเปิดแล้วจะเขียนไฟล์ media ลงเครื่องถาวร (ต่างจาก session snapshot ที่เก็บแค่ metadata) และปิดแล้วข้อมูลจะถูกล้างทันที",
-        "มีปุ่มล้างข้อมูลที่เรียก clearAllPersistedItems() พร้อม confirm ก่อน",
-        "แสดงพื้นที่ที่ใช้จริงจาก getGalleryUsage() (count + bytes) ในรูปแบบที่อ่านง่าย",
-        "default ต้องยังเป็นปิด — ห้ามเปิดให้เองตอน mount",
-        "ไม่แตะ Gallery.tsx / Sidebar.tsx / actions.ts / galleryStore.ts",
-        "npm run build ผ่าน"
-      ],
-      "filesLikelyTouched": [
-        "src/components/KeyModal.tsx"
-      ],
-      "completedAt": "2026-08-20",
-      "result": "GalleryPersistSettings card in KeyModal Advanced (card #2, after localStorage card). role=switch + aria-checked toggle. Confirm on DISABLE only when usage.count>0 (rationale: a confirm that fires every time is a confirm nobody reads). busy lock covers both toggle and clear (same object store). enabled updates only after await resolves — no optimistic lie if localStorage is blocked. getGalleryUsage on Advanced-expand mount only, no polling (it getAll()s blobs). perMode verified to be item COUNT not bytes (galleryStore.ts:259) and labelled accordingly.",
-      "browserDebt": [
-        "toggle knob render at 36x20px",
-        "focus ring on round switch may overflow card",
-        "END-TO-END: enable -> generate -> reload -> images return (first time this path is reachable at all)",
-        "long description text on narrow modal"
-      ]
-    },
-    {
-      "id": "T22",
-      "featureId": "F2",
-      "title": "ต่อสาย deleteItem/clearMode ตอนผู้ใช้ลบการ์ดหรือล้างแกลเลอรี",
-      "layer": "logic",
-      "assignee": "เบล (Bell) — Frontend Integration Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T8"
-      ],
-      "securitySensitive": false,
-      "perfSensitive": false,
-      "status": "done",
-      "origin": "มายด์ลิน (T8) flag: ผู้ใช้ลบการ์ดแล้ว record ในดิสก์ยังอยู่จนกว่าจะโดน evict",
-      "acceptanceCriteria": [
-        "ลบการ์ดใน gallery แล้ว record ที่ตรงกันใน IndexedDB ถูกลบด้วย (เรียก deleteItem)",
-        "resetModeGallery เรียก clearMode(mode) เพื่อล้าง record ของโหมดนั้น แต่ต้องข้าม item ที่ favorite ให้ตรงกับพฤติกรรม in-memory",
-        "ทั้งสอง path ต้อง no-op เงียบถ้า opt-in ปิดอยู่ ไม่ throw ไม่ toast error",
-        "npm run build ผ่าน"
-      ],
-      "filesLikelyTouched": [
-        "src/lib/actions.ts",
-        "src/components/Gallery.tsx"
-      ],
-      "completedAt": "2026-08-20",
-      "result": "Reused persistKeys Map<id,key> that T8 already maintains (filled by persistItemToGallery on save AND rehydrateGallery on boot) — no types.ts change, storage handle stays out of export JSON/snapshot/UI. Deliberately did NOT use clearMode(): it wipes the whole mode, which would delete favourited records from disk while their cards stay on screen. Instead resetModeGallery collects droppedIds at the same point releaseBlobUrls fires, so disk matches memory by construction. forgetPersistedItems returns before touching IndexedDB when opt-in is off; queued on galleryPersistChain and reads persistKeys at callback time (not snapshot) so a delete issued while a save is still queued cannot resurrect the record.",
-      "qaNote": "Harness transpiled real galleryStore.ts + brace-extracted resetModeGallery/forgetPersistedItems from actions.ts (not retyped) — 30/30 incl. a control test proving clearMode would have destroyed favourites, and an [ORDER] test for the save-then-delete race.",
-      "scopeNote": "AC1 says \"delete a card\" but Gallery.tsx has no per-card delete button today (only retry/copy/regenerate/extend/refine/star). Only real delete path is ล้างแกลเลอรี which already deletes per-item. เบล declined to invent a button (out of scope + no-touch zones) and removed the wrapper that would have been a dead export."
-    },
-    {
-      "id": "T23",
-      "featureId": "F3",
-      "title": "แก้บั๊ก favorite fingerprint — prune คีย์กำพร้า + hash prompt + กัน cancelled ติดดาวข้าม + บอกผู้ใช้ว่าดาวเป็นของกลุ่ม",
-      "layer": "logic",
-      "assignee": "เบล (Bell) — Frontend Integration Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T14"
+        "T8",
+        "T16"
       ],
       "securitySensitive": false,
       "perfSensitive": true,
       "status": "done",
-      "origin": "แพร (T14) 4 findings — verified by Loop Controller",
+      "rationale": "grep พิสูจน์ได้แค่ว่าไม่มีสี hardcode เหลือ แต่พิสูจน์ไม่ได้ว่าสีที่ใส่แทนถูกต้อง ต้องมีคนดูจริง และต้องเป็นตารางที่บังคับให้ดูครบ ไม่ใช่ดูผ่านๆ",
       "acceptanceCriteria": [
-        "favoriteKeyOf ต้อง hash prompt แทนการฝังข้อความดิบ — prompt 2000 ตัวอักษร x 300 คีย์ x 5 โหมด ต้องไม่ทะลุ quota (วัดจริงด้วย harness)",
-        "separator ต้องเป็นอักขระที่ปรากฏใน prompt ไม่ได้ (ตอนนี้เป็น space ซึ่ง prompt มีแน่ๆ) เพื่อกัน key collision",
-        "มี path prune fingerprint กำพร้า — กดดาวแล้ว item หลุดจาก gallery (reload/evict) แล้ว generate prompt เดิมใหม่ ต้องไม่ติดดาวเอง",
-        "favoriteKeyOf หรือ isRememberedFavorite ต้องกันไม่ให้ item ที่ไม่ใช่ done รับดาวข้ามมาจาก twin ที่ done — และการ์ด cancelled ต้องไม่รอด ล้างแกลเลอรี เพราะดาวที่ไม่ได้กดเอง",
-        "ผู้ใช้ต้องรู้ว่าดาวเป็นของกลุ่ม ไม่ใช่ใบเดียว — toast ครั้งแรกที่ toggle โดนหลายใบ (ข้อความบอกจำนวนจริง) หรือ affordance อื่นที่ชัดกว่า",
-        "ของเดิมที่ผู้ใช้เก็บไว้ใน localStorage รูปแบบเก่าต้องไม่พังตอนเปลี่ยนรูปแบบคีย์ (migrate หรือ ignore อย่างสงบ ไม่ throw)",
-        "npm run build ผ่าน"
+        "ทดสอบครบ 24 ช่อง = 8 surface (Header, Sidebar บวก ref image preview, Gallery card บวก badge บวก shimmer, Lightbox, CompareModal, modal overlay ทั้ง 6 ตัว, Landing hero, share card ที่ export ออกมาจริง) x 3 ธีม (paper, ink, contrast) — รายงานผล pass/fail รายช่อง ห้ามสรุปรวม",
+        "ทุกช่องที่ fail ต้องระบุไฟล์ บรรทัด และอาการที่เห็น",
+        "ตรวจ 3 ธีมที่เหลือ (sepia, midnight, nocturne) แบบ smoke test อย่างน้อย: เปิดแอป สลับครบ 5 โหมด ดู gallery ที่มีผลงาน เปิด lightbox — ไม่ต้องครบ 8 surface",
+        "regression ของฟีเจอร์เดิมที่ห้ามพัง ต้องทดสอบครบ 5 ข้อ: (1) สลับครบ 5 โหมด home/infographic/video/cinematic/audio แล้ว state แต่ละโหมดยังแยกกันถูก (2) spend guard ยังขึ้นโมดัลเตือนเมื่อเกินเพดาน และปุ่ม Wallet ยังเปลี่ยนเป็นสี danger เมื่อเกิน (3) request governor ยัง cap concurrency และปุ่มยกเลิกทั้งหมดยังทำงาน (4) gallery persistence (F2) เปิดไว้แล้ว reload ผลงานยังกลับมา (5) favorites (F3) ติดดาวแล้ว reload ดาวยังอยู่ถูกใบ",
+        "ทดสอบ theme switching ระหว่างที่มี job กำลังรันอยู่ — สลับธีมตอน video กำลัง generate ต้องไม่ทำให้ job หลุดหรือ progress ring รีเซ็ต (perfSensitive: applyTheme แตะ DOM attribute ไม่ควร trigger re-render ทั้งต้นไม้)",
+        "ทดสอบ FOUC ซ้ำอีกรอบหลังทุกอย่างรวมกันแล้ว: clear localStorage, ตั้ง ink, hard reload ด้วย throttle — ไม่มี flash",
+        "ทดสอบ localStorage ถูกปิด (private mode) — แอปต้องยังเปิดได้ ธีมเป็น paper เงียบๆ ไม่ crash",
+        "สรุปรายงานเป็นตารางเดียวส่ง MinJu พร้อมระบุว่าข้อไหนตีกลับไป task ไหน"
       ],
-      "filesLikelyTouched": [
-        "src/lib/store.ts",
-        "src/lib/actions.ts"
-      ],
-      "completedAt": "2026-08-20",
-      "result": "favoriteKeyOf v2: FNV-1a twin-hash (Math.imul, sync-safe for render path) + prompt LENGTH + 24-char prefix, three fixed-size collision layers. Separator U+001F (cannot be typed into a prompt). Measured quota: 5.81MB/11.53MB -> 0.36MB flat regardless of prompt length. 200k distinct prompts = 0 collisions. prune waits on galleryRehydrated promise so it never runs against an empty gallery; with F2 on it prunes by real gallery contents, with F2 off it falls back to a 30-day TTL via atelier_favorite_stamps. status normalized to d/x in the key (not per-status, or a key would change mid-flight as loading->done and drop the star), and restore moved to restoreFavoriteOnSettle in runRequest.",
-      "ac34Decision": "AC3 vs AC4 resolved without choosing: the user CAN still star a cancelled card and it stays starred in that session (survives resetModeGallery per their intent), but it is never written to localStorage — a card with no real output has nothing worth persisting, and persisting it was the root of P2. Side benefit: creates no new orphan keys.",
-      "migration": "v2 prefix on every key; loadFavorites keeps only v2-prefixed entries and drops v1 silently. Chose drop over migrate because v1 embedded the raw prompt separated by spaces so it cannot be split back reliably — a wrong re-hash puts stars on the WRONG image, worse than losing them. v1 only ever existed on this unreleased branch (T13, same sprint), so the real user base is zero.",
-      "selfFoundBug": "Harness caught a bug เบล had just written: the in-memory favoriteKeyCache was not truncated to the 300 cap that saveFavorites applies on disk, so stamps grew past the cap AND isRememberedFavorite would answer true for keys that had actually fallen off disk. Fixed with slice before writing back to cache.",
-      "qaNote": "65/65 across two harnesses transpiling real store.ts/actions.ts. Includes the exact trap tests: \"F2 off + fresh key: star SURVIVES reload\" and \"default + empty gallery: fresh stars NOT wiped\"."
-    },
-    {
-      "id": "T24",
-      "featureId": "F4",
-      "title": "แก้ 3 บั๊กที่เหลือจาก T18 — confirm ข้ามโหมด, pendingSpendJobs ถูกทับ, ledger ไม่นับ retry ที่ยิงใหม่",
-      "layer": "logic",
-      "assignee": "มายด์ลิน (Maidlin) — Backend Logic Engineer",
-      "chainDepth": "lite",
-      "dependsOn": [
-        "T18"
-      ],
-      "securitySensitive": true,
-      "perfSensitive": false,
-      "status": "done",
-      "origin": "แพร (T18) — BLOCKER แก้แล้วโดย Loop Controller เหลือ 3 ตัวนี้",
-      "acceptanceCriteria": [
-        "สลับโหมดตอนโมดัลเปิดแล้วกดยืนยัน ต้องยิงงานของโหมดต้นทางจริง (หรือถ้าตัดสินใจไม่ยิง ต้องมี toast บอกผู้ใช้ ห้ามเงียบ)",
-        "เปิดโมดัลค้างแล้วกด Ctrl+Enter หรือปุ่ม Generate อีกครั้ง ต้องไม่ทำให้คิวชุดแรกหาย — gate ตัวที่สองต้องไม่ทับ pendingSpendJobs ของตัวแรก",
-        "retryWithOverride ที่เปลี่ยนโมเดลแล้วยิงใหม่จริง ต้องนับยอดเพิ่มเข้า ledger (ยังต้องไม่นับซ้ำสำหรับ retry ที่ resume job เดิมด้วย jobId)",
-        "ยอดสะสมต้องยัง monotonic — ไม่ลดตอน evict หรือล้าง gallery",
-        "npm run build ผ่าน",
-        "แก้ HIGH: s.seq ต้องถูก bump ให้พ้น max id ก่อน await I/O ของ rehydrate (เช่นเก็บ atelier_gallery_max_id ตอน save แล้วอ่าน sync ตอน boot) — เปิด F2 มีของ 10 ชิ้น reload แล้วกด Generate ทันที ต้องกู้ครบ 10 และ toast ต้องบอกเลขจริง",
-        "ลบ clause favoriteKeyOf ออกจาก dedupe ใน rehydrateGallery (dead code: record ไม่มี status จึงได้ \"x\" ตลอด ไม่มีวันตรงกับ item ที่เป็น \"d\") — ห้ามแก้ให้มันทำงาน เพราะจะกิน batch ที่ prompt เดียวกันเหลือใบเดียว",
-        "ล้าง persistKeys เมื่อผู้ใช้ปิด opt-in (LOW)"
-      ],
-      "filesLikelyTouched": [
-        "src/lib/actions.ts",
-        "src/lib/shortcuts.ts"
-      ],
-      "completedAt": "2026-08-20",
-      "result": "All 6 closed. #1 high-water mark atelier_gallery_max_id written on every successful saveItem, read SYNC in reconcilePendingJobs to raise s.seq before rehydrate fires — rehydrate still not awaited; the in-rehydrate bump stays as belt-and-braces since real records remain the final source of truth. #2 dedupe reduced to id only. #3 onGalleryPersistDisabled registry in galleryStore (KeyModal is off-limits and galleryStore cannot import actions — cycle) clears persistKeys + max-id. #4 confirmSpend passes the whole {mode,jobs} snapshot into runGenerate, not just the mode name, because the prompt branch reads state.mode via currentModel/refsSupported/refImageMissing. #5 guard at runGenerate entry covers every caller at once plus a second layer in shortcuts.ts. #6 spendCountedIds keyed id:attempt.",
-      "designNote": "tsc caught that generate is bound directly as onClick={generate} in Sidebar.tsx:956 and PromptComposer.tsx:416 — giving it a parameter would let React silently pass a MouseEvent. Split into public zero-arg generate() and internal runGenerate(approved?) instead, so no forbidden file had to change.",
-      "qaNote": "F4 27/27, F2 19/19 on transpiled real code. NEGATIVE CONTROLS for all four behavioural fixes: reverting each one reproduced exactly the symptom QA measured (toast saying 9 instead of 10, fired=0 with a silent queue, homeQ=0, ledger stuck at 0.01)."
+      "filesLikelyTouched": []
     }
   ],
   "meta": {
-    "totalTasks": 24,
-    "notStarted": 0,
-    "inProgress": 0,
-    "done": 23,
-    "blocked": 0,
-    "superseded": 1
+    "totalTasks": 17,
+    "parallelizable": "T9, T10, T11, T12, T13 ขนานกันได้ทั้งหมดหลัง T2 กับ T4 เสร็จ (ตรวจแล้วว่า file set ไม่ทับกัน ยกเว้น Header.tsx ที่ T13 แก้ status dot กับ T14 แก้ logo — สอง task นี้ต้องไม่รันพร้อมกัน)",
+    "fileConflictWarning": "Header.tsx ถูกแตะโดย T8 (picker), T13 (status dot), T14 (logo invert) — MinJu ต้องรันเรียงกัน ห้ามขนาน มิฉะนั้น edit ชนกัน แนะนำลำดับ T13 แล้ว T14 แล้ว T8. Landing.tsx ถูกแตะโดย T13 กับ T14 เช่นกัน. index.css ถูกแตะโดย T4 กับ T14",
+    "criticalPath": "T1 → T2 → (T4 ต้องรอ T3) → T9-T13 ขนาน → T16 → T17",
+    "doNotTouch": [
+      "legacy/index.html (frozen)",
+      "src/lib/utils.ts:79 ctx.fillStyle=#fff (เป็นพื้นหลังไฟล์ JPG ที่ผู้ใช้ดาวน์โหลด ไม่ใช่สี UI)",
+      "shareCard.ts readThemeColors() logic (ทำงานถูกอยู่แล้ว)"
+    ],
+    "estimatedRiskiestTasks": [
+      "T12 (Gallery — on-media ปนกับ app-surface มากสุด)",
+      "T14 (logo invert — grep จับไม่ได้)",
+      "T7 (FOUC — พังแล้วไม่มีใครเห็นตอน dev)"
+    ],
+    "minjuDecisions": [
+      {
+        "ref": "T2 NEEDS-DECISION 1",
+        "site": "Gallery.tsx:476",
+        "decision": "map เป็น on-media",
+        "rationale": "ยืนยันจากไฟล์จริง: focused ใช้ text-text/border-text (ดำในธีม paper) บนพื้น rgba(10,10,10,.72) ที่มืดเสมอ = อ่านไม่ออก เป็นบั๊กเดิม ปุ่มลอยบนภาพจึงเป็น on-media ชัดเจน อนุมัติแก้เพราะแตะบรรทัดนั้นอยู่แล้ว",
+        "owner": "T12"
+      },
+      {
+        "ref": "T2 NEEDS-DECISION 2",
+        "site": "Landing.tsx:140",
+        "decision": "ขยาย scope T13 อีก 1 บรรทัด (ไม่ใส่ allowlist)",
+        "rationale": "radial-gradient(#fff) อยู่ในการ์ด bg-[#0a0a0a] text-white ที่ตั้งใจมืดเสมอ = on-media ไม่ใช่สี UI. เลือกแก้แทน allowlist เพราะ allowlist คือการซ่อนจุดที่แก้ได้จริง และจะทำให้ T16 grep gate fail",
+        "owner": "T13"
+      },
+      {
+        "ref": "T2 case C",
+        "site": "Gallery.tsx:545",
+        "decision": "รับข้อเสนอ color-mix(in oklab, var(--color-text) 8%, transparent)",
+        "rationale": "rgba(10,10,10,.06) หายสนิทในธีมมืด = loading state หายเงียบ. text ผ่าน contrast budget กับ bg ทุกธีมอยู่แล้ว",
+        "owner": "T12"
+      },
+      {
+        "ref": "deadlock T1/T5",
+        "site": "types.ts AppState.theme",
+        "decision": "มินจูเพิ่มเอง",
+        "rationale": "สั่งห้ามนุ่นแตะ store.ts และห้ามฟ้าแตะ types.ts โดยไม่ระบุเจ้าของ field theme ทั้งคู่จึงเลี่ยง = deadlock จากคำสั่ง Loop Controller เอง แก้เป็น one-liner ไม่คุ้ม spawn agent. tsc เขียวแล้ว",
+        "owner": "MinJu"
+      }
+    ],
+    "sprintResult": {
+      "completedAt": "2026-08-22",
+      "verdict": "SHIP — QA (T17) และ security audit (โบว์) ผ่านทั้งคู่ ไม่มี BLOCKER",
+      "gates": {
+        "build": "PASS",
+        "colorGate": "PASS (0 residue นอก allowlist 18 box-shadow)",
+        "drift": "108/108",
+        "security": "ไม่มี BLOCKER — payload test 29/29 ปิดครบทั้ง 2 path"
+      },
+      "knownDebtCarried": [
+        "paper: accentInk/accent 2.54, textFaint/bg 2.92 ไม่ผ่าน WCAG — หนี้เดิมก่อนสปรินต์ จงใจรักษาไว้เพื่อให้ paper byte-identical (มินจูอนุมัติ)",
+        "CSP: inline FOUC script ไม่มี nonce/hash — โปรเจกต์ไม่มี CSP อยู่แล้ว ถ้าจะเพิ่มต้องใช้ script-src sha256- (โบว์ NOTE)",
+        "Gallery memo ค้างหลัง rehydrate (Gallery.tsx:882) — บั๊ก Sprint 01 F2 ไม่ใช่ theme regression ยืนยันด้วย git diff แล้ว spawn task ไว้"
+      ],
+      "minjuFixesAfterAudit": [
+        "LOW-1 DEFAULT_THEME ประกาศซ้ำ 2 ไฟล์ → store.ts re-export จาก themes.ts",
+        "LOW-2 resolveTheme hardcode ink/paper → ใช้ SYSTEM_DARK/SYSTEM_LIGHT"
+      ],
+      "notTested": [
+        "Request Governor concurrency cap (ต้องมี API key ยิงงานจริง)",
+        "video progress ring ตอน generate จริง"
+      ]
+    }
   }
 }

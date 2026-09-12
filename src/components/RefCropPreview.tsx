@@ -66,18 +66,18 @@ export default function RefCropPreview({ ref_, targetRatio }: RefCropPreviewProp
       {/* แถบมืดครอบส่วนที่จะถูกครอปทิ้ง (ซ้าย/ขวา หรือ บน/ล่าง ขึ้นกับทิศที่ต่าง) */}
       {cropXPct > 0 ? (
         <>
-          <div className="absolute inset-y-0 left-0 bg-black/65" style={{ width: cropXPct + "%" }} />
-          <div className="absolute inset-y-0 right-0 bg-black/65" style={{ width: cropXPct + "%" }} />
+          <div className="absolute inset-y-0 left-0 bg-media-scrim/70" style={{ width: cropXPct + "%" }} />
+          <div className="absolute inset-y-0 right-0 bg-media-scrim/70" style={{ width: cropXPct + "%" }} />
         </>
       ) : (
         <>
-          <div className="absolute inset-x-0 top-0 bg-black/65" style={{ height: cropYPct + "%" }} />
-          <div className="absolute inset-x-0 bottom-0 bg-black/65" style={{ height: cropYPct + "%" }} />
+          <div className="absolute inset-x-0 top-0 bg-media-scrim/70" style={{ height: cropYPct + "%" }} />
+          <div className="absolute inset-x-0 bottom-0 bg-media-scrim/70" style={{ height: cropYPct + "%" }} />
         </>
       )}
       {/* กรอบเส้นประรอบพื้นที่ที่จะเหลืออยู่จริงตาม ratio ที่เลือก */}
       <div
-        className="absolute border-[1.5px] border-dashed border-white/85"
+        className="absolute border-[1.5px] border-dashed border-on-media/85"
         style={{
           left: cropXPct + "%",
           right: cropXPct + "%",
@@ -85,7 +85,7 @@ export default function RefCropPreview({ ref_, targetRatio }: RefCropPreviewProp
           bottom: cropYPct + "%",
         }}
       />
-      <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full border border-white/20 bg-black/70 px-1.5 py-[2px] text-[9px] font-semibold text-white backdrop-blur-sm">
+      <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full border border-on-media-dim bg-media-scrim/70 px-1.5 py-[2px] text-[9px] font-semibold text-on-media backdrop-blur-sm">
         <Crop size={9} /> ประมาณกรอบที่ {targetRatio}
       </span>
     </div>

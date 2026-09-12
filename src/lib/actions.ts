@@ -16,13 +16,14 @@ import { connectDrive as gdriveConnect, disconnectDrive as gdriveDisconnect, Dri
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
 import { deleteItem, isGalleryPersistEnabled, loadItems, onGalleryPersistDisabled, saveItem, setFavorite } from "./galleryStore";
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
+import { SYSTEM_DARK, SYSTEM_LIGHT } from "./themes";
 import {
-  addExportLogEntry, addPendingJob, bumpGalleryMaxId, clearGalleryMaxId, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites, loadFavoriteStamps, saveFavoriteStamps, MAX_FAVORITES_PER_MODE,
+  addExportLogEntry, addPendingJob, applyThemeAttr, bumpGalleryMaxId, clearGalleryMaxId, clearSessionSnapshot, consumeQueueNonEmptyFlag, cur, favoriteKeyOf, loadFavorites, loadFavoriteStamps, saveFavoriteStamps, MAX_FAVORITES_PER_MODE,
   freshSpendLedger, loadGalleryMaxId, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
   PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveLocale, saveSessionSnapshotRaw,
-  saveSpendLedger, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
+  saveSpendLedger, saveTheme, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
 } from "./store";
-import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, SpendConfirmRequest, SpendLedger, StoryboardChain, TtsVoice } from "./types";
+import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, ResolvedThemeId, SpendConfirmRequest, SpendLedger, StoryboardChain, ThemeId, TtsVoice } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
@@ -428,6 +429,89 @@ export function setPromptPlacement(placement: PromptPlacement) {
     if (placement === "sidebar") s.sidebarCollapsed = false;
   });
   writeLocalStorage(PROMPT_PLACEMENT_KEY, placement);
+}
+
+// ---------- theme (F2 / T6) ----------
+
+/**
+ * media query ตัวเดียวของทั้งแอป — สร้างครั้งเดียวตอน module โหลด ไม่สร้างใหม่ทุกครั้งที่ resolve
+ *
+ * `null` ได้จริง 2 กรณี: เบราว์เซอร์เก่าที่ไม่มี matchMedia และ environment ที่ไม่มี window เลย
+ * (เช่นถ้าวันหนึ่งมีใครลาก actions.ts ไปรันนอก browser) — ทุกจุดที่ใช้ต้องเช็ค null ก่อน
+ * ไม่งั้นธีมพังทั้งแอปเพราะ API ที่ไม่มีอยู่ตัวเดียว
+ */
+const darkQuery: MediaQueryList | null =
+  typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null;
+
+/**
+ * แปลงค่าที่ผู้ใช้เลือกเป็นธีมที่ทาได้จริง — `"system"` เท่านั้นที่ถูกแปลง ธีมอื่นคืนตัวเอง
+ *
+ * `"system"` resolve ได้แค่ `ink` (dark) หรือ `paper` (light) เท่านั้น ไม่ใช่ "ธีมที่เลือกไว้เวอร์ชันมืด"
+ * (workflow decisions.c) — ถ้าให้ทุกธีมมีคู่ light/dark จะกลายเป็นสิบกว่า combination ที่ต้อง QA
+ *
+ * ⚠️ logic ตรงนี้ duplicate กับ inline script ใน index.html (บรรทัด 26-31) โดยตั้งใจ —
+ * index.html ไม่ผ่าน bundler จึง import มาไม่ได้ ถ้าแก้เกณฑ์ที่นี่ **ต้องแก้ที่นั่นด้วย**
+ * ไม่งั้นธีมจะกระพริบตอน React mount (script ทาค่าหนึ่ง แล้ว setTheme มาทาทับอีกค่า)
+ */
+export function resolveTheme(id: ThemeId): ResolvedThemeId {
+  if (id !== "system") return id;
+  return darkQuery?.matches ? SYSTEM_DARK : SYSTEM_LIGHT;
+}
+
+/** ทาธีมลง DOM — จุดเดียวที่ actions.ts แตะ data-theme และมันก็ delegate ให้ applyThemeAttr ของ store.ts ต่อ */
+export function applyTheme(id: ThemeId) {
+  applyThemeAttr(resolveTheme(id));
+}
+
+/** เปลี่ยนธีม: state + persistence + DOM ครบในที่เดียว — ที่อื่นห้ามทำสามอย่างนี้แยกกันเอง */
+export function setTheme(id: ThemeId) {
+  mutate(s => { s.theme = id; });
+  saveTheme(id);
+  applyTheme(id);
+}
+
+/**
+ * subscribe การเปลี่ยนธีมของ OS — ต้องทำงานเฉพาะตอน `state.theme === "system"` เท่านั้น
+ * ธีมที่ผู้ใช้เลือกเจาะจงต้องชนะเสมอ จึงเช็ค state **ตอน event ยิง** ไม่ใช่ตอน subscribe
+ * (ถ้าเช็คตอน subscribe แล้ว unsubscribe/resubscribe ตาม state จะต้องผูก listener เข้ากับ React lifecycle
+ * ซึ่งเป็นทางที่ leak ง่ายกว่าและได้ประโยชน์เท่ากัน)
+ *
+ * StrictMode-safe ยังไง: `refCount` ทำให้ addEventListener ถูกเรียกจริงครั้งเดียวไม่ว่าจะถูก subscribe
+ * กี่รอบ (React 19 StrictMode รัน effect setup→cleanup→setup ใน dev) และ cleanup แต่ละใบเป็น idempotent
+ * ด้วย flag `released` — เรียกซ้ำแล้วนับ refCount ลดเกินจริงไม่ได้ listener จริงจึงมีได้ไม่เกิน 1 ตัวเสมอ
+ *
+ * คืนฟังก์ชัน cleanup ให้ caller เอาไป return จาก useEffect ตรงๆ
+ */
+let systemThemeRefCount = 0;
+let systemThemeListener: ((e: MediaQueryListEvent) => void) | null = null;
+
+export function subscribeSystemTheme(): () => void {
+  if (!darkQuery) return () => { /* ไม่มี matchMedia = ไม่มีอะไรให้ subscribe แต่ caller ยังต้องได้ cleanup ที่เรียกได้ */ };
+
+  if (systemThemeRefCount === 0) {
+    systemThemeListener = () => {
+      // ผู้ใช้เลือกธีมเจาะจงไว้ = OS เปลี่ยนก็ไม่เกี่ยว ปล่อยผ่านเงียบๆ ไม่แตะ DOM และไม่ mutate
+      if (state.theme !== "system") return;
+      // ไม่แตะ state.theme (ยังเป็น "system" อยู่ถูกแล้ว) แค่ทาค่าที่ resolve ใหม่ลง DOM
+      // ทั้งแอปอ่านสีจาก CSS var จึงเปลี่ยนตามทันทีโดยไม่ต้อง re-render React แม้แต่ component เดียว
+      applyTheme("system");
+    };
+    darkQuery.addEventListener("change", systemThemeListener);
+  }
+  systemThemeRefCount++;
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    systemThemeRefCount--;
+    if (systemThemeRefCount === 0 && systemThemeListener) {
+      darkQuery.removeEventListener("change", systemThemeListener);
+      systemThemeListener = null;
+    }
+  };
 }
 
 const MAX_RECENT_KEYWORDS = 8;
