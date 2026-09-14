@@ -1,273 +1,239 @@
 <div align="center">
 
-# 🎨 Atelier
+<img src="public/assets/atelier-logo.png" alt="Atelier logo" width="112" />
 
-**AI Media Studio — สร้างภาพ วิดีโอ และเพลงด้วย AI ผ่าน OpenRouter**
+# Atelier
 
-*React + TypeScript + Tailwind CSS — client-only ไม่มี backend*
+### AI Media Studio สำหรับสร้างภาพ วิดีโอ เพลง และเสียงพูดในที่เดียว
 
-![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
-![Tailwind](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8?logo=tailwindcss&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-7-646cff?logo=vite&logoColor=white)
-![OpenRouter](https://img.shields.io/badge/API-OpenRouter-6467f2)
+เลือกโมเดลจาก OpenRouter · ปรับ prompt อย่างเป็นระบบ · เปรียบเทียบผลลัพธ์ · จัดเก็บงานได้จากเบราว์เซอร์
+
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=fff)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=fff)](https://vite.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=fff)](https://tailwindcss.com/)
+[![OpenRouter](https://img.shields.io/badge/Powered_by-OpenRouter-6366F1)](https://openrouter.ai/)
+
+[เริ่มต้นใช้งาน](#-เริ่มต้นใช้งาน) · [ความสามารถ](#-ความสามารถหลัก) · [โครงสร้างโปรเจกต์](#-โครงสร้างโปรเจกต์) · [ความเป็นส่วนตัว](#-ข้อมูลและความเป็นส่วนตัว)
 
 </div>
 
 ---
 
-## ✨ Features
+## ✨ Atelier คืออะไร
 
-| ฟีเจอร์ | รายละเอียด |
+Atelier คือเว็บแอปแบบ client-only สำหรับงาน generative media ที่รวม workflow ตั้งแต่คิด prompt เลือกโมเดล สร้างงาน เปรียบเทียบ ไปจนถึงดาวน์โหลดและจัดเก็บไฟล์ไว้ในหน้าจอเดียว ตัวแอปเชื่อมต่อ OpenRouter โดยตรงจากเบราว์เซอร์ จึงไม่ต้องมี backend ของตัวเอง
+
+| Route | หน้าที่ |
 |---|---|
-| 🤖 **เลือกโมเดลได้อิสระ** | ดึงรายชื่อโมเดลสดจาก OpenRouter — กรองเฉพาะโมเดลที่ generate ภาพได้จริง พร้อมแสดงราคาต่อ 1k ภาพ |
-| ⭐ **Preferred models** | โมเดลยอดนิยม (Grok Imagine Image Quality, GPT Image) ลอยขึ้นบนสุดของ dropdown อัตโนมัติ — Grok Imagine ถูก merge เข้า list เสมอแม้ OpenRouter จะยังไม่ list ไว้ |
-| 🖼️ **โหมด Infographic แยกต่างหาก** | สลับโหมดได้จากแท็บบน header — จำกัดโมเดลเหลือแค่ GPT-5.4 Image 2 กับ Nano Banana Pro พร้อม Prompt Builder ชุดเฉพาะสำหรับ infographic และ gallery/prompt/คิวแยกจากโหมด Home โดยสิ้นเชิง |
-| 🎬 **โหมด Video** | สร้างวิดีโอ 8–10 วินาที (720p) จาก 4 โมเดล: Grok Imagine Video · Veo 3.1 Fast · Kling v3.0 Standard · Seedance 2.0 — ปุ่ม duration/ratio ปิดเองอัตโนมัติตามที่โมเดลรองรับ พร้อม toggle เสียง, ราคาประเมินต่อคลิป และ Progress Circle ระหว่างรอ ดูรายละเอียดที่ [โหมด Video](#-โหมด-video) |
-| 📐 **Aspect Ratio 5 แบบ** | `1:1` · `4:3` · `3:4` · `16:9` · `9:16` |
-| 🖼️ **Batch generation** | สั่ง gen ครั้งละ 1 / 2 / 4 / 6 ภาพ — แต่ละภาพเป็น request แยกกัน ภาพไหน error กด "ลองใหม่" เฉพาะภาพนั้นได้ |
-| 📋 **Multi-Prompt Queue** | เพิ่ม prompt + model + ratio + จำนวนภาพ เข้าคิวได้สูงสุด 5 คิว แต่ละคิวตั้งค่าต่างกันได้อิสระ ดูรายการ/ลบทีละคิวได้ แล้วกด **Generate Queue** ยิงรันทุกคิวรวดเดียว |
-| 🧩 **Prompt Builder** | คลิก keyword สำเร็จรูปต่อท้าย prompt อัตโนมัติ (คลิกซ้ำเพื่อลบ, sync ตามข้อความใน prompt อัตโนมัติ) — ชุด keyword เปลี่ยนตามโหมดที่เลือกอยู่ ดูรายละเอียดที่หัวข้อ [Prompt Builder แต่ละโหมด](#-prompt-builder-แต่ละโหมด) |
-| ✨ **Prompt Optimizer** | กดปุ่ม "✨ Optimize" ใต้ prompt ให้ AI (GPT OSS 20B ฟรี) ช่วยจูน prompt ให้ละเอียดขึ้น พร้อมแนะนำ keyword เพิ่มเติมเป็น chip ให้เลือกกดเอง ดูรายละเอียดที่ [Prompt Optimizer](#-prompt-optimizer) |
-| 💬 **Chat with Atelier** | ปุ่มแชทลอยมุมขวาล่าง คุยปรึกษาเรื่อง prompt/style/mood กับ AI ผู้ช่วยได้ตลอดเวลา รู้ว่าอยู่โหมดไหนอยู่ ประวัติแชทจำไว้ข้ามการปิดเปิดหน้า ดูรายละเอียดที่ [Chat with Atelier](#-chat-with-atelier) |
-| 🕘 **Prompt History** | ทุก prompt ที่เคย generate สำเร็จถูกจำไว้แยกตามโหมด (สูงสุด 30 รายการ) กดจากรายการเพื่อใช้ซ้ำได้ทันที ลบทิ้งเป็นรายตัวได้ จำข้ามการปิดเปิดหน้าเว็บ |
-| 📋➡️🖼️ **Copy Prompt & Regenerate** | ทุกภาพ/วิดีโอที่ gen เสร็จมีปุ่ม "Copy Prompt" (คัดลอกกลับไปช่อง prompt เพื่อแก้ต่อ) และ "Regenerate" (gen ซ้ำด้วย prompt/โมเดล/ค่าตั้งเดิมทันที ไม่ต้องพิมพ์ใหม่) |
-| 💾 **Export / Import Session** | ปุ่ม Export/Import ที่ header — บันทึก prompt, ค่าตั้ง, คิว, ประวัติของทุกโหมดเป็นไฟล์ `.json` เดียว เอาไปเปิดเครื่องอื่นหรือ backup ก่อนปิดแท็บได้ (ไม่รวมตัวภาพ) |
-| 🏷️ **Model Tag บนภาพ** | ทุกภาพใน Gallery ติด tag ชื่อโมเดลที่ใช้ gen ไว้ที่มุมภาพ ดูย้อนหลังได้ว่าภาพไหนมาจากโมเดลไหน |
-| 📐 **Sidebar พับเก็บ + ลากปรับความกว้างได้** | คลิกปุ่มลูกศรที่ header เพื่อซ่อน/แสดง sidebar หรือลากขอบขวาของ sidebar เพื่อปรับความกว้าง (240–560px, จำค่าไว้ให้ครั้งถัดไป) |
-| 🔍 **Lightbox** | คลิกภาพเพื่อดูเต็มจอ เลื่อนซ้าย-ขวาด้วยปุ่มหรือคีย์บอร์ด พร้อมปุ่ม Download |
-| ⚡ **Loading state** | shimmer + spinner ระหว่างรอ gen ภาพ ส่วนวิดีโอเป็น Progress Circle พร้อม % ประเมินและเวลาที่รอ แสดงจำนวนงานที่กำลังทำอยู่แบบ real-time |
-| 🌙 **Dark theme** | UI มินิมอลโทนดำ รองรับภาษาไทย (Noto Sans Thai) และ responsive บนมือถือ |
-| 🔒 **Privacy-first** | API key เก็บใน memory ของหน้าเว็บเท่านั้น — ไม่บันทึกลงเครื่อง ไม่ส่งไปที่อื่นนอกจาก OpenRouter |
+| `/` | Landing page และภาพรวมผลิตภัณฑ์ |
+| `/studio` | พื้นที่สร้างและจัดการสื่อทั้ง 6 โหมด |
+| `/models` | Model Catalog สำหรับเทียบราคา สเปก และงานที่เหมาะกับแต่ละโมเดล |
 
-## 🖼️ โหมดทั้งสาม: Home / Infographic / Video
+## 🎛️ 6 โหมดสร้างสื่อ
 
-แอปมี 3 โหมด สลับได้จากแท็บกลาง header — แต่ละโหมดแยก **prompt, gallery, คิว, aspect ratio, จำนวนงาน** เป็นของตัวเอง สลับไปมาข้อมูลไม่ปนกัน และงานที่ gen ไว้ยังอยู่ครบเมื่อสลับกลับมา ส่วนอื่นๆ (API key, Batch generation, Lightbox, Sidebar, Model tag ฯลฯ) ใช้ระบบเดียวกันทุกโหมด
+| โหมด | ผลลัพธ์ | เหมาะกับ |
+|---|---|---|
+| **General** | ภาพนิ่ง | Portrait, product shot, artwork และภาพทั่วไป |
+| **Infographic** | ภาพนิ่งเชิงข้อมูล | Timeline, comparison, stat grid และกราฟิกสองภาษา |
+| **Video** | วิดีโอ 720p | คลิปสั้นแบบ text-to-video หรือ image-to-video ตาม capability ของโมเดล |
+| **Cinematic** | วิดีโอแบบต่อฉาก | สร้าง scene ต่อเนื่องจากเฟรมของคลิปก่อนหน้า |
+| **Audio** | เพลง/คลิปเสียง | สร้างเพลงด้วยโมเดลตระกูล Lyria |
+| **TTS** | เสียงพูด | แปลงบทพูดเป็นเสียงด้วย Gemini TTS พร้อมตัวเลือกเสียงพากย์ |
 
-| | Home | Infographic | Video |
-|---|---|---|---|
-| **ผลลัพธ์** | ภาพนิ่ง | ภาพนิ่ง | วิดีโอ 8–10 วิ (720p) |
-| **โมเดลที่เลือกได้** | ทุกโมเดล image-generation บน OpenRouter | เฉพาะ **GPT-5.4 Image 2** และ **Nano Banana Pro** | เฉพาะ 4 โมเดลวิดีโอ (ดูตารางด้านล่าง) |
-| **ใช้ทำอะไร** | สร้างภาพทั่วไป (portrait, art, ฉาก ฯลฯ) | สร้าง infographic / กราฟิกให้ข้อมูล | สร้างคลิปสั้นจาก text prompt |
-| **Prompt Builder** | 11 หมวด | 6 หมวด: Style · Layout · Language · Header · Detail · Segmentation | 13 หมวด (Camera + Frametime + 11 หมวดของ Home) |
+แต่ละโหมดมี prompt, model, settings, queue, history และ gallery แยกจากกัน สลับโหมดระหว่างสร้างงานได้โดยผลลัพธ์ไม่ไหลไปผิด gallery
 
-### 🎬 โหมด Video
+## 🚀 ความสามารถหลัก
 
-สร้างวิดีโอความยาว **8 / 9 / 10 วินาที** ที่ **720p** — ปุ่ม duration กับ aspect ratio จะ**ปิดอัตโนมัติ**ตาม capability จริงของโมเดลที่เลือก (ดึงสดจาก OpenRouter) และ snap ไปค่าที่ใกล้ที่สุดถ้าค่าเดิมใช้ไม่ได้
+### สร้างงานและควบคุมรายละเอียด
 
-| โมเดล | Duration | Ratio (จาก 5 แบบ) | เสียง |
-|---|---|---|---|
-| **Grok Imagine Video** (`x-ai/grok-imagine-video`) | 8 / 9 / 10 ✓ | ครบทั้ง 5 | ❌ |
-| **Veo 3.1 Fast** (`google/veo-3.1-fast`) | 8 เท่านั้น | 16:9, 9:16 | ✅ |
-| **Kling v3.0 Standard** (`kwaivgi/kling-v3.0-std`) | 8 / 9 / 10 ✓ | 1:1, 16:9, 9:16 | ✅ |
-| **Seedance 2.0** (`bytedance/seedance-2.0`) | 8 / 9 / 10 ✓ | ครบทั้ง 5 | ✅ |
+- โหลดรายชื่อและ capability ของโมเดลจาก OpenRouter พร้อม curated fallback สำหรับโมเดลสำคัญ
+- เลือกอัตราส่วน `1:1`, `4:3`, `3:4`, `16:9` และ `9:16`
+- สร้าง batch ครั้งละ 1, 2, 4 หรือ 6 ชิ้น และจัด Multi-Prompt Queue ได้สูงสุด 5 รายการ
+- จำกัด request ที่ทำงานพร้อมกันไม่เกิน 4 งาน เพื่อไม่ให้เบราว์เซอร์ยิงคำขอมากเกินไป
+- แนบ Reference, Style และ Facial reference ได้ชนิดละสูงสุด 2 รูป ขนาดไม่เกิน 4 MB ต่อรูป เมื่อโมเดลรองรับ
+- ใช้ negative prompt ในโหมด General และ Infographic
+- ยกเลิกงานที่กำลังรอหรือกำลังสร้าง และ retry เฉพาะงานที่ล้มเหลวได้
 
-จุดที่ต่างจากโหมดภาพ:
+### Prompt workflow ตั้งแต่ไอเดียจนพร้อมสร้าง
 
-- **Toggle เสียง** (default ปิด) — โมเดลที่รองรับจะ gen เสียงมาในคลิปด้วย ราคาประเมินอัปเดตตาม toggle
-- **ราคาประเมินต่อคลิป** แสดงใต้ dropdown โมเดล คำนวณจากราคาจริง × duration ที่เลือก (Seedance คิดเป็น token เลยประเมินล่วงหน้าไม่ได้)
-- **Progress Circle + %** ระหว่างรอ — วิดีโอใช้เวลาสร้างราวๆ 1–3 นาทีต่อคลิป ตัวเลข % เป็นค่า*ประเมินจากเวลา* (API ไม่ส่ง % จริงมา) ค้างที่ 95% จนกว่างานเสร็จจริง พร้อมสถานะรอคิว/กำลังสร้างและเวลาที่ผ่านไป
-- **Gallery เล่นวิดีโอวนแบบปิดเสียง** — คลิกเปิด lightbox เพื่อดูพร้อมเสียงและ scrub ได้ ปุ่ม Download ได้ไฟล์ `.mp4`
-- ⚠️ **ปิดหน้าเว็บระหว่างรอ = งานหาย** — ฝั่ง OpenRouter ยังคิดเงิน แต่ผลลัพธ์ไม่มีที่ให้กลับมาแสดง (gallery/คิว/API key อยู่ใน memory ล้วน ไม่ persist ข้ามการปิดแท็บ ต่างจาก Prompt History/Chat history ที่จำไว้ใน `localStorage`)
+- **Prompt Builder** — keyword แยกตาม style, lighting, camera, mood และ continuity
+- **Templates** — template สำเร็จรูป และบันทึก template ส่วนตัวได้สูงสุด 20 รายการต่อโหมด
+- **Prompt Optimizer** — ให้ AI ช่วยขยาย prompt พร้อมเสนอ keyword ที่เลือกใช้ได้
+- **Chat with Atelier** — ผู้ช่วยคิด prompt และให้คำแนะนำตามโหมดที่ใช้งาน
+- **Grill me** — สัมภาษณ์บรีฟ 6–10 คำถาม แล้วตกผลึกเป็น prompt หลายทางเลือก
+- **Prompt History** — เก็บ 30 รายการต่อโหมด พร้อม pin และ history รวมทุกโหมด
 
-### 🧩 Prompt Builder แต่ละโหมด
+### เปรียบเทียบ ปรับต่อ และจัดการผลงาน
 
-<details>
-<summary><b>Home</b> — 11 หมวด</summary>
+- **Bake-off** — ส่ง prompt เดียวกันให้โมเดลพร้อมกันได้สูงสุด 4 ตัว พร้อมสรุปราคาก่อนยืนยัน
+- **Compare** — เทียบภาพ 2–4 รูป รวม swipe compare สำหรับ 2 รูป
+- **Refine / Start from** — นำผลงานเดิมไปปรับต่อหรือใช้เป็นเฟรมตั้งต้นของวิดีโอ
+- **TimeFrame & Extend** — เลือกเฟรมจาก timeline เพื่อสร้างฉาก Cinematic ถัดไป
+- **Auto Extend** — จับเฟรมท้ายของคลิปและต่อ scene ใหม่อัตโนมัติ
+- เลือกหลายรายการเพื่อดาวน์โหลดหรืออัปโหลดขึ้น Google Drive พร้อม favorite และ filter
+- Lightbox สำหรับ preview, เล่นสื่อ และดาวน์โหลดไฟล์เต็ม
+- สร้าง share card จากผลงานได้ในเบราว์เซอร์
 
-| หมวด | ตัวอย่าง keyword |
-|---|---|
-| สไตล์ | photorealistic, cinematic, anime style, watercolor, cyberpunk, 3D render |
-| แสง | studio lighting, golden hour, soft light, neon lights, dramatic lighting |
-| มุมกล้อง | close-up portrait, wide angle, top-down view, macro shot, bokeh background |
-| โทน / อารมณ์ | warm tones, moody, dreamy, vibrant colors, black and white |
-| รายละเอียด | highly detailed, sharp focus, high contrast, 8k, film grain |
-| ท่าทาง | standing pose, sitting, walking, running, dancing, action pose |
-| Prop ประกอบฉาก | holding a coffee cup, with an umbrella, neon sign background, vintage car |
-| บุคคล / สัตว์ | young woman, elderly person, child, cat, dog, dragon, robot |
-| Character Detail | blue eyes, long hair, freckles, sharp jawline, muscular build, tattoos |
-| Visual Effect | motion blur, lens flare, glowing aura, smoke effect, double exposure |
-| Clothing | business suit, casual streetwear, traditional Thai dress, kimono, hoodie and jeans |
+### ป้องกันค่าใช้จ่ายและกู้คืนงาน
 
-</details>
+- แสดงราคาประเมินของงานตามข้อมูล pricing ที่มีอยู่
+- **Spend Guard** ตั้งเพดานค่าใช้จ่ายสะสมและขอคำยืนยันก่อนยิง batch ที่เกินวงเงิน
+- เก็บ pending job เพื่อพยายาม reconcile งาน async หลัง reload
+- บันทึก session snapshot ทุก 30 วินาที และมี Restore Banner เมื่อพบ session ที่กู้ได้
+- Export / Import session เป็น `.json` รองรับ Replace และ Merge พร้อม preview ก่อนนำเข้า
 
-<details>
-<summary><b>Infographic</b> — 6 หมวด</summary>
+> [!IMPORTANT]
+> ราคาที่แสดงเป็นค่าประเมินจาก metadata ของโมเดล ไม่ใช่ใบเสร็จหรือยอดเงินจริงจาก OpenRouter งานที่ส่งถึงผู้ให้บริการแล้วอาจยังถูกคิดเงินแม้ยกเลิกฝั่งเบราว์เซอร์
 
-| หมวด | ตัวอย่าง keyword |
-|---|---|
-| Style | flat design, corporate style, modern minimal, hand-drawn style, isometric |
-| Layout | vertical layout, grid layout, circular layout, timeline layout, comparison layout |
-| Language | Thai text, English text, bilingual Thai-English, no text (icons only) |
-| Header | bold title header, centered header, banner header, icon beside title |
-| Detail | data-heavy detail, with icons, with charts, with statistics, with illustrations |
-| Segmentation | 3-step process, 4/5-part breakdown, before/after comparison, timeline segments, numbered sections |
+## 🏁 เริ่มต้นใช้งาน
 
-</details>
+### สิ่งที่ต้องมี
 
-<details>
-<summary><b>Video</b> — 13 หมวด (2 หมวดเฉพาะวิดีโออยู่บนสุด + 11 หมวดของ Home)</summary>
-
-| หมวด | ตัวอย่าง keyword |
-|---|---|
-| Camera Control | slow dolly in, pan left, tilt up, crane shot, orbit around subject, tracking shot, FPV drone shot |
-| Frametime Control | slow motion, timelapse, fast motion, speed ramp, freeze frame ending, seamless loop, reverse motion |
-| *(+ 11 หมวดของ Home)* | ใช้ร่วมกันได้ทั้งหมด — สไตล์ แสง มุมกล้อง โทน ท่าทาง ฯลฯ |
-
-</details>
-
-## ✨ Prompt Optimizer
-
-ไม่ต้องคิด prompt เองทั้งหมด — กดปุ่ม **"✨ Optimize"** ใต้ช่อง prompt แล้วให้ AI ช่วยจูนให้:
-
-1. ส่ง prompt ปัจจุบัน (ต้องไม่ว่าง และมี API key แล้ว) ไปให้โมเดล `openai/gpt-oss-20b:free` (ฟรี) ผ่าน OpenRouter
-2. ได้กลับมาเป็น **prompt ที่จูนใหม่ให้ละเอียด/ชัดเจนขึ้น** พร้อม **keyword แนะนำ 6-10 คำ** (สไตล์, แสง, มุมกล้อง, อารมณ์ ฯลฯ)
-3. เลือกได้ว่าจะกด **"ใช้ prompt นี้"** เพื่อแทนที่ prompt เดิมทันที, กด keyword chip แต่ละอันเพื่อเพิ่มเข้า prompt ปัจจุบัน (ไม่บังคับต้องใช้ prompt ที่จูนมา), หรือกด **"ยกเลิก"** ถ้าไม่ถูกใจ
-
-> [!NOTE]
-> Optimizer ใช้โมเดลเดียวกันไม่ว่าจะอยู่โหมดไหน (Home/Infographic/Video) — เดี๋ยวนี้ยังไม่คิดเงินเพิ่มเพราะเป็นโมเดลฟรี แต่ยังต้องใช้ API key เดิมของ OpenRouter อยู่ดี
-
-## 💬 Chat with Atelier
-
-ปุ่มแชทลอยมุมขวาล่างของหน้าจอ (ไอคอนบับเบิ้ล) — เป็นผู้ช่วย/ที่ปรึกษาเรื่องสร้างภาพและวิดีโอด้วย AI โดยเฉพาะ:
-
-- คุยปรึกษาได้ทั้งเรื่อง **ออกแบบ prompt** (style, lighting, composition, mood, camera work) และ**คำแนะนำทั่วไป**เกี่ยวกับการ generate ภาพ/วิดีโอ
-- รู้ว่าตอนนี้อยู่โหมดไหน (Home / Infographic / Video) เพื่อให้คำแนะนำที่เข้าบริบท — แต่**ไม่รู้**ว่า prompt ปัจจุบันในช่องพิมพ์คืออะไร หรือภาพที่เพิ่ง generate ออกมาหน้าตาเป็นยังไง
-- ใช้โมเดลเดียวกับ Prompt Optimizer (`openai/gpt-oss-20b:free`) และต้องมี API key ก่อนถึงจะคุยได้
-- ประวัติแชท**จำไว้ข้ามการปิดเปิดหน้าเว็บ** (ต่างจาก API key ที่ต้องใส่ใหม่ทุกครั้ง) กดปุ่ม "ล้าง" ที่หัว panel เพื่อเริ่มบทสนทนาใหม่ได้ตลอด
-- <kbd>Enter</kbd> ส่งข้อความ, <kbd>Shift</kbd>+<kbd>Enter</kbd> ขึ้นบรรทัดใหม่, <kbd>Esc</kbd> ปิด panel
-
-## 🚀 Getting Started
-
-### 1. ติดตั้งและรัน
-
-ต้องมี Node.js 22.12+ แล้วรัน:
+- Node.js `22.12` ขึ้นไป
+- npm และ OpenRouter API key
 
 ```bash
+git clone https://github.com/EarthStrixDEV/atelier.git
+cd atelier
 npm install
-```
-
-```bash
 npm run dev
 ```
 
-เปิด `http://localhost:5173` ได้เลย — ส่วน production build ใช้ `npm run build` (ได้ static files ใน `dist/` เอาไป deploy ที่ไหนก็ได้) และ `npm run preview` เพื่อลองตัว build จริงที่ `http://localhost:4173`
+เปิด [http://localhost:5173](http://localhost:5173) แล้วใส่ API key รูปแบบ `sk-or-v1-…` ในหน้าต่าง API Key หรือสร้างใหม่จาก [OpenRouter Keys](https://openrouter.ai/keys)
 
-> [!TIP]
-> เวอร์ชัน single-file เดิม (vanilla JS ไฟล์เดียว ฟีเจอร์ครบเท่ากัน) ยังอยู่ที่ `legacy/index.html` — ดับเบิลคลิกเปิดในเบราว์เซอร์ได้เลยโดยไม่ต้องติดตั้งอะไร
+### Environment variables
 
-### 2. ใส่ OpenRouter API Key
+สร้าง `.env.local` เมื่อต้องการเปิดความสามารถ Google Drive:
 
-1. สร้าง key ได้ที่ [openrouter.ai/keys](https://openrouter.ai/keys)
-2. เปิดแอปแล้ว modal จะเด้งให้ใส่ key อัตโนมัติ (หรือคลิกที่ปุ่ม **"ใส่ API Key"** มุมขวาบน)
-3. วาง key รูปแบบ `sk-or-v1-…` แล้วกดบันทึก
+```env
+VITE_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
+```
+
+ตัวแปรนี้เป็น optional หากไม่ตั้งค่า ปุ่ม Google Drive จะไม่แสดง ส่วน OpenRouter API key ใส่ผ่าน UI และไม่เก็บในไฟล์ environment
+
+## 📜 คำสั่งที่ใช้บ่อย
+
+| คำสั่ง | รายละเอียด |
+|---|---|
+| `npm run dev` | เปิด Vite development server |
+| `npm run build` | ตรวจ TypeScript แล้วสร้าง production build ลง `dist/` |
+| `npm run preview` | เปิด production build เพื่อทดสอบในเครื่อง |
+
+โปรเจกต์ยังไม่มี script สำหรับ lint หรือ automated tests ใน `package.json`
+
+## ⌨️ Keyboard shortcuts
+
+| ปุ่ม | การทำงาน |
+|---|---|
+| <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> | Generate ด้วยค่าปัจจุบัน |
+| <kbd>1</kbd>–<kbd>6</kbd> หรือ <kbd>Alt</kbd> + <kbd>1</kbd>–<kbd>6</kbd> | สลับโหมด General → TTS |
+| <kbd>/</kbd> | โฟกัสช่อง prompt |
+| <kbd>Shift</kbd> + <kbd>?</kbd> | เปิด/ปิดหน้ารวม shortcuts |
+| <kbd>←</kbd> / <kbd>→</kbd> | เลื่อนผลงานใน Lightbox |
+| <kbd>Esc</kbd> | ปิด modal, panel หรือ Lightbox |
+
+## 💾 การจัดเก็บและส่งออก
+
+| วิธี | ตำแหน่ง | พฤติกรรม |
+|---|---|---|
+| Gallery Persistence | IndexedDB | Opt-in; สูงสุด 60 ชิ้นต่อโหมด, รวม 500 MB, ไม่เกิน 80 MB ต่อชิ้น |
+| Auto Save | โฟลเดอร์ในเครื่อง | ใช้ File System Access API และต้องอนุญาตสิทธิ์ตามข้อกำหนดเบราว์เซอร์ |
+| Google Drive | `Atelier Output` | ใช้ OAuth scope `drive.file`; แอปเข้าถึงเฉพาะไฟล์ที่สร้างผ่านแอป |
+| Export Session | ไฟล์ `.json` | สำรอง settings, prompt, queue และ metadata; ไม่ฝังไฟล์สื่อ |
+| Download | เครื่องผู้ใช้ | ดาวน์โหลดผลงานเดี่ยวหรือหลายรายการโดยตรง |
 
 > [!NOTE]
-> Key เก็บไว้ใน memory เท่านั้น — **ปิดหน้าเว็บแล้วต้องใส่ใหม่** เป็นการออกแบบโดยตั้งใจเพื่อความปลอดภัยค่ะ
+> Auto Save เหมาะกับ Chrome, Edge และเบราว์เซอร์ Chromium ที่รองรับ `showDirectoryPicker` ส่วนเบราว์เซอร์อื่นยังใช้ Download ได้ตามปกติ
 
-### 3. เลือกโหมด: Home / Infographic / Video
+## 🔐 ข้อมูลและความเป็นส่วนตัว
 
-คลิกแท็บที่ header — **Home** สำหรับสร้างภาพทั่วไป, **Infographic** สำหรับสร้างกราฟิกให้ข้อมูล, **Video** สำหรับสร้างคลิปสั้น 8–10 วินาที (มี control เพิ่ม: duration กับ toggle เสียง) รายละเอียดเพิ่มเติมดูที่หัวข้อ [โหมดทั้งสาม](#️-โหมดทั้งสาม-home--infographic--video)
+- แอปไม่มี backend ของตัวเอง คำขอสร้างสื่อถูกส่งจากเบราว์เซอร์ไป OpenRouter โดยตรง
+- ค่าเริ่มต้นเก็บ API key ใน `sessionStorage` จึงอยู่รอดเมื่อ refresh แต่หายเมื่อปิดแท็บ ผู้ใช้ opt-in ให้จำใน `localStorage` ได้
+- Prompt history, templates, favorites, settings, spend ledger และ session snapshot เก็บใน `localStorage`
+- ไฟล์ gallery เก็บใน IndexedDB ก็ต่อเมื่อเปิด Gallery Persistence
+- Reference images และ media ที่ยังไม่ได้ persist อยู่ใน memory ของแท็บ
+- Google Drive ใช้ access token ใน memory และ scope จำกัด `drive.file`
 
-### 4. แต่ง prompt ด้วย Prompt Builder (ไม่บังคับ)
+ควรตรวจนโยบายข้อมูลและค่าใช้จ่ายของโมเดลบน OpenRouter ก่อนส่งข้อมูลที่เป็นความลับ
 
-เปิดกลุ่ม keyword ใน sidebar แล้วคลิกคำที่ต้องการ ระบบจะต่อท้าย prompt ให้อัตโนมัติ คลิกซ้ำเพื่อเอาออก — ชุด keyword จะเปลี่ยนตามโหมดที่เลือกอยู่โดยอัตโนมัติ
+## 🏗️ สถาปัตยกรรมโดยย่อ
 
-### 5. Generate!
-
-1. พิมพ์ prompt อธิบายภาพ/วิดีโอที่ต้องการ (ไทยหรืออังกฤษก็ได้ ขึ้นกับโมเดล)
-2. เลือกโมเดล, aspect ratio, จำนวนงาน (โหมด Video เลือก duration กับเสียงเพิ่มได้)
-3. กดปุ่ม **Generate** หรือกด <kbd>Enter</kbd> ในช่อง prompt ได้เลย
-
-### 6. หรือจะตั้งคิวหลาย prompt พร้อมกัน
-
-1. ตั้งค่า prompt / โมเดล / ratio / จำนวนภาพ ตามต้องการ แล้วกด **"+ เพิ่มเข้าคิว"**
-2. เปลี่ยน prompt หรือโมเดลแล้วเพิ่มเข้าคิวต่อได้อีก (สูงสุด 5 คิว) — แต่ละคิวมี setting เป็นของตัวเอง
-3. รายการคิวจะโชว์ในหมด sidebar ลบทิ้งทีละคิวได้ด้วยปุ่ม ✕
-4. กดปุ่ม **Generate Queue (n)** เพื่อรันทุกคิวพร้อมกันในครั้งเดียว
-
-## ⌨️ Keyboard Shortcuts
-
-| ปุ่ม | ทำอะไร |
-|---|---|
-| <kbd>Enter</kbd> (ในช่อง prompt) | สั่ง generate |
-| <kbd>Shift</kbd> + <kbd>Enter</kbd> | ขึ้นบรรทัดใหม่ใน prompt |
-| <kbd>←</kbd> / <kbd>→</kbd> (ใน lightbox) | เลื่อนดูภาพก่อนหน้า / ถัดไป |
-| <kbd>Esc</kbd> (ใน lightbox) | ปิด lightbox |
-| <kbd>Enter</kbd> (ในช่อง chat) | ส่งข้อความแชท |
-| <kbd>Shift</kbd> + <kbd>Enter</kbd> (ในช่อง chat) | ขึ้นบรรทัดใหม่ในข้อความแชท |
-| <kbd>Esc</kbd> (chat panel เปิดอยู่) | ปิด chat panel |
-
-## 🏗️ How It Works
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  React SPA (Vite + TypeScript — client-only ไม่มี backend)        │
-│                                                                   │
-│  ┌───────────┐   GET /api/v1/models         (โมเดลภาพ)            │
-│  │  Sidebar  │ ─────────────────────► OpenRouter                 │
-│  │ (prompt,  │   GET /api/v1/videos/models  (โมเดลวิดีโอ)          │
-│  │  builder, │ ─────────────────────► OpenRouter                 │
-│  │  model,   │   ภาพ: กรอง output_modalities ["image"]            │
-│  │  queue)   │   วิดีโอ: กรองเหลือ 4 โมเดลที่กำหนดไว้                 │
-│  └─────┬─────┘                                                    │
-│        │ Generate (คิวหรือ single prompt → N งาน                  │
-│        │           = N requests ขนาน, tag ด้วยโหมดปัจจุบัน)        │
-│        ▼                                                          │
-│  แยกเส้นทางตามโหมด + ชนิดโมเดล                                     │
-│  ┌──────────────────┐ ┌────────────────┐ ┌────────────────────┐  │
-│  │ image + text      │ │ image เท่านั้น    │ │ โหมด Video          │  │
-│  │ POST              │ │ (Grok Imagine)  │ │ POST /api/v1/videos│  │
-│  │ /chat/completions │ │ POST            │ │ → job id → poll    │  │
-│  │ modalities:       │ │ /api/v1/images  │ │ ทุก 10 วิ จน        │  │
-│  │  ["image","text"] │ │                 │ │ completed → blob   │  │
-│  └────────┬──────────┘ └───────┬────────┘ └─────────┬──────────┘  │
-│           │ message.images[0]  │ data[0].b64_json   │ unsigned_urls│
-│           ▼                    ▼                    ▼             │
-│  ┌─────────────────────────────────────────────────────┐          │
-│  │  Gallery (Home / Infographic / Video)                │          │
-│  │  + Model Tag + Lightbox — render เฉพาะเมื่อโหมด        │          │
-│  │  ของงานตรงกับโหมดที่แสดงอยู่บนจอ ณ ขณะนั้น               │          │
-│  └─────────────────────────────────────────────────────┘          │
-└─────────────────────────────────────────────────────────────────┘
+```text
+Browser (React SPA)
+├─ Landing / Model Catalog
+└─ Studio
+   ├─ UI: Header · Prompt Composer · Sidebar · Gallery · Modals
+   ├─ Store: mutable singleton + useSyncExternalStore
+   ├─ Actions: generation · queue · polling · persistence · export
+   ├─ Local data: sessionStorage · localStorage · IndexedDB
+   └─ External services
+      ├─ OpenRouter API — models, image, video, audio, TTS และ assistant
+      └─ Google Drive API — optional file upload
 ```
 
-รายละเอียดเชิงเทคนิค:
+แอป route คำขอตาม modality ของโมเดล: image+text ใช้ chat completions, image-only ใช้ Image API, วิดีโอใช้ async job และ polling ส่วน audio/TTS ใช้เส้นทางที่สอดคล้องกับโมเดล งานทั้งหมดผ่าน request governor กลางเพื่อควบคุม concurrency
 
-- **React 19 + TypeScript strict + Tailwind CSS v4 + Vite** — ไม่มี state library ใช้ store ตัวเล็กที่เขียนเอง (mutable singleton + `useSyncExternalStore`) ทุกการเปลี่ยน state ผ่าน `mutate()` แล้ว broadcast ให้ component re-render
-- **State แยกตามโหมด** — `apiKey` และ model list เต็มใช้ร่วมกัน ส่วน prompt / aspect ratio / จำนวนงาน / duration / เสียง / gallery / คิว / ประวัติ เก็บแยกเป็น `ModeState` ของตัวเองต่อโหมด (Home / Infographic / Video) สลับแท็บแล้วข้อมูลไม่ปนกันและไม่หาย
-- **งานที่กำลัง generate ถูก tag ด้วยโหมดต้นทาง** — ถ้าสลับโหมดระหว่างรอผลลัพธ์ งานจะยังบันทึกถูก gallery เดิม (mutate ตาม reference ของ item) ป้องกันงานหลุดไปโผล่ผิดโหมด
-- **Routing ตามชนิดโมเดล** — โมเดลที่ output ได้ทั้ง image และ text (Gemini, GPT Image) ใช้ `chat/completions`; โมเดล image-only (Grok Imagine) ใช้ `POST /api/v1/images` โดยตรง เพราะ `chat/completions` จะ error "No endpoints found" ถ้าขอ modality `text` จากโมเดลที่ไม่รองรับ
-- **วิดีโอเป็น async job** — `POST /api/v1/videos` ได้ job id กลับมา แล้ว poll `GET /api/v1/videos/{id}` ทุก 10 วินาที (timeout 10 นาที) — poll เจอ 4xx หยุดทันที, 5xx/network error รอรอบถัดไป พอ `completed` ก็ fetch ไฟล์จาก `unsigned_urls[0]` มาเก็บเป็น blob ใน memory ทันที กันลิงก์หมดอายุระหว่างหน้ายังเปิดอยู่
-- **% ความคืบหน้าวิดีโอเป็นค่าประเมิน** — API ไม่ส่ง progress จริงมา ใช้สูตร exponential จากเวลาที่ผ่านไป (`95 × (1 − e^(−t/60))`) ไต่ช้าลงเรื่อยๆ ค้างสูงสุด 95% จน job เสร็จจริง — ticker 1 วินาทีอยู่ใน component วงแหวนเอง และ card ใช้ React key คงที่ วิดีโอที่เสร็จแล้วจึงไม่ถูก remount และเล่นต่อเนื่องไม่สะดุด
-- **Capability ของโมเดลวิดีโอดึงสด** — `supported_durations` / `supported_aspect_ratios` / `generate_audio` / `pricing_skus` มาจาก `/api/v1/videos/models` โดยตรง ปุ่มที่โมเดลไม่รองรับถูก disable และค่าที่เลือกไว้ snap ไปค่าใกล้สุดอัตโนมัติ — ถ้าวันหนึ่งโมเดลรองรับเพิ่ม ปุ่มจะปลดล็อคเองโดยไม่ต้องแก้โค้ด
-- **Aspect ratio** ฝั่ง `chat/completions` ส่งผ่าน `image_config.aspect_ratio` และแนบเป็น hint ท้าย prompt ด้วย (เผื่อโมเดลไม่รองรับ `image_config`) ส่วนฝั่ง Image API / Video API ส่ง `aspect_ratio` ตรงๆ เป็น native param
-- **แต่ละงานเป็น request อิสระ** — ทั้งใน batch เดียวและข้ามคิว งานหนึ่งพังไม่กระทบงานอื่น และ retry ได้รายงาน (วิดีโอ retry = submit job ใหม่)
-- **Queue** เป็นแค่ snapshot ของ (prompt, model, ratio, count และ duration/เสียงในโหมด Video) ที่เก็บใน memory ต่อโหมด — กด Generate Queue แล้วจะ flatten ทุกคิวเป็น batch เดียวแล้วยิงพร้อมกันทั้งหมด
-- **Prompt Optimizer และ Chat with Atelier ใช้ path แยกจาก image/video generation** — ทั้งคู่เรียก `openai/gpt-oss-20b:free` ผ่าน `POST /chat/completions` ตรงๆ (โมเดล text ล้วน ไม่เกี่ยวกับ modality image) แล้วรอ response เป็น JSON (Optimizer) หรือข้อความล้วน (Chat) กลับมาแสดงผลทันที ไม่มี job polling เหมือนโหมด Video
-- **Prompt History และ Chat history persist ผ่าน `localStorage`** — เป็นข้อมูลเดียวในแอปที่รอดจากการปิดแท็บ (ต่างจาก API key, gallery, คิว ที่อยู่ใน memory ล้วนแล้วหายเมื่อรีเฟรช) History แยก key ต่อโหมด ส่วน Chat history เป็น global เดียวไม่แยกโหมด
+## 📁 โครงสร้างโปรเจกต์
 
-## 📁 Project Structure
-
-```
+```text
 atelier/
-├── index.html              # Vite entry
-├── src/
-│   ├── main.tsx / App.tsx  # bootstrap + layout
-│   ├── index.css           # Tailwind v4 @theme (โทนสีชุดเดิมจาก legacy)
-│   ├── lib/
-│   │   ├── types.ts        # type ทั้งหมด (Mode, GenItem, ModeState, AppState, …)
-│   │   ├── constants.ts    # ratio/count/duration, keyword groups, model lists/filters
-│   │   ├── store.ts        # state singleton + mutate() + useApp() + localStorage
-│   │   ├── actions.ts      # โลจิกทั้งหมด: โหลดโมเดล, generate, video polling, queue,
-│   │   │                   #   history, optimizer, chat, export/import, downloads
-│   │   └── utils.ts        # keyword toggle, convert/download helpers, ราคา/progress วิดีโอ
-│   └── components/         # Header, Sidebar, Gallery, Lightbox, KeyModal, ChatPanel, Toast
-├── legacy/index.html       # เวอร์ชัน single-file เดิม (ฟีเจอร์ครบเท่ากัน — frozen)
-├── CLAUDE.md               # คู่มือสำหรับ Claude Code
-└── README.md               # ไฟล์นี้
+├─ public/assets/atelier-logo.png      # โลโก้หลักและ favicon
+├─ src/
+│  ├─ components/                 # Studio UI, modal, gallery และ catalog
+│  ├─ lib/
+│  │  ├─ actions.ts               # orchestration และ business logic
+│  │  ├─ constants.ts             # modes, models, limits และ templates
+│  │  ├─ store.ts                 # global state และ browser storage
+│  │  ├─ galleryStore.ts          # IndexedDB gallery persistence
+│  │  ├─ fsAccess.ts              # Auto Save ลงเครื่อง
+│  │  ├─ googleDrive.ts           # Google OAuth และ Drive upload
+│  │  ├─ shortcuts.ts             # global keyboard shortcuts
+│  │  └─ types.ts                 # TypeScript domain types
+│  ├─ pages/                      # Landing, Studio และ Model Catalog
+│  ├─ index.css
+│  └─ main.tsx
+├─ legacy/index.html              # เวอร์ชัน single-file เดิม
+├─ vite.config.ts
+├─ vercel.json                    # SPA rewrite สำหรับ Vercel
+└─ package.json
 ```
+
+## 🌐 Production และการ Deploy
+
+```bash
+npm run build
+npm run preview
+```
+
+ผลลัพธ์อยู่ใน `dist/` และ deploy บน static hosting ได้ สำหรับ Vercel มี SPA rewrite เตรียมไว้แล้ว หากใช้ผู้ให้บริการอื่นต้องตั้ง fallback ของ `/studio` และ `/models` กลับเข้า `index.html`
+
+หากเปิด Google Drive ให้เพิ่ม `VITE_GOOGLE_CLIENT_ID` ใน hosting environment และตั้ง Authorized JavaScript origins ใน Google Cloud ให้ตรงกับโดเมน production
+
+## 🤝 แนวทางพัฒนา
+
+1. สร้าง branch สำหรับงานที่ต้องการแก้
+2. รักษา TypeScript strict และเพิ่ม domain type ใน `src/lib/types.ts`
+3. รวม limits และ model metadata ไว้ใน `src/lib/constants.ts`
+4. อย่าใส่ secret หรือ API key ลง source code
+5. รัน `npm run build` ก่อนเปิด Pull Request
+
+## ⚠️ ข้อจำกัดที่ควรรู้
+
+- ความพร้อมใช้งาน ราคา และ capability ของโมเดลอาจเปลี่ยนตาม OpenRouter
+- Progress ของวิดีโอเป็นค่าประเมินจากเวลา เพราะ API ไม่ส่งเปอร์เซ็นต์จริง
+- การปิดแท็บระหว่างงานที่ provider รับไปแล้วอาจทำให้ผลลัพธ์กลับมาไม่สมบูรณ์
+- Gallery Persistence เป็น opt-in และลบงานเก่าที่ไม่ติดดาวเมื่อเกินเพดานพื้นที่
+- ระบบไม่รับรองค่าใช้จ่ายจริง ให้ตรวจยอดในบัญชี OpenRouter เสมอ
 
 ## 📄 License
 
-ยังไม่ได้ระบุ license
+โปรเจกต์นี้ยังไม่ได้ระบุ license จึงสงวนลิขสิทธิ์ตามค่าเริ่มต้น หากต้องการนำไปเผยแพร่ แก้ไข หรือแจกจ่าย ควรขออนุญาตเจ้าของ repository ก่อน
+
+---
+
+<div align="center">
+
+สร้างสื่ออย่างเป็นระบบ ตั้งแต่ไอเดียแรกจนถึงไฟล์พร้อมใช้งาน — **Atelier**
+
+</div>

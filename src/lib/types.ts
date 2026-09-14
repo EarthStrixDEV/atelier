@@ -28,7 +28,7 @@ export type GenStatus = "loading" | "done" | "error" | "cancelled";
  */
 export type CancelReason = "user" | "user-all" | "shutdown";
 export type ImgFormat = "png" | "jpg";
-export type PromptPlacement = "sidebar" | "center";
+export type PromptPlacement = "sidebar" | "center" | "dock";
 export type ToastVariant = "success" | "error" | "info";
 /** ภาษา UI ทั้งแอป (i18n Wave 0) — default เป็น "th" เสมอ ห้าม auto-detect จาก browser locale (ดู loadLocale ใน store.ts) */
 export type Locale = "th" | "en";

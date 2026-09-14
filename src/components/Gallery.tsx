@@ -986,6 +986,8 @@ export default function Gallery() {
   const selectedItems = [...ms.selected].map(id => ms.images.find(x => x.id === id)).filter((x): x is typeof ms.images[number] => !!x);
   const canCompare = selectedItems.length >= 2 && selectedItems.length <= 4 && selectedItems.every(canCompareItem);
 
+  // "dock" render อยู่ใน StudioApp.tsx เป็น row แยกใต้ Sidebar+Gallery ไม่ใช่ overlay ทับ gallery
+  // แบบ "center" — เฉพาะ "center" เท่านั้นที่ต้องกันที่ด้วย padding-bottom ตรงนี้
   const centerPrompt = s.promptPlacement === "center";
 
   // item ใหม่ถูก unshift ไว้บนสุดเสมอ — ถ้าผู้ใช้อยู่บนสุดอยู่แล้วก็เลื่อนตามให้เลย แต่ถ้ากำลังเลื่อน

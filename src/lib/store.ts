@@ -227,7 +227,8 @@ export function migrateHistoryList(list: unknown[]): HistoryEntry[] {
 
 function loadPromptPlacement(): PromptPlacement {
   try {
-    return localStorage.getItem(PROMPT_PLACEMENT_KEY) === "center" ? "center" : "sidebar";
+    const raw = localStorage.getItem(PROMPT_PLACEMENT_KEY);
+    return raw === "center" || raw === "dock" ? raw : "sidebar";
   } catch {
     return "sidebar";
   }

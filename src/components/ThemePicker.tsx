@@ -33,11 +33,98 @@ function swatchColors(meta: ThemeMeta, systemResolved: ThemeId): string[] {
   return fields.map(f => def.tokens[f]);
 }
 
+/**
+ * เนื้อหาของ picker ล้วนๆ ไม่มีปุ่มเปิด/popover chrome ของตัวเอง — แยกออกมาเพื่อให้ Header's
+ * "เพิ่มเติม" drill-down menu เอาไปฝังต่อได้ โดยไม่ต้องก็อปโค้ด list ซ้ำ ผู้เรียกที่ห่อ panel นี้
+ * ด้วย popover ของตัวเองต้องจัดการ backdrop/Escape/open-state เอง — panel นี้ดูแลแค่ตัว list
+ */
+export function ThemePickerPanel() {
+  const s = useApp();
+  const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // เมาท์แล้วโยน focus เข้าแถวธีมที่ใช้อยู่ทันที — คนใช้คีย์บอร์ดจะได้กดลูกศรต่อได้เลยโดยไม่ต้อง Tab ไล่
+  useEffect(() => {
+    const i = THEME_ORDER.findIndex(t => t.id === s.theme);
+    rowRefs.current[i < 0 ? 0 : i]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const systemResolved = resolveTheme("system");
+
+  const choose = (id: ThemeId) => {
+    setTheme(id); // ตัวเดียวจบ: mutate + persist + ทา data-theme (ห้ามเรียก saveTheme/applyTheme แยก)
+  };
+
+  /** ลูกศรขึ้น/ลง วนรอบ + Home/End — pattern มาตรฐานของ menu ที่คนใช้ screen reader คาดหวัง */
+  const onRowKey = (e: React.KeyboardEvent, i: number) => {
+    const n = THEME_ORDER.length;
+    let next = -1;
+    if (e.key === "ArrowDown") next = (i + 1) % n;
+    else if (e.key === "ArrowUp") next = (i - 1 + n) % n;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = n - 1;
+    if (next < 0) return;
+    e.preventDefault(); // กันหน้าเลื่อนตามลูกศร
+    rowRefs.current[next]?.focus();
+  };
+
+  return (
+    <div role="menu" aria-label="รายการธีมสี">
+      {THEME_ORDER.map((meta, i) => {
+        const active = meta.id === s.theme;
+        const colors = swatchColors(meta, systemResolved);
+        // แถว System ต้องบอกว่า "ตอนนี้ resolve เป็นอะไร" ไม่ใช่คำว่า System ลอยๆ (AC) —
+        // ค่าที่ resolve ได้เปลี่ยนตาม OS จึงอ่านจาก resolveTheme() ทุกครั้งที่ render ไม่ cache
+        const hint = meta.swatch === null
+          ? meta.hint + " — ตอนนี้เป็น" + (THEMES[systemResolved].colorScheme === "dark" ? "โหมดมืด" : "โหมดสว่าง")
+          : meta.hint;
+        return (
+          <button
+            key={meta.id}
+            ref={el => { rowRefs.current[i] = el; }}
+            role="menuitemradio"
+            aria-checked={active}
+            aria-label={"ใช้ธีม " + meta.label + " — " + hint + (active ? " (กำลังใช้อยู่)" : "")}
+            tabIndex={0}
+            className={
+              "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors "
+              + (active ? "bg-surface-2" : "hover:bg-surface-2")
+            }
+            onClick={() => choose(meta.id)}
+            onKeyDown={e => onRowKey(e, i)}
+          >
+            {/* swatch = สีจริงจาก THEMES ไม่ใช่ utility class — ค่าพวกนี้เป็น "ข้อมูลของธีมอื่น"
+              * ที่ต้องแสดงพร้อมกันในธีมปัจจุบัน จึงต้องเป็น inline style ไม่มีทางเป็น token
+              * ของหน้าจอตอนนี้ได้ (7 ธีมพร้อมกันใน 1 หน้าจอ) — ไม่ใช่การ hardcode สี */}
+            <span
+              className="flex shrink-0 overflow-hidden rounded-md border border-border-strong"
+              aria-hidden="true"
+            >
+              {colors.map((c, ci) => (
+                <span key={ci} className="h-[18px] w-[9px]" style={{ background: c }} />
+              ))}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-semibold text-text">{meta.label}</span>
+              <span className="block truncate text-[10.5px] text-text-faint">{hint}</span>
+            </span>
+            {/* indicator เป็น "รูปทรง" ไม่ใช่สีอย่างเดียว — ธีม high-contrast และคนตาบอดสี
+              * ต้องแยกออกว่าแถวไหนถูกเลือก การพึ่งพื้นหลังเข้มขึ้นอย่างเดียวไม่พอ */}
+            <Check
+              size={14}
+              className={"shrink-0 text-accent " + (active ? "" : "invisible")}
+              aria-hidden="true"
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ThemePicker() {
   const s = useApp();
   const [open, setOpen] = useState(false);
-  // ref ของทุกแถว — ใช้ย้าย DOM focus ตอนกดลูกศร (roving focus) ไม่ได้เก็บ "แถวที่ถูกเลือก" ไว้เป็น state ซ้อน
-  const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   /**
@@ -56,37 +143,7 @@ export default function ThemePicker() {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // เปิดแล้วโยน focus เข้าแถวธีมที่ใช้อยู่ทันที — คนใช้คีย์บอร์ดจะได้กดลูกศรต่อได้เลยโดยไม่ต้อง Tab ไล่
-  useEffect(() => {
-    if (!open) return;
-    const i = THEME_ORDER.findIndex(t => t.id === s.theme);
-    rowRefs.current[i < 0 ? 0 : i]?.focus();
-    // ตั้งใจไม่ใส่ s.theme ใน deps — ต้องการโฟกัสครั้งเดียวตอน "เปิด" ถ้าใส่ด้วย การเลือกธีม
-    // จะดึง focus กระโดดไปมาระหว่างที่ popover ยังเปิดอยู่
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const systemResolved = resolveTheme("system");
   const currentMeta = THEME_ORDER.find(t => t.id === s.theme);
-
-  const choose = (id: ThemeId) => {
-    setTheme(id); // ตัวเดียวจบ: mutate + persist + ทา data-theme (ห้ามเรียก saveTheme/applyTheme แยก)
-    setOpen(false);
-    btnRef.current?.focus();
-  };
-
-  /** ลูกศรขึ้น/ลง วนรอบ + Home/End — pattern มาตรฐานของ menu ที่คนใช้ screen reader คาดหวัง */
-  const onRowKey = (e: React.KeyboardEvent, i: number) => {
-    const n = THEME_ORDER.length;
-    let next = -1;
-    if (e.key === "ArrowDown") next = (i + 1) % n;
-    else if (e.key === "ArrowUp") next = (i - 1 + n) % n;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = n - 1;
-    if (next < 0) return;
-    e.preventDefault(); // กันหน้าเลื่อนตามลูกศร
-    rowRefs.current[next]?.focus();
-  };
 
   return (
     <div className="relative">
@@ -104,59 +161,8 @@ export default function ThemePicker() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            role="menu"
-            aria-label="รายการธีมสี"
-            className="absolute right-0 top-[calc(100%+6px)] z-50 w-[280px] rounded-[10px] border border-border-strong bg-surface p-2 shadow-[0_12px_40px_rgba(0,0,0,.16)]"
-          >
-            {THEME_ORDER.map((meta, i) => {
-              const active = meta.id === s.theme;
-              const colors = swatchColors(meta, systemResolved);
-              // แถว System ต้องบอกว่า "ตอนนี้ resolve เป็นอะไร" ไม่ใช่คำว่า System ลอยๆ (AC) —
-              // ค่าที่ resolve ได้เปลี่ยนตาม OS จึงอ่านจาก resolveTheme() ทุกครั้งที่ render ไม่ cache
-              const hint = meta.swatch === null
-                ? meta.hint + " — ตอนนี้เป็น" + (THEMES[systemResolved].colorScheme === "dark" ? "โหมดมืด" : "โหมดสว่าง")
-                : meta.hint;
-              return (
-                <button
-                  key={meta.id}
-                  ref={el => { rowRefs.current[i] = el; }}
-                  role="menuitemradio"
-                  aria-checked={active}
-                  aria-label={"ใช้ธีม " + meta.label + " — " + hint + (active ? " (กำลังใช้อยู่)" : "")}
-                  tabIndex={0}
-                  className={
-                    "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors "
-                    + (active ? "bg-surface-2" : "hover:bg-surface-2")
-                  }
-                  onClick={() => choose(meta.id)}
-                  onKeyDown={e => onRowKey(e, i)}
-                >
-                  {/* swatch = สีจริงจาก THEMES ไม่ใช่ utility class — ค่าพวกนี้เป็น "ข้อมูลของธีมอื่น"
-                    * ที่ต้องแสดงพร้อมกันในธีมปัจจุบัน จึงต้องเป็น inline style ไม่มีทางเป็น token
-                    * ของหน้าจอตอนนี้ได้ (7 ธีมพร้อมกันใน 1 หน้าจอ) — ไม่ใช่การ hardcode สี */}
-                  <span
-                    className="flex shrink-0 overflow-hidden rounded-md border border-border-strong"
-                    aria-hidden="true"
-                  >
-                    {colors.map((c, ci) => (
-                      <span key={ci} className="h-[18px] w-[9px]" style={{ background: c }} />
-                    ))}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12.5px] font-semibold text-text">{meta.label}</span>
-                    <span className="block truncate text-[10.5px] text-text-faint">{hint}</span>
-                  </span>
-                  {/* indicator เป็น "รูปทรง" ไม่ใช่สีอย่างเดียว — ธีม high-contrast และคนตาบอดสี
-                    * ต้องแยกออกว่าแถวไหนถูกเลือก การพึ่งพื้นหลังเข้มขึ้นอย่างเดียวไม่พอ */}
-                  <Check
-                    size={14}
-                    className={"shrink-0 text-accent " + (active ? "" : "invisible")}
-                    aria-hidden="true"
-                  />
-                </button>
-              );
-            })}
+          <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[280px] rounded-[10px] border border-border-strong bg-surface p-2 shadow-[0_12px_40px_rgba(0,0,0,.16)]">
+            <ThemePickerPanel />
           </div>
         </>
       )}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  BookmarkPlus, Check, ChevronDown, Layers3, LayoutTemplate, PanelBottom, PanelLeft, PenLine,
+  BookmarkPlus, Check, ChevronDown, Layers3, LayoutTemplate, PanelBottom, PanelLeft, PanelsTopLeft, PenLine,
   Sparkles, Trash2, WandSparkles, Wand2, X, XCircle,
 } from "lucide-react";
 import { hasPromptBuilder, INFOGRAPHIC_STRUCTURAL_PRESETS, MODE_META, PROMPT_LENGTH_WARN } from "../lib/constants";
@@ -185,7 +185,11 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   const ms = s.modes[s.mode];
   const meta = MODE_META[s.mode];
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const isCenter = placement === "center";
+  // "center" (pill ลอยทับ gallery) กับ "dock" (แถบเต็มความกว้าง ก้นถาวรใต้ gallery) ใช้ textarea
+  // แบบ auto-resize + marker เดียวกัน (data-center-prompt) เหมือนกันทั้งคู่ ต่างกันแค่ container
+  // ที่ห่ออยู่รอบนอก (ดู Gallery.tsx/StudioApp.tsx) — isDock แยกไว้เฉพาะจุดที่ layout ต้องต่างจริงๆ
+  const isFloating = placement === "center" || placement === "dock";
+  const isDock = placement === "dock";
   const hasPrompt = !!ms.prompt.trim();
   const canGenerate = !!s.apiKey && modelsForMode(s.mode).length > 0 && (hasPrompt || ms.queue.length > 0);
   const generatingCount = ms.images.filter(x => x.status === "loading").length;
@@ -208,20 +212,36 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    if (isCenter) {
+    if (isFloating) {
       input.style.height = "auto";
       input.style.height = Math.min(Math.max(input.scrollHeight, 52), 160) + "px";
     }
-  }, [isCenter]);
+  }, [isFloating]);
 
   const resizeCenterInput = (input: HTMLTextAreaElement) => {
-    if (!isCenter) return;
+    if (!isFloating) return;
     input.style.height = "auto";
     input.style.height = Math.min(Math.max(input.scrollHeight, 52), 160) + "px";
   };
 
-  const move = () => {
-    const target = isCenter ? "sidebar" : "center";
+  const [placementMenuOpen, setPlacementMenuOpen] = useState(false);
+  const placementBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Escape ปิดเมนูเลือกตำแหน่ง — pattern เดียวกับ popover อื่นๆ ในแอป (ThemePicker, ฯลฯ)
+  useEffect(() => {
+    if (!placementMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setPlacementMenuOpen(false);
+      placementBtnRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [placementMenuOpen]);
+
+  const moveTo = (target: PromptPlacement) => {
+    setPlacementMenuOpen(false);
+    if (target === placement) return;
     setPromptPlacement(target);
     window.setTimeout(() => {
       const input = document.querySelector<HTMLTextAreaElement>(
@@ -232,10 +252,16 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
     }, 0);
   };
 
+  const PLACEMENT_LABEL: Record<PromptPlacement, string> = {
+    sidebar: "Sidebar",
+    center: "ลอยกลางจอ",
+    dock: "แถบด้านล่าง",
+  };
+
   const optimizePanel = (s.optimize.status === "done" || s.optimize.status === "error") && (
     <div className={
       "flex flex-col gap-2.5 rounded-[10px] border border-border-strong bg-surface p-3 " +
-      (isCenter ? "max-h-[min(50vh,420px)] overflow-y-auto shadow-[0_16px_60px_rgba(0,0,0,.16)]" : "")
+      (isFloating ? "max-h-[min(50vh,420px)] overflow-y-auto shadow-[0_16px_60px_rgba(0,0,0,.16)]" : "")
     }>
       {s.optimize.status === "error" ? (
         <>
@@ -278,22 +304,51 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
     </div>
   );
 
-  if (!isCenter) {
+  if (!isFloating) {
     return (
       <div id="prompt-sidebar">
         <div className="mb-[9px] flex items-center justify-between gap-2">
           <label htmlFor="prompt-sidebar-input" className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-text-dim"><PenLine size={12} /> Prompt</label>
           {/* มี label กำกับ ไม่ใช่ไอคอนเปล่า — ปุ่มนี้เคยเป็นไอคอนอย่างเดียวข้างคำว่า "Prompt"
-              จนดูเหมือนปุ่มหลงทาง ผู้ใช้ส่วนใหญ่ไม่รู้เลยว่าย้ายกล่อง prompt ได้ */}
-          <button
-            type="button"
-            className="flex h-7 cursor-pointer items-center gap-1 rounded-md border border-border px-2 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
-            title="ย้ายกล่อง Prompt ไปลอยกลางจอ (กว้างขึ้น เห็น Gallery เต็มตา)"
-            aria-label="ย้าย Prompt ไปกลาง Gallery"
-            onClick={move}
-          >
-            <PanelBottom size={13} /> ย้ายไปกลางจอ
-          </button>
+              จนดูเหมือนปุ่มหลงทาง ผู้ใช้ส่วนใหญ่ไม่รู้เลยว่าย้ายกล่อง prompt ได้
+              เดิมเป็น toggle 2 ทาง (sidebar/center) พอมี "dock" เป็นทางที่ 3 เลยเปลี่ยนเป็นเมนูเลือก */}
+          <div className="relative">
+            <button
+              ref={placementBtnRef}
+              type="button"
+              className="flex h-7 cursor-pointer items-center gap-1 rounded-md border border-border px-2 text-[10.5px] font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
+              title="ย้ายตำแหน่งกล่อง Prompt"
+              aria-label="ย้ายตำแหน่งกล่อง Prompt"
+              aria-expanded={placementMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setPlacementMenuOpen(v => !v)}
+            >
+              <PanelBottom size={13} /> ย้ายตำแหน่ง <ChevronDown size={11} className={"transition-transform " + (placementMenuOpen ? "rotate-180" : "")} />
+            </button>
+            {placementMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setPlacementMenuOpen(false)} />
+                <div role="menu" aria-label="เลือกตำแหน่งกล่อง Prompt" className="absolute right-0 top-[calc(100%+6px)] z-50 w-[200px] rounded-[10px] border border-border-strong bg-surface p-1.5 shadow-[0_12px_40px_rgba(0,0,0,.16)]">
+                  {(["sidebar", "center", "dock"] as const).map(opt => (
+                    <button
+                      key={opt}
+                      role="menuitemradio"
+                      aria-checked={placement === opt}
+                      type="button"
+                      className={
+                        "flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] font-semibold transition-colors "
+                        + (placement === opt ? "bg-surface-2 text-text" : "text-text-dim hover:bg-surface-2 hover:text-text")
+                      }
+                      onClick={() => moveTo(opt)}
+                    >
+                      {PLACEMENT_LABEL[opt]}
+                      {placement === opt && <Check size={13} className="shrink-0 text-accent" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
         <div className="mb-[9px]">
           <TemplatesMenu inputRef={inputRef} isCenter={false} />
@@ -365,17 +420,50 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   return (
     <div className="flex flex-col gap-2.5">
       {isBuilder && optimizePanel}
-      <div className="rounded-2xl border border-border-strong bg-surface/70 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.18)] backdrop-blur-xl">
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            className="mb-1 grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
-            title="ย้ายกลับ Sidebar"
-            aria-label="ย้าย Prompt กลับ Sidebar"
-            onClick={move}
-          >
-            <PanelLeft size={15} />
-          </button>
+      <div className={
+        isDock
+          // dock = แถบเต็มความกว้าง ก้นถาวรใต้ gallery (ไม่ใช่การ์ดลอย) — ไม่มี rounded/shadow/blur
+          ? "border-t border-border bg-surface px-4 py-3"
+          : "rounded-2xl border border-border-strong bg-surface/70 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.18)] backdrop-blur-xl"
+      }>
+        <div className="mx-auto flex max-w-[960px] items-end gap-2">
+          <div className="relative mb-1 shrink-0">
+            <button
+              ref={placementBtnRef}
+              type="button"
+              className="grid h-9 w-9 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
+              title="ย้ายตำแหน่งกล่อง Prompt"
+              aria-label="ย้ายตำแหน่งกล่อง Prompt"
+              aria-expanded={placementMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setPlacementMenuOpen(v => !v)}
+            >
+              {isDock ? <PanelsTopLeft size={15} /> : <PanelLeft size={15} />}
+            </button>
+            {placementMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setPlacementMenuOpen(false)} />
+                <div role="menu" aria-label="เลือกตำแหน่งกล่อง Prompt" className="absolute bottom-[calc(100%+6px)] left-0 z-50 w-[200px] rounded-[10px] border border-border-strong bg-surface p-1.5 shadow-[0_12px_40px_rgba(0,0,0,.16)]">
+                  {(["sidebar", "center", "dock"] as const).map(opt => (
+                    <button
+                      key={opt}
+                      role="menuitemradio"
+                      aria-checked={placement === opt}
+                      type="button"
+                      className={
+                        "flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12px] font-semibold transition-colors "
+                        + (placement === opt ? "bg-surface-2 text-text" : "text-text-dim hover:bg-surface-2 hover:text-text")
+                      }
+                      onClick={() => moveTo(opt)}
+                    >
+                      {PLACEMENT_LABEL[opt]}
+                      {placement === opt && <Check size={13} className="shrink-0 text-accent" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <TemplatesMenu inputRef={inputRef} isCenter />
           <textarea
             ref={inputRef}

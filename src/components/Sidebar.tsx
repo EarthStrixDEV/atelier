@@ -241,7 +241,12 @@ export default function Sidebar() {
         aria-label="ปรับความกว้าง Sidebar"
       />
 
-      {s.promptPlacement === "sidebar" && <PromptComposer placement="sidebar" />}
+      {/* placement "dock" ถูกซ่อนเมื่อ chat/grill เปิด (ดู StudioApp.tsx — ป้องกัน chat panel ที่ลอย
+          fixed bottom-right ทับมุมขวาของ dock bar) — sidebar ต้อง fallback มาโชว์ composer แทนชั่วคราว
+          ไม่งั้นจะไม่มีช่อง prompt โผล่ที่ไหนเลยตอน chat เปิดค้างพร้อม dock */}
+      {(s.promptPlacement === "sidebar" || (s.promptPlacement === "dock" && (s.chatOpen || s.grillOpen))) && (
+        <PromptComposer placement="sidebar" />
+      )}
 
       {/* Negative prompt (PHASE 14) — เฉพาะโหมดภาพ และซ่อนทิ้งถ้าโมเดลที่เลือกอยู่ routed ผ่าน image-only API (ไม่มี text slot ให้แนบเพิ่ม) */}
       {isNegativePromptMode(s.mode) && (

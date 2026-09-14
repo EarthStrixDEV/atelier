@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import Header from "../components/Header";
 import Sidebar from "../components/Sidebar";
 import Gallery from "../components/Gallery";
+import PromptComposer from "../components/PromptComposer";
 import Lightbox from "../components/Lightbox";
 import ExtendTool from "../components/ExtendTool";
 import KeyModal from "../components/KeyModal";
@@ -72,14 +73,31 @@ export default function StudioApp() {
     return subscribeSystemTheme();
   }, []);
 
+  /**
+   * dock ถูกซ่อนตอน chat/grill เปิด (กัน ChatPanel ที่ fixed bottom-right ทับมุมขวาของแถบ) แล้ว
+   * fallback ไปโชว์ composer ใน Sidebar แทน (ดู Sidebar.tsx) — fallback นั้นไร้ผลถ้า Sidebar ทั้งตัว
+   * ไม่ได้ render อยู่เพราะ sidebarCollapsed จะกลายเป็นไม่มีช่อง prompt โผล่ที่ไหนเลย จึงต้องบังคับ
+   * แสดง Sidebar ในสถานการณ์นี้เป็นกรณีพิเศษ เหมือนที่ setPromptPlacement("sidebar") เองก็ force
+   * sidebarCollapsed = false อยู่แล้ว (ดู actions.ts) — คนละ trigger แต่ผลลัพธ์ต้องสอดคล้องกัน
+   */
+  const dockFallbackToSidebar = s.promptPlacement === "dock" && (s.chatOpen || s.grillOpen);
+
   return (
     <div className="flex h-full flex-col">
       <Header />
       <RestoreBanner />
       <div className="flex min-h-0 flex-1 max-[860px]:flex-col">
-        {!s.sidebarCollapsed && <Sidebar />}
+        {(!s.sidebarCollapsed || dockFallbackToSidebar) && <Sidebar />}
         <Gallery />
       </div>
+      {/* "dock" (F-layout-preview) — แถบ prompt เต็มความกว้าง ก้นถาวรใต้ Sidebar+Gallery แทนที่จะลอย
+          ทับ gallery แบบ "center" ต้องอยู่นอก flex row ด้านบน (เป็น row ที่ 3 ของ column หลัก) ไม่ใช่
+          ในนั้น ไม่งั้นจะโดนบีบความสูงร่วมกับ Sidebar/Gallery แทนที่จะกินความกว้างเต็มจอด้านล่าง */}
+      {s.promptPlacement === "dock" && !s.chatOpen && !s.grillOpen && (
+        <div className="shrink-0 max-[860px]:hidden">
+          <PromptComposer placement="dock" />
+        </div>
+      )}
       <Lightbox />
       <ExtendTool />
       <KeyModal />
