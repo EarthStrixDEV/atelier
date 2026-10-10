@@ -204,6 +204,28 @@
   --color-overlay: rgba(8, 5, 4, 0.74);
 }
 
+/* Blossom — ธีมสว่างม่วงลาเวนเดอร์ ตามภาพ reference ของ Rework UI Studio (ค่าตรงกับ themes.ts `blossom`) */
+[data-theme="blossom"] {
+  color-scheme: light;
+  --logo-invert: 1;
+  --color-bg: #fdfbff;
+  --color-surface: #f8f4fe;
+  --color-surface-2: #f2eafb;
+  --color-interactive: #e6dcf3;
+  --color-border: #e6dcf3;
+  --color-border-strong: #cdbde6;
+  --color-text: #1e1433;
+  --color-text-dim: #5b4e75;
+  --color-text-faint: #7d7096;
+  --color-accent: #7c3aed;
+  --color-accent-ink: #ffffff;
+  --color-danger: #dc2626;
+  --color-success: #047857;
+  --color-warning: #b45309;
+  --color-info: #0369a1;
+  --color-overlay: rgba(30, 20, 51, 0.50);
+}
+
 html, body, #root { height: 100%; }
 body {
   background: var(--color-bg);

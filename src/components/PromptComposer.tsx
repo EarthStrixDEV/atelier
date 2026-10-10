@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BookmarkPlus, Check, ChevronDown, Layers3, LayoutTemplate, PanelBottom, PanelLeft, PanelsTopLeft, PenLine,
-  Sparkles, Trash2, WandSparkles, Wand2, X, XCircle,
+  SlidersHorizontal, Sparkles, Trash2, WandSparkles, Wand2, X, XCircle,
 } from "lucide-react";
-import { hasPromptBuilder, INFOGRAPHIC_STRUCTURAL_PRESETS, MODE_META, PROMPT_LENGTH_WARN } from "../lib/constants";
+import { hasPromptBuilder, INFOGRAPHIC_STRUCTURAL_PRESETS, isVideoMode, MODE_META, PROMPT_LENGTH_WARN, RATIOS } from "../lib/constants";
 import {
-  applyInfographicPreset, applyOptimizedPrompt, canRunBakeOff, cancelAll, clearOptimize, dedupPromptKeywords, deleteUserTemplate,
+  applyInfographicPreset, applyOptimizedPrompt, canRunBakeOff, cancelAll, clearOptimize, currentModel, dedupPromptKeywords, deleteUserTemplate,
   generate, insertTemplateText, modelsForMode, openBakeOffConfirm, runOptimize, saveCurrentPromptAsTemplate, setPrompt,
   setPromptPlacement, templatesForMode, toggleKeyword,
 } from "../lib/actions";
-import { toast, useApp } from "../lib/store";
+import { mutate, toast, useApp } from "../lib/store";
 import type { PromptPlacement } from "../lib/types";
 import { hasKeyword } from "../lib/utils";
 import { ExplainedChip } from "./ExplainedChip";
@@ -191,7 +191,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   const isFloating = placement === "center" || placement === "dock";
   const isDock = placement === "dock";
   const hasPrompt = !!ms.prompt.trim();
-  const canGenerate = !!s.apiKey && modelsForMode(s.mode).length > 0 && (hasPrompt || ms.queue.length > 0);
+  const canGenerate = modelsForMode(s.mode).length > 0 && (hasPrompt || ms.queue.length > 0);
   const generatingCount = ms.images.filter(x => x.status === "loading").length;
   // Bake-off (PHASE 14) เปลี่ยนพฤติกรรมปุ่ม Generate — เปิดโมดัลยืนยันราคาแทนยิงตรง (ดู Sidebar สำหรับ toggle/เลือกโมเดล)
   const bakeOffActive = ms.bakeOffEnabled;
@@ -367,7 +367,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
               if (canGenerateOrBakeOff) runGenerate();
             }
           }}
-          className="min-h-[110px] w-full resize-y rounded-card border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-faint focus:border-accent"
+          className="min-h-[110px] w-full resize-y rounded-card border border-border bg-surface px-3.5 py-3 text-[13.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-dim focus:border-accent"
         />
         <div className="mt-1.5 flex items-center justify-between gap-2">
           <span
@@ -416,6 +416,11 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   }
 
   const isBuilder = hasPromptBuilder(s.mode);
+  // ratio ในแถบล่าง (ตาม reference) — ค่าเดียวกับปุ่ม Aspect Ratio ในแท็บ Settings, วิดีโอเหลือเฉพาะที่โมเดลรองรับ
+  // (applyVideoCapabilities snap ค่าให้อยู่แล้วตอนเปลี่ยนโมเดล ที่นี่แค่ไม่เสนอค่าที่ใช้ไม่ได้)
+  const hasRatio = s.mode !== "audio" && s.mode !== "tts";
+  const vRatios = isVideoMode(s.mode) ? currentModel()?.supported_aspect_ratios : undefined;
+  const ratioOptions = RATIOS.filter(r => !vRatios?.length || vRatios.includes(r.v));
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -426,8 +431,19 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
           ? "border-t border-border bg-surface px-4 py-3"
           : "rounded-2xl border border-border-strong bg-surface/70 p-2.5 shadow-[0_18px_70px_rgba(0,0,0,.18)] backdrop-blur-xl"
       }>
-        <div className="mx-auto flex max-w-[960px] items-end gap-2">
-          <div className="relative mb-1 shrink-0">
+        {/* จอ <520px: ช่องพิมพ์ขึ้นแถวบนเต็มความกว้าง ปุ่มลงแถวล่าง (ไม่งั้นปุ่มเบียดช่องพิมพ์เหลือไม่กี่ตัวอักษร) */}
+        <div className="mx-auto flex max-w-[960px] items-end gap-2 max-[520px]:flex-wrap">
+          {/* จอ <900px: sidebar เป็นลิ้นชัก — ปุ่มเปิดอยู่ติดช่อง prompt ตามโครงหน้าจอใหม่ */}
+          <button
+            type="button"
+            className="mb-1 grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-[9px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text min-[900px]:hidden"
+            aria-label="เปิดแผงตั้งค่า (Prompt Builder, Reference, โมเดล)"
+            aria-expanded={s.sidebarDrawerOpen}
+            onClick={() => mutate(st => { st.sidebarDrawerOpen = true; })}
+          >
+            <SlidersHorizontal size={15} />
+          </button>
+          <div className="relative mb-1 shrink-0 max-[899px]:hidden">
             <button
               ref={placementBtnRef}
               type="button"
@@ -464,7 +480,17 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
               </>
             )}
           </div>
-          <TemplatesMenu inputRef={inputRef} isCenter />
+          <div className="max-[640px]:hidden"><TemplatesMenu inputRef={inputRef} isCenter /></div>
+          {hasRatio && (
+            <select
+              className="mb-1 h-9 shrink-0 cursor-pointer rounded-[9px] border border-border bg-surface px-2 text-[13px] text-text outline-none transition-colors hover:border-border-strong focus:border-accent max-[520px]:hidden"
+              aria-label="อัตราส่วนภาพ"
+              value={ms.ratio}
+              onChange={e => { const v = e.target.value; mutate(() => { ms.ratio = v; }); }}
+            >
+              {ratioOptions.map(r => <option key={r.v} value={r.v}>{r.v}</option>)}
+            </select>
+          )}
           <textarea
             ref={inputRef}
             data-center-prompt
@@ -483,7 +509,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
                 if (canGenerateOrBakeOff) runGenerate();
               }
             }}
-            className="max-h-40 min-h-[52px] min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-border bg-surface-2 px-3.5 py-3 text-[13.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-faint focus:border-accent"
+            className="max-h-40 min-h-[52px] min-w-0 flex-1 resize-none max-[520px]:order-first max-[520px]:basis-full overflow-y-auto rounded-xl border border-border bg-surface-2 px-3.5 py-3 text-[13.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-dim focus:border-accent"
           />
           {isBuilder && (
             <button
@@ -499,12 +525,11 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
           )}
           <button
             type="button"
-            className="mb-1 flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-accent px-4 text-xs font-bold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 max-[520px]:px-3"
+            className="mb-1 flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] bg-accent px-4 max-[520px]:ml-auto text-xs font-bold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35 max-[520px]:px-3"
             disabled={!canGenerateOrBakeOff}
             aria-label={
-              !s.apiKey
-                ? "Generate ปิดใช้งานอยู่ — ต้องใส่ OpenRouter API Key ก่อน กดปุ่ม \"ใส่ API Key\" ที่ header ด้านบนขวา"
-                : (generatingCount > 0 ? `กำลัง generate ${generatingCount} งานอยู่ — กดปุ่มนี้ซ้ำได้เรื่อยๆ เพื่อสร้างงานใหม่เพิ่มเข้าคิวพร้อมกัน ไม่ต้องรอให้เสร็จก่อน · ` : "")
+              (!s.apiKey ? "ยังไม่ได้ใส่ API Key — กดแล้วจะขอ key ก่อนเริ่มสร้าง · " : "")
+                + (generatingCount > 0 ? `กำลัง generate ${generatingCount} งานอยู่ — กดปุ่มนี้ซ้ำได้เรื่อยๆ เพื่อสร้างงานใหม่เพิ่มเข้าคิวพร้อมกัน ไม่ต้องรอให้เสร็จก่อน · ` : "")
                   + (bakeOffActive
                     ? `Generate Bake-off (${ms.bakeOffModelIds.length} โมเดล)`
                     : ms.queue.length ? `Generate ทั้งคิว (${ms.queue.length} งาน)` : "Generate ภาพ/วิดีโอจาก prompt ปัจจุบัน")

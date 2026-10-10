@@ -120,7 +120,7 @@ export default function SpendGuardModal() {
             ~{usd(projected)}{overBy > 0 ? " (เกิน " + usd(overBy) + ")" : ""}
           </span>
         </div>
-        <p className="mb-4 text-[11px] leading-relaxed text-text-faint">
+        <p className="mb-4 text-[13px] leading-relaxed text-text-dim">
           ทุกยอดเป็น <strong className="font-semibold">ยอดประเมิน</strong> จาก pricing ของโมเดล ไม่ใช่บิลจริงจาก OpenRouter นะคะ
           {req.batchUnknownCount > 0 ? ` — และยังมีอีก ${req.batchUnknownCount} ชิ้นที่คำนวณราคาไม่ได้ ยอดจริงจะสูงกว่านี้` : ""}
         </p>

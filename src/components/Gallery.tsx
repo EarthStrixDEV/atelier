@@ -5,9 +5,9 @@ import {
   Download, FastForward, HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Mic, Music, Play, RefreshCw, RotateCcw, Search, Sparkles,
   Star, Trash2, Video, Wand2, X,
 } from "lucide-react";
-import { MODE_META, RATIOS, isVideoMode } from "../lib/constants";
+import { EXAMPLE_PROMPTS, MODE_META, RATIOS, isVideoMode } from "../lib/constants";
 import {
-  autoExtendFromLastFrame, canCompareItem, canRefineItem, canStartFrom, cinematicChains, clearSelection,
+  applyPromptSuggestion, autoExtendFromLastFrame, canCompareItem, focusPromptInput, canRefineItem, canStartFrom, cinematicChains, clearSelection,
   copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
   openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryWithOverride, saveItemToDrive,
   saveSelectedToDrive, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
@@ -947,6 +947,56 @@ function StoryboardStrip() {
   );
 }
 
+const EMPTY_ICON: Record<Mode, typeof ImageIcon> = {
+  home: ImageIcon, infographic: ImageIcon, video: Video, cinematic: Clapperboard, audio: Music, tts: Mic,
+};
+
+/**
+ * Gallery ว่าง (R7 + hero ตาม reference) — บอกว่าแอปทำอะไรได้ก่อนขอ API Key แล้วยื่นตัวอย่าง prompt ให้กดเติมได้ 1 คลิก
+ * ตัวอย่างแค่เติมช่อง prompt (applyPromptSuggestion) ไม่เริ่ม generate เอง — ผู้ใช้ต้องกด Generate เองเสมอ
+ * พื้นหลังเป็น gradient จาก theme token ล้วน (ไม่มีรูปประกอบ) จึงตามธีมทั้ง 7 แบบเองโดยไม่ต้องดูแลเพิ่ม
+ */
+function EmptyGalleryHero({ mode }: { mode: Mode }) {
+  const meta = MODE_META[mode];
+  const Icon = EMPTY_ICON[mode];
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto pb-2">
+      <section className="relative shrink-0 overflow-hidden rounded-[18px] border border-border bg-gradient-to-br from-accent/15 via-surface to-surface-2 px-9 py-10 max-[600px]:px-5 max-[600px]:py-7">
+        <Icon size={160} strokeWidth={1} className="pointer-events-none absolute -right-4 -top-4 text-accent opacity-10 max-[600px]:hidden" aria-hidden />
+        <h3 className="relative max-w-[560px] text-[30px] font-bold leading-tight text-text max-[600px]:text-[22px]">
+          เปลี่ยนไอเดียให้เป็นผลงานด้วย AI
+        </h3>
+        <p className="relative mt-2.5 max-w-[540px] text-[14px] leading-relaxed text-text-dim">
+          สร้างภาพ อินโฟกราฟิก วิดีโอ เพลง และเสียงพากย์ จาก prompt เดียว — {meta.empty}
+        </p>
+        <button
+          className="relative mt-5 flex cursor-pointer items-center gap-1.5 rounded-full bg-accent px-5 py-2.5 text-[14px] font-bold text-accent-ink shadow-[0_8px_24px_rgba(0,0,0,.12)] transition-opacity hover:opacity-90"
+          onClick={focusPromptInput}
+        >
+          <Sparkles size={15} /> เริ่มสร้างเลย
+        </button>
+      </section>
+
+      <section aria-labelledby="example-prompts-title" className="shrink-0">
+        <h3 id="example-prompts-title" className="mb-3 text-[14px] font-semibold text-text">ลองเริ่มจากตัวอย่างนี้</h3>
+        <div className="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
+          {EXAMPLE_PROMPTS[mode].map(ex => (
+            <button
+              key={ex.label}
+              className="flex cursor-pointer flex-col items-start gap-1 rounded-card border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-accent"
+              aria-label={"ใช้ตัวอย่าง prompt: " + ex.label}
+              onClick={() => applyPromptSuggestion(ex.text)}
+            >
+              <span className="text-[14px] font-semibold text-text">{ex.label}</span>
+              <span className="line-clamp-2 text-[13px] leading-relaxed text-text-dim">{ex.text}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 /** ตัวกรองสถานะของ F3 — "all" = ไม่กรอง, ค่าที่เหลือ map ตรงกับ GenItem.status */
 type StatusFilter = "all" | "done" | "error" | "loading" | "cancelled";
 type SortOrder = "newest" | "oldest";
@@ -989,6 +1039,8 @@ export default function Gallery() {
   // "dock" render อยู่ใน StudioApp.tsx เป็น row แยกใต้ Sidebar+Gallery ไม่ใช่ overlay ทับ gallery
   // แบบ "center" — เฉพาะ "center" เท่านั้นที่ต้องกันที่ด้วย padding-bottom ตรงนี้
   const centerPrompt = s.promptPlacement === "center";
+  // จอ <900px dock ถูกซ่อน (StudioApp) — ใช้แถบลอยแบบ center แทน เฉพาะจอแคบ ไม่งั้นไม่มีช่อง prompt เลย
+  const dockOnNarrow = s.promptPlacement === "dock";
 
   // item ใหม่ถูก unshift ไว้บนสุดเสมอ — ถ้าผู้ใช้อยู่บนสุดอยู่แล้วก็เลื่อนตามให้เลย แต่ถ้ากำลังเลื่อน
   // ดูงานเก่าอยู่ ห้ามดึงกลับขึ้นไป (เป็นพฤติกรรมเดิมที่รำคาญมาก — กำลังดูอยู่ดีๆ จอกระโดด)
@@ -1097,10 +1149,10 @@ export default function Gallery() {
     <main aria-label={meta.title} className="relative flex min-w-0 flex-1 overflow-hidden">
       <div className={
         "flex min-w-0 flex-1 flex-col overflow-hidden p-7 max-[860px]:p-5 " +
-        (centerPrompt ? "pb-44 max-[860px]:pb-40" : "")
+        (centerPrompt ? "pb-44 max-[860px]:pb-40" : dockOnNarrow ? "max-[899px]:pb-40" : "")
       }>
       <div className="mb-[18px] flex shrink-0 items-baseline justify-between">
-        <h2 className="text-[13px] font-semibold uppercase tracking-[1.2px] text-text-dim">{meta.title}</h2>
+        <h2 className="text-[20px] font-bold tracking-[0.2px] text-text">{meta.title}</h2>
         <div className="flex items-center gap-3">
           {selectedCount > 0 && (
             <span className="flex items-center gap-2">
@@ -1163,7 +1215,7 @@ export default function Gallery() {
               onChange={e => setQuery(e.target.value)}
               placeholder="ค้นหาจาก prompt…"
               aria-label="ค้นหาผลงานจากข้อความใน prompt"
-              className="w-full rounded-full border border-border-strong bg-surface py-1.5 pl-8 pr-3 text-[11.5px] text-text placeholder:text-text-faint transition-colors hover:border-accent"
+              className="w-full rounded-full border border-border-strong bg-surface py-1.5 pl-8 pr-3 text-[11.5px] text-text placeholder:text-text-dim transition-colors hover:border-accent"
             />
           </label>
 
@@ -1233,16 +1285,7 @@ export default function Gallery() {
       {s.mode === "cinematic" && <div className="shrink-0"><StoryboardStrip /></div>}
 
       {!ms.images.length ? (
-        <div className="flex min-h-[380px] flex-col items-center justify-center gap-3.5 rounded-[14px] border border-dashed border-border text-text-faint">
-          {s.mode === "audio"
-            ? <Music size={44} className="opacity-40" strokeWidth={1.4} />
-            : s.mode === "tts"
-            ? <Mic size={44} className="opacity-40" strokeWidth={1.4} />
-            : s.mode === "cinematic"
-            ? <Clapperboard size={44} className="opacity-40" strokeWidth={1.4} />
-            : <ImageIcon size={44} className="opacity-40" strokeWidth={1.4} />}
-          <p className="text-[13px]">{meta.empty}</p>
-        </div>
+        <EmptyGalleryHero mode={s.mode} />
       ) : !visibleItems.length ? (
         <div className="flex min-h-[240px] shrink-0 flex-col items-center justify-center gap-3 rounded-[14px] border border-dashed border-border text-text-faint">
           <Search size={32} className="opacity-40" strokeWidth={1.4} />
@@ -1279,8 +1322,8 @@ export default function Gallery() {
         />
       )}
       </div>
-      {centerPrompt && !s.chatOpen && !s.grillOpen && (
-        <div className="pointer-events-none absolute inset-x-6 bottom-[max(24px,env(safe-area-inset-bottom))] z-40 flex justify-center max-[860px]:inset-x-3 max-[860px]:bottom-[max(12px,env(safe-area-inset-bottom))]">
+      {(centerPrompt || dockOnNarrow) && !s.chatOpen && !s.grillOpen && (
+        <div className={"pointer-events-none absolute inset-x-6 bottom-[max(24px,env(safe-area-inset-bottom))] z-40 flex justify-center max-[860px]:inset-x-3 max-[860px]:bottom-[max(12px,env(safe-area-inset-bottom))] " + (dockOnNarrow ? "min-[900px]:hidden" : "")}>
           <div className="pointer-events-auto w-full max-w-[720px]">
             <PromptComposer placement="center" />
           </div>

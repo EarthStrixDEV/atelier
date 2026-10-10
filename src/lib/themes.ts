@@ -269,7 +269,37 @@ const nocturne: ThemeTokens = {
 };
 
 /**
- * palette ทั้ง 6 พร้อม `colorScheme`
+ * Blossom — light ม่วงลาเวนเดอร์ (Rework UI Studio ตามภาพ reference)
+ *
+ * พื้นขาวอมม่วงไล่ไปลาเวนเดอร์อ่อน accent ม่วง violet ที่เข้มพอให้ตัวหนังสือขาวบนปุ่มอ่านออก
+ * (ต่างจาก paper ที่ขาวบนมิ้นท์ไม่ผ่าน) — สถานะ success/warning/info ใช้โทนเข้มแบบเดียวกับ paper
+ *
+ * contrast (ต่ำสุดเทียบ bg/surface/surface2): text 14.91 · textDim 6.43 · textFaint 3.87
+ *           accentInk/accent 5.70 · accent/bg 5.54
+ */
+const blossom: ThemeTokens = {
+  bg: "#fdfbff",
+  surface: "#f8f4fe",
+  surface2: "#f2eafb",
+  borderColor: "#e6dcf3",
+  borderStrong: "#cdbde6",
+  text: "#1e1433",
+  textDim: "#5b4e75",
+  textFaint: "#7d7096",
+  accent: "#7c3aed",
+  accentInk: "#ffffff",
+  danger: "#dc2626",
+  /** เท่ากับ borderColor เหมือน paper — ธีมสว่างไม่ต้อง press state เข้ม */
+  interactive: "#e6dcf3",
+  success: "#047857",
+  warning: "#b45309",
+  info: "#0369a1",
+  overlay: "rgba(30, 20, 51, 0.50)",
+  ...ON_MEDIA,
+};
+
+/**
+ * palette ทั้งหมดพร้อม `colorScheme`
  *
  * key เป็น `ResolvedThemeId` (6 ตัว ไม่ใช่ 7) — `"system"` ไม่มีที่นี่เพราะไม่ใช่ palette
  * `Record` แบบไม่ optional บังคับให้ tsc ฟ้องทันทีถ้าเพิ่มธีมใน `ThemeId` แล้วลืมมานิยามสีที่นี่
@@ -281,6 +311,7 @@ export const THEMES: Record<ResolvedThemeId, ThemeDefinition> = {
   sepia: { id: "sepia", colorScheme: "light", tokens: sepia },
   midnight: { id: "midnight", colorScheme: "dark", tokens: midnight },
   nocturne: { id: "nocturne", colorScheme: "dark", tokens: nocturne },
+  blossom: { id: "blossom", colorScheme: "light", tokens: blossom },
 };
 
 /**
@@ -352,6 +383,12 @@ export const THEME_ORDER: readonly ThemeMeta[] = [
     id: "nocturne",
     label: "Nocturne",
     hint: "มืดอุ่น น้ำตาลอมม่วง ทองอำพัน",
+    swatch: ["bg", "surface", "accent"],
+  },
+  {
+    id: "blossom",
+    label: "Blossom",
+    hint: "สว่าง ม่วงลาเวนเดอร์ หวานละมุน",
     swatch: ["bg", "surface", "accent"],
   },
 ];

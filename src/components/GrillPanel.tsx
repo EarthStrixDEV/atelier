@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, Flame, Lightbulb, Plus, RotateCcw, Send, X } from "lucide-react";
 import { modeLabel } from "../lib/constants";
 import {
-  applyGrillPrompt, closeGrill, finishGrill, openGrill, queueGrillPrompt,
+  applyGrillPrompt, closeGrill, finishGrill, queueGrillPrompt,
   resetGrill, sendGrillAnswer,
 } from "../lib/actions";
 import { useApp } from "../lib/store";
@@ -42,22 +42,12 @@ export default function GrillPanel() {
     sendGrillAnswer(t);
   };
 
-  if (!s.grillOpen) {
-    return (
-      <button
-        className="fixed bottom-[88px] right-6 z-150 flex h-[52px] cursor-pointer items-center justify-center gap-2 rounded-full border border-border-strong bg-surface/70 px-4.5 text-text shadow-[0_8px_30px_rgba(0,0,0,.16)] backdrop-blur-xl transition-transform hover:scale-106 max-[480px]:w-[52px] max-[480px]:px-0"
-        title="Grill me — ให้ AI สัมภาษณ์แล้วตกผลึกเป็นชุด prompt"
-        aria-label="เปิด Grill me — ให้ AI ช่วยตกผลึกไอเดีย"
-        onClick={() => {
-          openGrill();
-          setTimeout(() => inputRef.current?.focus(), 50);
-        }}
-      >
-        <Flame size={22} className="shrink-0" />
-        <span aria-hidden="true" className="text-[13px] font-semibold whitespace-nowrap max-[480px]:hidden">ตกผลึกไอเดีย</span>
-      </button>
-    );
-  }
+  // ปุ่มเปิดย้ายไปรวมที่ AssistFab แล้ว (R10) — แผงนี้แค่โฟกัสช่องพิมพ์เองทุกครั้งที่ถูกเปิด
+  useEffect(() => {
+    if (s.grillOpen) setTimeout(() => inputRef.current?.focus(), 50);
+  }, [s.grillOpen]);
+
+  if (!s.grillOpen) return null;
 
   return (
     <div role="dialog" aria-modal="false" aria-label="Grill me" className="fixed bottom-6 right-6 z-160 flex h-[min(560px,calc(100vh-48px))] w-[min(380px,calc(100vw-40px))] flex-col overflow-hidden rounded-2xl border border-border-strong bg-surface shadow-[0_20px_80px_rgba(0,0,0,.14)] max-[480px]:bottom-3 max-[480px]:right-3 max-[480px]:w-[calc(100vw-24px)]">

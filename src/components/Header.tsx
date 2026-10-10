@@ -22,6 +22,7 @@ import {
 } from "../lib/actions";
 import { loadExportLog, mutate, toast, useApp } from "../lib/store";
 import { ThemePickerPanel } from "./ThemePicker";
+import Tooltip from "./Tooltip";
 
 /** โชว์เวลาแบบสั้นๆ อ่านง่าย — ไม่ต้องเป๊ะระดับวินาที แค่พอให้แยกออกว่า export ไหนเป็นไหน */
 function fmtExportedAt(at: number): string {
@@ -227,7 +228,12 @@ function SpendGuardControl() {
   };
 
   return (
-    <div className="relative">
+    <Tooltip
+      label={cap === undefined
+        ? "ค่าใช้จ่ายประเมินสะสมทุกโหมด (ไม่ใช่บิลจริง) — กดเพื่อตั้งเพดานเตือน"
+        : "ค่าใช้จ่ายประเมินสะสมทุกโหมด — เพดานเตือน $" + cap.toFixed(2) + " · กดเพื่อแก้"}
+    >
+    {describedBy => <div className="relative">
       <button
         className={
           "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors "
@@ -235,10 +241,8 @@ function SpendGuardControl() {
             ? "border-danger text-danger hover:opacity-80"
             : "border-border text-text-dim hover:border-border-strong hover:text-text")
         }
-        title={cap === undefined
-          ? "ยอดใช้จ่ายประเมินสะสมทุกโหมด — กดเพื่อตั้งเพดานเตือน"
-          : "ยอดใช้จ่ายประเมินสะสมทุกโหมด — เพดาน $" + cap.toFixed(2)}
         aria-label={"ยอดใช้จ่ายประเมินสะสม " + total.toFixed(4) + " ดอลลาร์ — กดเพื่อตั้งเพดานค่าใช้จ่าย"}
+        aria-describedby={describedBy}
         aria-expanded={open}
         onClick={() => setOpen(v => !v)}
       >
@@ -283,7 +287,7 @@ function SpendGuardControl() {
                 บันทึก
               </button>
             </div>
-            <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
+            <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
               ตั้ง <span className="font-mono">0</span> = ถามยืนยันทุกครั้งที่มีค่าใช้จ่าย · เกินเพดานแล้วจะมีโมดัลขึ้นมาถามก่อนยิงค่ะ
             </p>
 
@@ -301,16 +305,18 @@ function SpendGuardControl() {
                 <RotateCcw size={11} />
                 {confirmingReset ? "กดอีกครั้งเพื่อยืนยันล้างยอด" : "ล้างยอดสะสม เริ่มนับใหม่"}
               </button>
-              <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
+              <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
                 ล้างแค่ตัวเลข ไม่กระทบผลงานใน gallery และเพดานที่ตั้งไว้ยังอยู่ค่ะ
               </p>
             </div>
           </div>
         </>
       )}
-    </div>
+    </div>}
+    </Tooltip>
   );
 }
+
 
 /** เนื้อหา Google Drive ล้วนๆ — ย้ายมาจาก popover เดี่ยวเดิมเข้า "เพิ่มเติม" drill-down เหมือน ExportPanel */
 function DrivePanel({ onDone }: { onDone: () => void }) {
@@ -482,12 +488,13 @@ function MoreMenu() {
   };
 
   return (
-    <div className="relative">
+    <Tooltip label="เมนูเพิ่มเติม — Import/Export, Auto Save, Google Drive, ธีม และตั้งค่า">
+    {describedBy => <div className="relative">
       <button
         ref={btnRef}
         className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-text-dim transition-colors hover:border-border-strong hover:text-text"
-        title="เพิ่มเติม — Import, Export, Auto Save, Google Drive, ธีม, ตั้งค่า"
         aria-label="เมนูเพิ่มเติม"
+        aria-describedby={describedBy}
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen(v => { const next = !v; if (!next) setPanel(null); return next; })}
@@ -597,21 +604,34 @@ function MoreMenu() {
           e.target.value = "";
         }}
       />
-    </div>
+    </div>}
+    </Tooltip>
   );
+}
+
+/** ปุ่มเปิด/ปิด sidebar — จอ ≥900px ซ่อน/แสดงคอลัมน์ซ้าย, จอแคบกว่านั้น sidebar เป็นลิ้นชักลอย (ดู Sidebar) */
+export function toggleSidebarPanel() {
+  if (window.matchMedia("(max-width: 899px)").matches) {
+    mutate(st => { st.sidebarDrawerOpen = !st.sidebarDrawerOpen; });
+  } else {
+    mutate(st => { st.sidebarCollapsed = !st.sidebarCollapsed; });
+  }
 }
 
 export default function Header() {
   const s = useApp();
 
   return (
-    <header aria-label="Atelier header" className="grid h-[60px] shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border px-7">
-      <div className="flex items-center gap-3">
+    <header
+      aria-label="Atelier header"
+      className="grid h-[60px] shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border px-7 max-[1180px]:grid-cols-[auto_1fr_auto] max-[899px]:h-auto max-[899px]:grid-cols-[1fr_auto] max-[899px]:gap-y-2 max-[899px]:px-4 max-[899px]:py-2.5"
+    >
+      <div className="flex min-w-0 items-center gap-3">
         <button
           className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
-          title="ซ่อน/แสดง sidebar"
-          aria-label={s.sidebarCollapsed ? "แสดง sidebar" : "ซ่อน sidebar"}
-          onClick={() => mutate(st => { st.sidebarCollapsed = !st.sidebarCollapsed; })}
+          title="ซ่อน/แสดงแผงตั้งค่า"
+          aria-label={s.sidebarCollapsed ? "แสดงแผงตั้งค่า" : "ซ่อนแผงตั้งค่า"}
+          onClick={toggleSidebarPanel}
         >
           {s.sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
@@ -622,22 +642,27 @@ export default function Header() {
         <img
           src="/assets/atelier-logo.png"
           alt="Atelier"
-          className="h-[42px] w-[42px] object-contain"
+          className="h-[42px] w-[42px] shrink-0 object-contain max-[899px]:h-8 max-[899px]:w-8"
           style={{ filter: "invert(var(--logo-invert))" }}
         />
-        <h1 className="text-[15px] font-semibold tracking-[0.2px]">
-          Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-faint">AI media studio</span>
+        <h1 className="truncate text-[15px] font-semibold tracking-[0.2px]">
+          Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-dim max-[1180px]:hidden">AI media studio</span>
         </h1>
       </div>
 
-      <div role="tablist" aria-label="สลับโหมด" className="flex justify-self-center gap-[3px] rounded-full border border-border bg-surface p-[3px]">
+      {/* จอแคบ: แท็บโหมดลงแถวที่สองเต็มความกว้าง แล้วเลื่อนแนวนอนในตัวเอง — ทั้งหน้าไม่มี horizontal scroll */}
+      <div
+        role="tablist"
+        aria-label="สลับโหมด"
+        className="flex min-w-0 justify-self-center gap-[3px] overflow-x-auto rounded-full border border-border bg-surface p-[3px] max-[899px]:order-last max-[899px]:col-span-2 max-[899px]:w-full max-[899px]:justify-self-stretch"
+      >
         {MODES.map(m => {
           const ModeIcon = MODE_ICONS[m];
           return (
             <button
               key={m}
               className={
-                "flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold transition-colors " +
+                "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-[12.5px] font-semibold transition-colors max-[1180px]:px-3 " +
                 (s.mode === m ? "bg-accent text-accent-ink" : "text-text-dim hover:text-text")
               }
               aria-pressed={s.mode === m}
@@ -655,16 +680,29 @@ export default function Header() {
         <SpendGuardControl />
         <RunningJobsControl />
         <MoreMenu />
-        <button
-          className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-text-dim transition-colors hover:border-border-strong"
-          title="ตั้งค่า OpenRouter API Key"
-          aria-label="ตั้งค่า OpenRouter API Key"
-          onClick={() => mutate(st => { st.keyModalOpen = true; })}
+        <Tooltip
+          label={s.apiKey
+            ? "ใส่ OpenRouter API Key แล้ว พร้อมสร้างงาน — กดเพื่อเปลี่ยนหรือลบ key"
+            : "ยังไม่ได้ใส่ OpenRouter API Key — ลองเล่นได้ก่อน ระบบจะขอ key ตอนกด Generate ครั้งแรก"}
         >
-          <span className={"h-[7px] w-[7px] rounded-full " + (s.apiKey ? "bg-success" : "bg-text-faint")} />
-          <KeyRound size={12} />
-          {s.apiKey ? "API Key พร้อมใช้" : "ใส่ API Key"}
-        </button>
+          {describedBy => (
+            <button
+              className={
+                "flex cursor-pointer select-none items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors " +
+                (s.apiKey
+                  ? "border-border text-text-dim hover:border-border-strong hover:text-text"
+                  : "border-accent text-text hover:bg-accent hover:text-accent-ink")
+              }
+              aria-label={s.apiKey ? "API Key: ใส่แล้ว — ตั้งค่า OpenRouter API Key" : "API Key: ยังไม่ได้ใส่ — ใส่ OpenRouter API Key"}
+              aria-describedby={describedBy}
+              onClick={() => mutate(st => { st.keyModalOpen = true; })}
+            >
+              <span className={"h-[7px] w-[7px] rounded-full " + (s.apiKey ? "bg-success" : "bg-warning")} aria-hidden />
+              <KeyRound size={12} />
+              <span className="max-[480px]:hidden">{s.apiKey ? "API Key ใส่แล้ว" : "ใส่ API Key"}</span>
+            </button>
+          )}
+        </Tooltip>
       </div>
     </header>
   );

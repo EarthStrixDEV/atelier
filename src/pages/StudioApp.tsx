@@ -7,6 +7,7 @@ import Lightbox from "../components/Lightbox";
 import ExtendTool from "../components/ExtendTool";
 import KeyModal from "../components/KeyModal";
 import SettingsModal from "../components/SettingsModal";
+import AssistFab from "../components/AssistFab";
 import ChatPanel from "../components/ChatPanel";
 import GrillPanel from "../components/GrillPanel";
 import ImportPreviewModal from "../components/ImportPreviewModal";
@@ -31,10 +32,8 @@ export default function StudioApp() {
     // reconcilePendingJobs() ต้องรอ videoModels โหลดเสร็จก่อน ถึงจะเช็คได้ว่าโมเดลของ job ค้างยังอยู่ไหม (ดู actions.ts)
     loadVideoModels().then(reconcilePendingJobs);
     checkSavedAutoSaveDir(); // เช็คเฉยๆ ว่ามี directory เก่าไหม — ยังไม่ขอ permission (ต้องรอ user gesture)
-    // เปิดมาให้ใส่ key ก่อนเลย ถ้ายังไม่มี
-    const t = setTimeout(() => {
-      if (!state.apiKey) mutate(st => { st.keyModalOpen = true; });
-    }, 400);
+    // ไม่เด้งขอ API Key ตอนเปิดหน้าแล้ว (R1) — ผู้ใช้ใหม่ต้องเห็นว่าแอปทำอะไรได้ก่อน
+    // key ถูกขอตอนกด Generate ครั้งแรกแทน แล้วทำงานต่อเองหลังบันทึก (ดู requireApiKey ใน actions.ts)
     // session snapshot autosave (PHASE 15) — เขียน metadata เดียวกับ exportSession ทับ localStorage ช่องเดียว
     // ทุก ~30s (เขียนจริงเฉพาะตอนมีอะไรเปลี่ยนจากครั้งก่อน ดู autosaveSessionSnapshot) กันข้อมูลหายเงียบๆ ถ้าแท็บ
     // ถูกปิด/crash กะทันหันโดยไม่ได้ export มือ — คนละเรื่องกับ "Auto Save" (เซฟไฟล์ผลลัพธ์ลงเครื่อง)
@@ -50,10 +49,22 @@ export default function StudioApp() {
     };
     window.addEventListener("beforeunload", handleUnload);
     return () => {
-      clearTimeout(t);
       clearInterval(snapshotTimer);
       window.removeEventListener("beforeunload", handleUnload);
     };
+  }, []);
+
+  // ขยายจอข้าม 900px ขณะลิ้นชักเปิดค้าง — ปิดทิ้ง ไม่งั้นกลับมาจอแคบรอบหน้าลิ้นชักเด้งเปิดเองแบบงงๆ
+  // Escape ปิดลิ้นชักด้วย (เป็น overlay ทับหน้า ต้องปิดด้วยคีย์บอร์ดได้)
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 900px)");
+    const onChange = () => { if (mq.matches && state.sidebarDrawerOpen) mutate(st => { st.sidebarDrawerOpen = false; }); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && state.sidebarDrawerOpen && !state.keyModalOpen) mutate(st => { st.sidebarDrawerOpen = false; });
+    };
+    mq.addEventListener("change", onChange);
+    document.addEventListener("keydown", onKey);
+    return () => { mq.removeEventListener("change", onChange); document.removeEventListener("keydown", onKey); };
   }, []);
 
   /**
@@ -86,15 +97,18 @@ export default function StudioApp() {
     <div className="flex h-full flex-col">
       <Header />
       <RestoreBanner />
-      <div className="flex min-h-0 flex-1 max-[860px]:flex-col">
-        {(!s.sidebarCollapsed || dockFallbackToSidebar) && <Sidebar />}
+      <div className="flex min-h-0 flex-1">
+        {/* Sidebar ซ่อนตัวเองด้วย CSS ตาม sidebarCollapsed (≥900px) / sidebarDrawerOpen (<900px)
+            ยกเว้นตอน dockFallbackToSidebar ที่บังคับโชว์ — ดู Sidebar.tsx */}
+        <Sidebar forceVisible={dockFallbackToSidebar} />
         <Gallery />
       </div>
       {/* "dock" (F-layout-preview) — แถบ prompt เต็มความกว้าง ก้นถาวรใต้ Sidebar+Gallery แทนที่จะลอย
           ทับ gallery แบบ "center" ต้องอยู่นอก flex row ด้านบน (เป็น row ที่ 3 ของ column หลัก) ไม่ใช่
           ในนั้น ไม่งั้นจะโดนบีบความสูงร่วมกับ Sidebar/Gallery แทนที่จะกินความกว้างเต็มจอด้านล่าง */}
       {s.promptPlacement === "dock" && !s.chatOpen && !s.grillOpen && (
-        <div className="shrink-0 max-[860px]:hidden">
+        // จอ <900px dock ไม่โชว์ — Gallery ใช้แถบลอย (center) แทน เพราะ sidebar เป็นลิ้นชักและแถบเต็มความกว้างไม่จำเป็น
+        <div className="shrink-0 max-[899px]:hidden">
           <PromptComposer placement="dock" />
         </div>
       )}
@@ -104,6 +118,7 @@ export default function StudioApp() {
       <SettingsModal />
       <ChatPanel />
       <GrillPanel />
+      <AssistFab />
       <ImportPreviewModal />
       <ShortcutsModal />
       <CompareModal />
