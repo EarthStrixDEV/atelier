@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown, ArrowUp, Clapperboard, Clock, CircleDollarSign, Cpu, GripVertical, Hash, Image, ImageOff, ImagePlus,
-  Keyboard, Layers, Layers3, ListOrdered, ListTree, Mic, Music, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, Sparkles,
+  Keyboard, Layers, Layers3, ListOrdered, ListTree, Mic, Music, PenLine, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, SlidersHorizontal, Sparkles,
   TriangleAlert, Trash2, Video, Volume2, X,
 } from "lucide-react";
 import {
@@ -30,6 +30,8 @@ const HISTORY_MODE_ICONS: Record<Mode, typeof Image> = {
   audio: Music,
   tts: Mic,
 };
+
+type SidebarTab = "prompt" | "negative" | "reference" | "settings";
 
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 560;
@@ -73,6 +75,7 @@ export default function Sidebar() {
   const [kwSearch, setKwSearch] = useState("");
   const [bakeOffSearch, setBakeOffSearch] = useState("");
   const [historyScope, setHistoryScope] = useState<"mode" | "all">("mode");
+  const [tab, setTab] = useState<SidebarTab>("prompt");
   useEffect(() => { setKwSearch(""); }, [s.mode]);
 
   // โหมด tts: โหลด voice list ใหม่ทุกครั้งที่โมเดล (หรือโหมด) เปลี่ยน — ครอบคลุมทั้งเคสสลับเข้าโหมดนี้ครั้งแรก
@@ -166,7 +169,7 @@ export default function Sidebar() {
   const hasPrompt = !!ms.prompt.trim();
   const needsRefImage = isVideo && modelRequiresRefImage(model?.id) && !ms.refs[0];
   const needsVoice = isTts && !ms.voiceId;
-  const canGenerate = !!s.apiKey && list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage && !needsVoice;
+  const canGenerate = list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage && !needsVoice;
   const generatingCount = ms.images.filter(x => x.status === "loading").length;
   // Bake-off (PHASE 14) เปลี่ยนพฤติกรรมปุ่ม Generate หลัก — ยิงผ่าน openBakeOffConfirm (โมดัลยืนยันราคา) แทน generate() ตรงๆ
   const bakeOffActive = ms.bakeOffEnabled;
@@ -195,6 +198,29 @@ export default function Sidebar() {
       hasUnknown: rows.some(r => r.cost == null),
     };
   })();
+
+  // ---- แท็บ (Rework UI Studio — ตาม reference): Prompt / Negative / Reference / Settings
+  // ซ่อนแท็บที่โหมดนี้ไม่มี (Negative เฉพาะโหมดภาพ, Reference ไม่มีใน audio/tts) แล้วถอยไป Prompt ถ้าแท็บที่เลือกไว้หายไป
+  const tabs: { id: SidebarTab; label: string; icon: typeof Image; badge?: number }[] = [
+    { id: "prompt", label: "Prompt", icon: PenLine },
+    ...(isNegativePromptMode(s.mode) ? [{ id: "negative" as const, label: "Negative", icon: ShieldOff, badge: ms.negPrompt.trim() ? 1 : undefined }] : []),
+    ...(!isAudio && !isTts ? [{ id: "reference" as const, label: "Reference", icon: ImagePlus, badge: ms.refs.length || undefined }] : []),
+    { id: "settings", label: "Settings", icon: SlidersHorizontal, badge: ms.queue.length || undefined },
+  ];
+  const activeTab: SidebarTab = tabs.some(t => t.id === tab) ? tab : "prompt";
+  // ลูกศรซ้าย/ขวาเลื่อนแท็บตามแพทเทิร์น tablist มาตรฐาน (WAI-ARIA) — Tab ปกติเข้าแท็บที่เลือกอยู่ใบเดียว
+  const onTabKey = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const i = tabs.findIndex(t => t.id === activeTab);
+    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    setTab(next.id);
+    document.getElementById("sidebar-tab-" + next.id)?.focus();
+  };
+
+  // Style Preset แบบการ์ด = หมวดแรกของ Prompt Builder ตอนไม่ได้ค้นหา (ค้นหาอยู่ทุกหมวดกลับเป็นรายการเดียวกัน)
+  const presetGroup = !kwQuery ? KEYWORDS_BY_MODE[s.mode][0] : undefined;
+  const restGroups = presetGroup ? filteredGroups.slice(1) : filteredGroups;
 
   let modelMeta = "";
   if (model) {
@@ -227,121 +253,807 @@ export default function Sidebar() {
       : "ไม่ทราบผลต่อราคา (โมเดลนี้คิดราคาแบบคำนวณล่วงหน้าไม่ได้)";
   }
 
+  const closeDrawer = () => mutate(st => { st.sidebarDrawerOpen = false; });
+
   return (
+    <>
+    {/* จอ <900px: sidebar เป็นลิ้นชักลอยทับ Gallery + ฉากหลังกดปิดได้ (≥900px ไม่มีผลเพราะ min-[900px]:hidden) */}
+    {s.sidebarDrawerOpen && (
+      <div className="fixed inset-0 z-[55] bg-overlay min-[900px]:hidden" aria-hidden onClick={closeDrawer} />
+    )}
     <aside
       aria-label="แผงตั้งค่าการ generate"
-      className="relative flex shrink-0 flex-col gap-[22px] overflow-y-auto border-r border-border p-6 max-[860px]:!w-full max-[860px]:border-b max-[860px]:border-r-0"
+      className={
+        "relative flex shrink-0 flex-col border-r border-border bg-bg " +
+        "max-[899px]:fixed max-[899px]:inset-y-0 max-[899px]:left-0 max-[899px]:z-[60] max-[899px]:!w-[min(380px,90vw)] max-[899px]:shadow-[0_0_60px_rgba(0,0,0,.25)] " +
+        // ≥900px: ซ่อนตาม sidebarCollapsed (StudioApp ไม่ render เลยถ้า collapsed และลิ้นชักปิด) / <900px: ซ่อนจนกว่าจะเปิดลิ้นชัก
+        (s.sidebarDrawerOpen ? "" : "max-[899px]:hidden ") +
+        (s.sidebarCollapsed ? "min-[900px]:hidden" : "")
+      }
       style={{ width }}
     >
+      {s.sidebarDrawerOpen && (
+        <button
+          className="absolute right-2 top-2 z-10 grid h-8 w-8 cursor-pointer place-items-center rounded-md border border-border bg-surface text-text-dim hover:text-text min-[900px]:hidden"
+          aria-label="ปิดแผงตั้งค่า"
+          onClick={closeDrawer}
+        >
+          <X size={15} />
+        </button>
+      )}
       <div
-        className="absolute right-[-3px] top-0 z-5 h-full w-1.5 cursor-col-resize hover:bg-accent/40 max-[860px]:hidden"
+        className="absolute right-[-3px] top-0 z-5 h-full w-1.5 cursor-col-resize hover:bg-accent/40 max-[899px]:hidden"
         onMouseDown={onDragStart}
         role="separator"
         aria-orientation="vertical"
         aria-label="ปรับความกว้าง Sidebar"
       />
 
-      {s.promptPlacement === "sidebar" && <PromptComposer placement="sidebar" />}
+      <div role="tablist" aria-label="แผงตั้งค่า" className={"flex shrink-0 gap-1 border-b border-border px-3 pt-3 " + (s.sidebarDrawerOpen ? "max-[899px]:pr-12" : "")}>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            id={"sidebar-tab-" + t.id}
+            role="tab"
+            aria-selected={activeTab === t.id}
+            aria-controls="sidebar-tabpanel"
+            tabIndex={activeTab === t.id ? 0 : -1}
+            className={
+              "relative -mb-px flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-1 border-b-2 px-1 pb-2 pt-1 text-[12px] font-semibold transition-colors " +
+              (activeTab === t.id ? "border-accent text-text" : "border-transparent text-text-dim hover:text-text")
+            }
+            onClick={() => setTab(t.id)}
+            onKeyDown={onTabKey}
+          >
+            <t.icon size={15} className="shrink-0" aria-hidden />
+            <span>{t.label}</span>
+            {t.badge ? <span className="absolute right-1 top-0 rounded-full bg-accent px-1.5 text-[11px] leading-[16px] text-accent-ink" aria-label={t.badge + " รายการ"}>{t.badge}</span> : null}
+          </button>
+        ))}
+      </div>
 
-      {/* Negative prompt (PHASE 14) — เฉพาะโหมดภาพ และซ่อนทิ้งถ้าโมเดลที่เลือกอยู่ routed ผ่าน image-only API (ไม่มี text slot ให้แนบเพิ่ม) */}
-      {isNegativePromptMode(s.mode) && (
-        <div>
-          <label htmlFor="neg-prompt" className={fieldLabel + " flex items-center gap-1.5"}>
-            <ShieldOff size={12} /> Negative Prompt <span className="normal-case tracking-normal text-text-faint">(ไม่บังคับ)</span>
-          </label>
-          {negPromptSupported() ? (
-            <>
-              <textarea
-                id="neg-prompt"
-                value={ms.negPrompt}
-                placeholder="สิ่งที่ไม่อยากเห็นในภาพ… เช่น extra fingers, blurry, watermark, text"
-                onChange={e => setNegPrompt(e.target.value)}
-                className="min-h-[64px] w-full resize-y rounded-card border border-border bg-surface px-3.5 py-2.5 text-[12.5px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-faint focus:border-accent"
-              />
-              <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
-                เป็นแค่คำแนะนำ best-effort ให้โมเดลหลีกเลี่ยง ไม่ใช่การันตีว่าจะไม่ปรากฏในภาพนะคะ
-              </p>
-            </>
-          ) : (
-            <p className="text-[11.5px] leading-relaxed text-text-faint">
-              โมเดลนี้สร้างภาพได้อย่างเดียว (image-only) จึงไม่มีช่องข้อความเพิ่มให้แนบ Negative Prompt ค่ะ
-            </p>
+      <div id="sidebar-tabpanel" role="tabpanel" aria-labelledby={"sidebar-tab-" + activeTab} className="flex min-h-0 flex-1 flex-col gap-[22px] overflow-y-auto p-6 pt-5">
+        {activeTab === "prompt" && <>
+        {s.promptPlacement === "sidebar" && <PromptComposer placement="sidebar" />}
+        {/* Prompt builder — tts ไม่มี keyword picker แบบ image prompt (hasPromptBuilder) */}
+        {hasPromptBuilder(s.mode) && <div>
+          <label className={fieldLabel + " flex items-center gap-1.5"}><ListTree size={12} /> Prompt Builder</label>
+          <div className="relative mb-2">
+            <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
+            <input
+              type="text"
+              value={kwSearch}
+              onChange={e => setKwSearch(e.target.value)}
+              placeholder="ค้นหา keyword…"
+              aria-label="ค้นหา keyword ใน Prompt Builder"
+              className="w-full rounded-lg border border-border bg-surface py-[7px] pl-[26px] pr-8 text-[13px] text-text outline-none transition-colors placeholder:text-text-dim focus:border-accent"
+            />
+            {kwSearch && (
+              <button
+                className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-text-faint hover:text-text"
+                title="ล้างคำค้นหา"
+                aria-label="ล้างคำค้นหา keyword"
+                onClick={() => setKwSearch("")}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {!kwQuery && ms.recentKeywords.length > 0 && (
+            <div className="mb-2 rounded-lg border border-border bg-surface p-2.5">
+              <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[.5px] text-text-faint">ใช้ล่าสุด</div>
+              <div className="flex flex-wrap gap-1.5">
+                {ms.recentKeywords.map(kw => (
+                  <button
+                    key={kw}
+                    className={
+                      "cursor-pointer rounded-full border px-[11px] py-[5px] text-[11.5px] transition-all " +
+                      (hasKeyword(ms.prompt, kw)
+                        ? "border-accent bg-accent font-semibold text-accent-ink"
+                        : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
+                    }
+                    aria-pressed={hasKeyword(ms.prompt, kw)}
+                    aria-label={(hasKeyword(ms.prompt, kw) ? "เอาคำ " + kw + " ออกจาก prompt" : "เพิ่มคำ " + kw + " เข้า prompt")}
+                    onClick={() => toggleKeyword(kw)}
+                  >
+                    {kw}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
-        </div>
-      )}
 
-      {/* Prompt history — section เดียวสลับ scope ด้วย chip แทนที่จะแยกเป็นสอง section ที่หน้าตาเหมือนกันเป๊ะ
-          (เดิม "Prompt History" กับ "ประวัติทั้งหมด" วางซ้อนกัน คนใหม่แยกไม่ออกว่าต่างกันตรงไหน) */}
-      <div className="rounded-lg border border-border bg-surface">
-        <button
-          className="flex w-full cursor-pointer select-none items-center justify-between px-3 py-[9px] text-[11px] font-semibold tracking-[.5px] text-text-dim transition-colors hover:text-text"
-          aria-expanded={s.allHistoryOpen}
-          onClick={toggleAllHistoryOpen}
-        >
-          <span className="flex items-center gap-1.5"><Clock size={11} /> Prompt History ({historyEntries.length})</span>
-          <span className="text-text-faint">{s.allHistoryOpen ? "ซ่อน" : "แสดง"}</span>
-        </button>
-        {s.allHistoryOpen && (
-          <div className="px-3 pb-3 pt-0.5">
-            <div className="mb-1.5 flex gap-1" role="group" aria-label="ขอบเขตของประวัติ">
-              {([["mode", "โหมดนี้"], ["all", "ทุกโหมด"]] as const).map(([scope, label]) => (
-                <button
-                  key={scope}
-                  className={
-                    "flex-1 cursor-pointer rounded-md border px-2 py-1 text-[10.5px] font-semibold transition-colors " +
-                    (historyScope === scope
-                      ? "border-accent bg-accent/10 text-text"
-                      : "border-border text-text-dim hover:border-border-strong hover:text-text")
-                  }
-                  aria-pressed={historyScope === scope}
-                  onClick={() => setHistoryScope(scope)}
-                >
-                  {label}
-                </button>
+          {kwQuery && !filteredGroups.length ? (
+            <p className="px-1 py-2 text-[13px] text-text-dim">ไม่พบ keyword ที่ตรงกับ "{kwSearch}" ค่ะ</p>
+          ) : (
+            <div>
+              {presetGroup && (
+                <div className="mb-3">
+                  <div className="mb-2 text-[13px] font-semibold text-text">{presetGroup.label}</div>
+                  <div className="grid grid-cols-2 gap-1.5" role="group" aria-label={"Style Preset — " + presetGroup.label}>
+                    {presetGroup.items.map(kw => {
+                      const on = hasKeyword(ms.prompt, kw);
+                      return (
+                        <button
+                          key={kw}
+                          className={
+                            "flex min-h-[44px] cursor-pointer items-center justify-center rounded-lg border px-2 py-2 text-center text-[13px] font-medium leading-tight transition-colors " +
+                            (on
+                              ? "border-accent bg-accent font-semibold text-accent-ink"
+                              : "border-border bg-surface text-text-dim hover:border-border-strong hover:text-text")
+                          }
+                          aria-pressed={on}
+                          aria-label={(on ? "เอาสไตล์ " + kw + " ออกจาก prompt" : "เพิ่มสไตล์ " + kw + " เข้า prompt")}
+                          onClick={() => toggleKeyword(kw)}
+                        >
+                          {kw}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {restGroups.map((group, i) => (
+                <details key={group.label} className="kw-group mt-[7px] overflow-hidden rounded-lg border border-border bg-surface first:mt-0" open={(!presetGroup && i === 0) || !!kwQuery}>
+                  <summary className="flex cursor-pointer select-none items-center justify-between px-3 py-[9px] text-[11px] font-semibold tracking-[.5px] text-text-dim transition-colors hover:text-text">
+                    {group.label}
+                  </summary>
+                  <div className="flex flex-wrap gap-1.5 px-3 pb-3 pt-0.5">
+                    {group.items.map(kw => (
+                      <button
+                        key={kw}
+                        className={
+                          "cursor-pointer rounded-full border px-[11px] py-[5px] text-[11.5px] transition-all " +
+                          (hasKeyword(ms.prompt, kw)
+                            ? "border-accent bg-accent font-semibold text-accent-ink"
+                            : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
+                        }
+                        aria-pressed={hasKeyword(ms.prompt, kw)}
+                        aria-label={(hasKeyword(ms.prompt, kw) ? "เอาคำ " + kw + " ออกจาก prompt" : "เพิ่มคำ " + kw + " เข้า prompt")}
+                        onClick={() => toggleKeyword(kw)}
+                      >
+                        {kw}
+                      </button>
+                    ))}
+                  </div>
+                </details>
               ))}
             </div>
-            <div className="flex max-h-[280px] flex-col gap-1.5 overflow-y-auto">
-              {historyEntries.length === 0 ? (
-                <div className="py-2 text-center text-[11.5px] text-text-faint">
-                  {historyScope === "mode" ? "โหมดนี้ยังไม่มีประวัติ prompt ค่ะ" : "ยังไม่มีประวัติ prompt เลยค่ะ"}
-                </div>
-              ) : historyEntries.map(entry => {
-                const ModeIcon = HISTORY_MODE_ICONS[entry.mode];
-                return (
-                  <div key={entry.mode + "|" + entry.text} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 py-[7px] pl-[9px] pr-2">
-                    {/* badge โหมดมีประโยชน์เฉพาะตอนดูรวมทุกโหมด — ตอนกรองโหมดเดียวมันซ้ำกับ tab ที่เปิดอยู่ */}
-                    {historyScope === "all" && (
-                      <span
-                        className="flex shrink-0 items-center gap-1 rounded-full border border-border-strong px-1.5 py-[3px] text-[9.5px] font-semibold uppercase tracking-[.3px] text-text-faint"
-                        title={modeLabel(entry.mode)}
+          )}
+        </div>}
+
+        {/* Prompt history — section เดียวสลับ scope ด้วย chip แทนที่จะแยกเป็นสอง section ที่หน้าตาเหมือนกันเป๊ะ
+            (เดิม "Prompt History" กับ "ประวัติทั้งหมด" วางซ้อนกัน คนใหม่แยกไม่ออกว่าต่างกันตรงไหน) */}
+        <div className="rounded-lg border border-border bg-surface">
+          <button
+            className="flex w-full cursor-pointer select-none items-center justify-between px-3 py-[9px] text-[11px] font-semibold tracking-[.5px] text-text-dim transition-colors hover:text-text"
+            aria-expanded={s.allHistoryOpen}
+            onClick={toggleAllHistoryOpen}
+          >
+            <span className="flex items-center gap-1.5"><Clock size={11} /> Prompt History ({historyEntries.length})</span>
+            <span className="text-text-faint">{s.allHistoryOpen ? "ซ่อน" : "แสดง"}</span>
+          </button>
+          {s.allHistoryOpen && (
+            <div className="px-3 pb-3 pt-0.5">
+              <div className="mb-1.5 flex gap-1" role="group" aria-label="ขอบเขตของประวัติ">
+                {([["mode", "โหมดนี้"], ["all", "ทุกโหมด"]] as const).map(([scope, label]) => (
+                  <button
+                    key={scope}
+                    className={
+                      "flex-1 cursor-pointer rounded-md border px-2 py-1 text-[10.5px] font-semibold transition-colors " +
+                      (historyScope === scope
+                        ? "border-accent bg-accent/10 text-text"
+                        : "border-border text-text-dim hover:border-border-strong hover:text-text")
+                    }
+                    aria-pressed={historyScope === scope}
+                    onClick={() => setHistoryScope(scope)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex max-h-[280px] flex-col gap-1.5 overflow-y-auto">
+                {historyEntries.length === 0 ? (
+                  <div className="py-2 text-center text-[11.5px] text-text-faint">
+                    {historyScope === "mode" ? "โหมดนี้ยังไม่มีประวัติ prompt ค่ะ" : "ยังไม่มีประวัติ prompt เลยค่ะ"}
+                  </div>
+                ) : historyEntries.map(entry => {
+                  const ModeIcon = HISTORY_MODE_ICONS[entry.mode];
+                  return (
+                    <div key={entry.mode + "|" + entry.text} className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 py-[7px] pl-[9px] pr-2">
+                      {/* badge โหมดมีประโยชน์เฉพาะตอนดูรวมทุกโหมด — ตอนกรองโหมดเดียวมันซ้ำกับ tab ที่เปิดอยู่ */}
+                      {historyScope === "all" && (
+                        <span
+                          className="flex shrink-0 items-center gap-1 rounded-full border border-border-strong px-1.5 py-[3px] text-[9.5px] font-semibold uppercase tracking-[.3px] text-text-faint"
+                          title={modeLabel(entry.mode)}
+                        >
+                          <ModeIcon size={10} /> {modeLabel(entry.mode)}
+                        </span>
+                      )}
+                      <button
+                        className="min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-left text-[11.5px] text-text-dim hover:text-text"
+                        title={entry.text}
+                        aria-label={"ใช้ prompt เดิม: " + entry.text}
+                        onClick={() => usePromptFromCombinedHistory(entry)}
                       >
-                        <ModeIcon size={10} /> {modeLabel(entry.mode)}
+                        {entry.text}
+                      </button>
+                      <button
+                        className={"shrink-0 cursor-pointer px-1 py-0.5 " + (entry.pinned ? "text-accent" : "text-text-faint hover:text-text")}
+                        title={entry.pinned ? "เลิกปักหมุด" : "ปักหมุด"}
+                        aria-label={(entry.pinned ? "เลิกปักหมุด: " : "ปักหมุด: ") + entry.text}
+                        aria-pressed={entry.pinned}
+                        onClick={() => togglePinHistory(entry.mode, entry.text)}
+                      >
+                        {entry.pinned ? <Pin size={12} /> : <PinOff size={12} />}
+                      </button>
+                      <button
+                        className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint hover:text-danger"
+                        title="ลบออกจากประวัติ"
+                        aria-label={"ลบออกจากประวัติ: " + entry.text}
+                        onClick={() => removeFromHistory(entry.mode, entry.text)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+          <p className="text-[13px] leading-relaxed text-text-dim">{meta.hint}</p>
+        </>}
+        {activeTab === "negative" && <>
+        {/* Negative prompt (PHASE 14) — เฉพาะโหมดภาพ และซ่อนทิ้งถ้าโมเดลที่เลือกอยู่ routed ผ่าน image-only API (ไม่มี text slot ให้แนบเพิ่ม) */}
+        {isNegativePromptMode(s.mode) && (
+          <div>
+            <label htmlFor="neg-prompt" className={fieldLabel + " flex items-center gap-1.5"}>
+              <ShieldOff size={12} /> Negative Prompt <span className="normal-case tracking-normal text-text-faint">(ไม่บังคับ)</span>
+            </label>
+            {negPromptSupported() ? (
+              <>
+                <textarea
+                  id="neg-prompt"
+                  value={ms.negPrompt}
+                  placeholder="สิ่งที่ไม่อยากเห็นในภาพ… เช่น extra fingers, blurry, watermark, text"
+                  onChange={e => setNegPrompt(e.target.value)}
+                  className="min-h-[64px] w-full resize-y rounded-card border border-border bg-surface px-3.5 py-2.5 text-[13px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-dim focus:border-accent"
+                />
+                <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
+                  เป็นแค่คำแนะนำ best-effort ให้โมเดลหลีกเลี่ยง ไม่ใช่การันตีว่าจะไม่ปรากฏในภาพนะคะ
+                </p>
+              </>
+            ) : (
+              <p className="text-[13px] leading-relaxed text-text-dim">
+                โมเดลนี้สร้างภาพได้อย่างเดียว (image-only) จึงไม่มีช่องข้อความเพิ่มให้แนบ Negative Prompt ค่ะ
+              </p>
+            )}
+          </div>
+        )}
+
+        </>}
+        {activeTab === "reference" && <>
+        {/* Attach reference / style / facial — โหมด audio/tts ไม่รองรับภาพอ้างอิง */}
+        {!isAudio && !isTts && <div>
+          <label className={fieldLabel + " flex items-center gap-1.5"}>
+            <ImagePlus size={12} /> Attach Reference
+            {ms.refs.length > 0 && (
+              <button
+                className="ml-auto flex cursor-pointer items-center gap-1 font-semibold normal-case tracking-normal text-text-faint hover:text-danger"
+                aria-label={`ล้างภาพอ้างอิงทั้งหมด (${ms.refs.length} รูป)`}
+                onClick={clearRefImages}
+              >
+                <Trash2 size={11} /> ล้างทั้งหมด ({ms.refs.length})
+              </button>
+            )}
+          </label>
+          {isVideo ? (
+            <div className={"overflow-hidden rounded-card border bg-surface " + (needsRefImage ? "border-danger" : "border-border")}>
+              {needsRefImage && (
+                <p className="border-b border-danger/40 bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
+                  โมเดลนี้เป็น Image-to-Video ล้วน — ต้องแนบภาพอ้างอิงก่อนถึงจะ Generate ได้ค่ะ
+                </p>
+              )}
+              {ms.refs[0] ? (
+                <div className="group relative aspect-video overflow-hidden bg-surface-2">
+                  <img src={ms.refs[0].dataUrl} alt={ms.refs[0].name} className="h-full w-full object-cover" />
+                  <RefCropPreview ref_={ms.refs[0]} targetRatio={ms.ratio} />
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-media-scrim to-transparent px-3 pb-2.5 pt-8">
+                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-on-media" title={ms.refs[0].name}>{ms.refs[0].name}</span>
+                    <button
+                      type="button"
+                      className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-on-media-dim bg-media-scrim/70 px-2.5 py-1 text-[10.5px] font-semibold text-on-media backdrop-blur transition-colors hover:border-danger hover:text-danger"
+                      aria-label={"ลบภาพอ้างอิง " + ms.refs[0].name}
+                      onClick={() => removeRefImage(ms.refs[0])}
+                    >
+                      <Trash2 size={11} /> ลบภาพ
+                    </button>
+                  </div>
+                  <span className="absolute left-2.5 top-2.5 rounded-full border border-on-media-dim bg-media-scrim/70 px-2 py-1 text-[9.5px] font-semibold uppercase tracking-[.12em] text-on-media backdrop-blur">First frame</span>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-transparent px-4 py-7 text-center transition-colors hover:border-border-strong hover:bg-surface-2">
+                  <span className="grid h-10 w-10 place-items-center rounded-full border border-border-strong bg-surface-2 text-text-dim"><ImagePlus size={17} /></span>
+                  <span className="text-xs font-semibold text-text">{needsRefImage ? "แนบภาพเริ่มต้น (จำเป็น)" : "แนบภาพเริ่มต้น"}</span>
+                  <span className="max-w-[260px] text-[13px] leading-relaxed text-text-dim">ภาพนี้จะเป็นเฟรมแรกสำหรับ Image-to-Video · สูงสุด 4MB</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    aria-label="แนบภาพเริ่มต้นสำหรับ Image-to-Video"
+                    onChange={e => {
+                      if (e.target.files?.length) addRefImages("ref", e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+              {ms.refs[0] && (
+                <label className="flex cursor-pointer items-center justify-center gap-1.5 border-t border-border py-2.5 text-[11px] font-semibold text-text-dim transition-colors hover:bg-surface-2 hover:text-text">
+                  <ImagePlus size={12} /> เปลี่ยนภาพ
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    aria-label="เปลี่ยนภาพเริ่มต้นสำหรับ Image-to-Video"
+                    onChange={e => {
+                      if (e.target.files?.length) addRefImages("ref", e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          ) : !canAttachRefs ? (
+            <p className="text-[13px] leading-relaxed text-text-dim">
+              โมเดลนี้สร้างภาพได้อย่างเดียว (image-only) จึงแนบภาพอ้างอิงไม่ได้ — เลือกโมเดลแบบ image+text เช่น Gemini หรือ GPT Image ค่ะ
+            </p>
+          ) : (
+            <div className="flex flex-col gap-[7px]">
+              {REF_KINDS.map(({ kind, label, hint }) => {
+                const items = ms.refs.filter(r => r.kind === kind);
+                const full = items.length >= MAX_REFS_PER_KIND;
+                return (
+                  <div key={kind} className="rounded-lg border border-border bg-surface p-2.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[11.5px] font-semibold text-text">{label}</span>
+                      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-text-dim" title={hint}>{hint}</span>
+                    </div>
+                    {items.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {items.map((ref, i) => {
+                          // เฉพาะรูปแรกของ kind "ref" (composition/layout หลัก — มีผลต่อ framing มากสุดตาม REF_KINDS) โชว์ preview ขนาดใหญ่ขึ้นพอให้เห็น overlay ชัด
+                          const showCrop = kind === "ref" && i === 0;
+                          return (
+                            <div
+                              key={kind + i}
+                              className={"group relative overflow-hidden rounded-md border border-border-strong " + (showCrop ? "h-24 w-24" : "h-14 w-14")}
+                            >
+                              <img src={ref.dataUrl} alt={ref.name} title={ref.name} className="h-full w-full object-cover" />
+                              {showCrop && <RefCropPreview ref_={ref} targetRatio={ms.ratio} />}
+                              <button
+                                className="absolute right-0 top-0 grid h-4 w-4 cursor-pointer place-items-center bg-bg/80 text-text-dim hover:text-danger"
+                                title={"ลบ " + ref.name}
+                                aria-label={"ลบ " + ref.name}
+                                onClick={() => removeRefImage(ref)}
+                              >
+                                <X size={10} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <label
+                      className={
+                        "mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-dashed py-[7px] text-[11.5px] font-semibold transition-colors " +
+                        (full
+                          ? "cursor-not-allowed border-border text-text-faint opacity-50"
+                          : "cursor-pointer border-border-strong text-text-dim hover:border-text hover:text-text")
+                      }
+                    >
+                      <ImagePlus size={12} />
+                      {full ? `ครบ ${MAX_REFS_PER_KIND} รูปแล้ว` : "แนบรูป"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={full}
+                        className="hidden"
+                        aria-label={"แนบภาพอ้างอิงประเภท " + label}
+                        onChange={e => {
+                          if (e.target.files?.length) addRefImages(kind, e.target.files);
+                          e.target.value = ""; // เคลียร์เพื่อให้เลือกไฟล์เดิมซ้ำได้
+                        }}
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>}
+
+        </>}
+        {activeTab === "settings" && <>
+        {/* Model */}
+        <div>
+          <label htmlFor="model" className={fieldLabel + " flex items-center gap-1.5"}><Cpu size={12} /> Model</label>
+          <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
+            <select
+              id="model"
+              className="w-full cursor-pointer appearance-none rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent disabled:cursor-default"
+              aria-label="เลือกโมเดลที่ใช้ generate"
+              disabled={!sourceLoaded && !sourceFailed}
+              value={ms.modelId ?? ""}
+              onMouseDown={e => {
+                if (!sourceLoaded && sourceFailed) {
+                  e.preventDefault();
+                  if (isVideo) loadVideoModels(); else loadModels();
+                }
+              }}
+              onChange={e => selectModel(e.target.value)}
+            >
+              {!sourceLoaded ? (
+                <option>{sourceFailed ? "โหลดโมเดลไม่สำเร็จ — คลิกเพื่อลองใหม่" : "กำลังโหลดรายชื่อโมเดล…"}</option>
+              ) : !list.length ? (
+                <option>ไม่พบโมเดลที่รองรับโหมดนี้</option>
+              ) : (
+                list.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {REF_BADGE_PREFIX[refSupportLevel(s.mode, m)]}{m.name || m.id}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          {sourceLoaded && list.length > 0 && (
+            <div className="mt-[7px] flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-normal text-text-dim" title="สัญลักษณ์นำหน้าชื่อโมเดลในลิสต์ด้านบน — บอกว่าโมเดลนั้นรองรับภาพอ้างอิง (Attach Reference) แค่ไหน">
+              <span className="flex items-center gap-1"><ImagePlus size={10} /> ● จำเป็นต้องมี ref</span>
+              <span className="flex items-center gap-1"><ImagePlus size={10} /> ◐ แนบ ref ได้ (ไม่บังคับ)</span>
+              <span className="flex items-center gap-1"><ImageOff size={10} /> ✕ แนบ ref ไม่ได้</span>
+            </div>
+          )}
+          {modelMeta && <div className="mt-[7px] font-mono text-[11px] leading-normal text-text-faint">{modelMeta}</div>}
+          {statAttempts > 0 && (
+            <div className={"mt-[5px] flex items-center gap-1 text-[11px] leading-normal " + (statWarn ? "text-danger" : "text-text-faint")}>
+              {statWarn && <TriangleAlert size={11} className="shrink-0" />}
+              {stat!.ok}/{statAttempts} สำเร็จใน session นี้
+              {statWarn && " — อัตราล้มเหลวสูงกว่า 30%"}
+            </div>
+          )}
+
+          {/* Bake-off — เทียบหลายโมเดลพร้อมกัน (PHASE 14) — เฉพาะโหมดภาพ, ยิงอิสระ N ก้อนทันที ไม่ผ่านคิว ไม่โดน MAX_QUEUE จำกัด */}
+          {isNegativePromptMode(s.mode) && sourceLoaded && list.length > 1 && (
+            <div className="mt-3 rounded-lg border border-border bg-surface p-2.5">
+              <label className="flex cursor-pointer select-none items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[11.5px] font-semibold text-text">
+                  <Layers3 size={13} /> Bake-off — เทียบหลายโมเดล
+                </span>
+                <input
+                  type="checkbox"
+                  className="cursor-pointer accent-accent"
+                  checked={ms.bakeOffEnabled}
+                  onChange={toggleBakeOff}
+                />
+              </label>
+              {ms.bakeOffEnabled && (
+                <>
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
+                    เลือกโมเดลได้สูงสุด {MAX_BAKE_OFF_MODELS} ตัว — กด Generate จะยิงทุกโมเดลที่เลือกพร้อมกันด้วย prompt เดียวกัน (แยกจากปุ่มเลือกโมเดลด้านบน)
+                  </p>
+                  {/* ค้นหาโมเดล — ลิสต์ยาวหลายสิบตัวใน max-h-[180px] เลื่อนหาเองไม่ไหว
+                      ใช้แพทเทิร์นเดียวกับช่องค้นหา keyword ด้านบน */}
+                  <div className="relative mt-2">
+                    <Search size={11} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
+                    <input
+                      type="text"
+                      value={bakeOffSearch}
+                      onChange={e => setBakeOffSearch(e.target.value)}
+                      placeholder="ค้นหาโมเดล…"
+                      aria-label="ค้นหาโมเดลในรายการ Bake-off"
+                      className="w-full rounded-md border border-border bg-bg py-1.5 pl-7 pr-7 text-[11.5px] text-text outline-none transition-colors focus:border-accent"
+                    />
+                    {bakeOffSearch && (
+                      <button
+                        className="absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 cursor-pointer place-items-center rounded text-text-faint transition-colors hover:text-text"
+                        aria-label="ล้างคำค้นหาโมเดล"
+                        onClick={() => setBakeOffSearch("")}
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex max-h-[180px] flex-col gap-1 overflow-y-auto">
+                    {bakeOffList.length === 0 && (
+                      <p className="px-1 py-2 text-[13px] text-text-dim">ไม่พบโมเดลที่ตรงกับ "{bakeOffSearch}" ค่ะ</p>
+                    )}
+                    {bakeOffList.map(m => {
+                      const checked = ms.bakeOffModelIds.includes(m.id);
+                      const disabled = !checked && ms.bakeOffModelIds.length >= MAX_BAKE_OFF_MODELS;
+                      return (
+                        <label
+                          key={m.id}
+                          className={
+                            "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11.5px] transition-colors " +
+                            (checked ? "border-accent bg-accent/10 text-text" : "border-border text-text-dim") +
+                            (disabled ? " cursor-not-allowed opacity-40" : " cursor-pointer hover:border-border-strong")
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            className="cursor-pointer accent-accent disabled:cursor-not-allowed"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={() => toggleBakeOffModel(m.id)}
+                          />
+                          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{m.name || m.id}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {/* โชว์ยอดรวมตั้งแต่ตอนติ๊กเลือก ไม่ใช่รอไปเซอร์ไพรส์ที่ confirm modal ตอนกด Generate
+                      — ใช้ bakeOffCostBreakdown() ตัวเดียวกับที่ modal ใช้ ตัวเลขจึงตรงกันเสมอ */}
+                  <div className="mt-1.5 flex items-center justify-between gap-2 text-[10.5px] text-text-faint">
+                    <span>{ms.bakeOffModelIds.length}/{MAX_BAKE_OFF_MODELS} เลือกไว้</span>
+                    {bakeOffEstimate.count > 0 && (
+                      <span className="font-mono">
+                        ~${bakeOffEstimate.total.toFixed(4)}{bakeOffEstimate.hasUnknown ? "+" : ""} รวม
                       </span>
                     )}
+                  </div>
+                  {bakeOffEstimate.hasUnknown && bakeOffEstimate.count > 0 && (
+                    <div className="mt-0.5 text-[10px] text-text-faint">มีโมเดลที่ไม่ทราบราคา ยอดจริงอาจสูงกว่านี้ค่ะ</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Usage bar */}
+        {usageRows.length > 0 && (
+          <div>
+            <label className={fieldLabel + " flex items-center gap-1.5"}>
+              <CircleDollarSign size={12} /> Usage <span className="normal-case tracking-normal">~${usageTotal.toFixed(4)}{hasUnknown ? " (บางโมเดลไม่ทราบราคา)" : ""}</span>
+            </label>
+            <div className="flex flex-col gap-2.5">
+              {usageRows.map(([name, g]) => (
+                <div key={name}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-text-dim" title={name}>{name}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-text-faint">${g.totalCost.toFixed(4)}</span>
+                  </div>
+                  <div
+                    className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-text-faint"
+                    title={usageBreakdown(name, g)}
+                  >
+                    {usageBreakdown(name, g)}
+                  </div>
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
+                    <div className="h-full rounded-full bg-accent" style={{ width: (g.totalCost / usageMax) * 100 + "%" }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ปุ่ม retry Auto Save ที่พลาด — โชว์เฉพาะตอนมีชิ้นที่ autoSaveStatus === "failed" ในโหมดนี้ */}
+        {hasFailedAutoSaves() && (
+          <button
+            className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-danger/50 py-2 text-[11.5px] font-semibold text-danger transition-colors hover:bg-danger/10"
+            title="ลองเซฟไฟล์ที่ Auto Save พลาดไปใหม่อีกครั้ง"
+            onClick={retryFailedAutoSaves}
+          >
+            <RotateCw size={12} /> ลองเซฟไฟล์ที่พลาดใหม่
+          </button>
+        )}
+
+        {/* Aspect ratio — ไม่มีผลกับเสียง/tts */}
+        {!isAudio && !isTts && <div>
+          <label className={fieldLabel + " flex items-center gap-1.5"}><RectangleHorizontal size={12} /> Aspect Ratio</label>
+          <div className="grid grid-cols-5 gap-1.5">
+            {RATIOS.map(r => {
+              const disabled = !!(vRatios && !vRatios.includes(r.v));
+              return (
+                <button
+                  key={r.v}
+                  className={segBtn(ms.ratio === r.v, disabled)}
+                  disabled={disabled}
+                  aria-pressed={ms.ratio === r.v}
+                  aria-label={"อัตราส่วน " + r.v}
+                  onClick={() => mutate(() => { ms.ratio = r.v; })}
+                >
+                  <span className="block rounded-[2px] border-[1.5px] border-current" style={{ width: r.w, height: r.h }} />
+                  {r.v}
+                </button>
+              );
+            })}
+          </div>
+        </div>}
+
+        {/* Duration (video) */}
+        {isVideo && (
+          <div>
+            <label className={fieldLabel + " flex items-center gap-1.5"}><Clock size={12} /> Duration</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {DURATIONS.map(d => {
+                const disabled = !!(durs && !durs.includes(d));
+                return (
+                  <button
+                    key={d}
+                    className={segBtn(ms.duration === d, disabled) + " !text-[13px]"}
+                    disabled={disabled}
+                    aria-pressed={ms.duration === d}
+                    aria-label={"ระยะเวลาวิดีโอ " + d + " วินาที"}
+                    onClick={() => mutate(() => { ms.duration = d; })}
+                  >
+                    {d}s
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Audio (video) */}
+        {isVideo && (
+          <div>
+            <label className={fieldLabel + " flex items-center gap-1.5"}><Volume2 size={12} /> Audio</label>
+            <label className="flex cursor-pointer select-none items-center gap-[9px] text-[12.5px] text-text-dim">
+              <input
+                type="checkbox"
+                className="cursor-pointer accent-accent disabled:cursor-not-allowed"
+                aria-label="เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)"
+                disabled={!audioOk}
+                checked={ms.audio}
+                onChange={e => mutate(() => { ms.audio = e.target.checked; })}
+              />
+              <span className={audioOk ? "" : "opacity-40"}>เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)</span>
+            </label>
+            {audioOk && audioCostNote && (
+              <div className="mt-1.5 font-mono text-[10.5px] leading-normal text-text-faint">{audioCostNote}</div>
+            )}
+          </div>
+        )}
+
+        {/* Count — tts ไม่มีตัวเลือกจำนวน (สร้างครั้งละ 1 คลิปเสมอ) */}
+        {!isTts && <div>
+          <label className={fieldLabel + " flex items-center gap-1.5"}><Hash size={12} /> {meta.countLabel}</label>
+          <div className="grid grid-cols-4 gap-1.5">
+            {COUNTS.map(c => (
+              <button
+                key={c}
+                className={segBtn(ms.count === c) + " !text-[13px]"}
+                aria-pressed={ms.count === c}
+                aria-label={"จำนวน " + c + " " + meta.countLabel}
+                onClick={() => mutate(() => { ms.count = c; })}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>}
+
+        {/* Voice Actor (tts) */}
+        {isTts && (
+          <div>
+            <label htmlFor="tts-voice" className={fieldLabel + " flex items-center gap-1.5"}><Mic size={12} /> เสียงพากย์ (Voice Actor)</label>
+            {ms.ttsVoicesLoading ? (
+              <select
+                id="tts-voice"
+                disabled
+                className="w-full cursor-not-allowed rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text-faint outline-none"
+              >
+                <option>กำลังโหลดเสียง…</option>
+              </select>
+            ) : ms.ttsVoices.length === 0 ? (
+              <p className="text-[13px] leading-relaxed text-text-dim">ยังไม่มีเสียงพากย์ให้เลือกสำหรับโมเดลนี้ค่ะ</p>
+            ) : (
+              <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
+                <select
+                  id="tts-voice"
+                  className="w-full cursor-pointer appearance-none rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent"
+                  aria-label="เลือกเสียงพากย์"
+                  value={ms.voiceId ?? ""}
+                  onChange={e => selectVoice(e.target.value)}
+                >
+                  {ms.ttsVoices.map(v => (
+                    <option key={v.id} value={v.id}>{v.name ?? v.id}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Queue */}
+        {ms.queue.length > 0 && (
+          <div>
+            <label className={fieldLabel + " flex items-center gap-1.5"}>
+              <ListOrdered size={12} /> Queue <span className="normal-case tracking-normal">{ms.queue.length}/{MAX_QUEUE}</span>
+              <span className="ml-auto normal-case tracking-normal text-text-faint">
+                ~${queueTotalCost.toFixed(4)}{queueHasUnknown ? " (บางงานไม่ทราบราคา)" : ""}
+              </span>
+            </label>
+            <div className="flex flex-col gap-1.5">
+              {ms.queue.map((q, i) => {
+                const jobCost = computeQueueJobCost(s.mode, q);
+                const isDragging = dragQueueIndex === i;
+                return (
+                  <div
+                    key={i}
+                    draggable
+                    onDragStart={e => { setDragQueueIndex(i); e.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnd={() => setDragQueueIndex(null)}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => {
+                      e.preventDefault();
+                      if (dragQueueIndex != null && dragQueueIndex !== i) reorderQueue(dragQueueIndex, i);
+                      setDragQueueIndex(null);
+                    }}
+                    className={
+                      "flex items-center gap-[7px] rounded-lg border bg-surface px-2.5 py-2 transition-opacity " +
+                      (isDragging ? "border-accent opacity-50" : "border-border")
+                    }
+                  >
+                    <span className="shrink-0 cursor-grab text-text-faint active:cursor-grabbing" title="ลากเพื่อจัดลำดับใหม่" aria-label={"ลากเพื่อจัดลำดับใหม่: " + q.prompt}>
+                      <GripVertical size={13} />
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] text-text-faint">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text">{q.prompt}</div>
+                      <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10px] text-text-faint">{q.modelName}</div>
+                      <div className="mt-[5px] flex flex-wrap items-center gap-1">
+                        {!isAudio && (
+                          <span className="rounded-full border border-border-strong px-[7px] py-[1px] text-[9.5px] font-medium text-text-dim">{q.ratio}</span>
+                        )}
+                        {isVideo && (
+                          <>
+                            <span className="rounded-full border border-border-strong px-[7px] py-[1px] text-[9.5px] font-medium text-text-dim">{q.duration}s</span>
+                            <span className={"rounded-full border px-[7px] py-[1px] text-[9.5px] font-medium " + (q.audio ? "border-accent/50 text-accent" : "border-border-strong text-text-faint")}>
+                              {q.audio ? "🔊 เสียงเปิด" : "เสียงปิด"}
+                            </span>
+                          </>
+                        )}
+                        <span className="rounded-full border border-border-strong px-[7px] py-[1px] text-[9.5px] font-medium text-text-dim">×{q.count}</span>
+                        <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
+                          {jobCost != null ? "~$" + jobCost.toFixed(4) : "ราคาไม่ทราบ"}
+                        </span>
+                      </div>
+                    </div>
+                    {/* ปุ่มขึ้น/ลง — fallback ของการลากสำหรับมือถือ/แตะหน้าจอที่ native drag-and-drop ทำงานไม่คงเส้นคงวา */}
+                    <div className="flex shrink-0 flex-col">
+                      <button
+                        className="cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-25"
+                        title="ย้ายขึ้น"
+                        aria-label={"ย้ายขึ้น: " + q.prompt}
+                        disabled={i === 0}
+                        onClick={() => reorderQueue(i, i - 1)}
+                      >
+                        <ArrowUp size={12} />
+                      </button>
+                      <button
+                        className="cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-25"
+                        title="ย้ายลง"
+                        aria-label={"ย้ายลง: " + q.prompt}
+                        disabled={i === ms.queue.length - 1}
+                        onClick={() => reorderQueue(i, i + 1)}
+                      >
+                        <ArrowDown size={12} />
+                      </button>
+                    </div>
                     <button
-                      className="min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-left text-[11.5px] text-text-dim hover:text-text"
-                      title={entry.text}
-                      aria-label={"ใช้ prompt เดิม: " + entry.text}
-                      onClick={() => usePromptFromCombinedHistory(entry)}
+                      className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-danger"
+                      title="ลบออกจากคิว"
+                      aria-label={"ลบออกจากคิว: " + q.prompt}
+                      onClick={() => removeFromQueue(i)}
                     >
-                      {entry.text}
-                    </button>
-                    <button
-                      className={"shrink-0 cursor-pointer px-1 py-0.5 " + (entry.pinned ? "text-accent" : "text-text-faint hover:text-text")}
-                      title={entry.pinned ? "เลิกปักหมุด" : "ปักหมุด"}
-                      aria-label={(entry.pinned ? "เลิกปักหมุด: " : "ปักหมุด: ") + entry.text}
-                      aria-pressed={entry.pinned}
-                      onClick={() => togglePinHistory(entry.mode, entry.text)}
-                    >
-                      {entry.pinned ? <Pin size={12} /> : <PinOff size={12} />}
-                    </button>
-                    <button
-                      className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint hover:text-danger"
-                      title="ลบออกจากประวัติ"
-                      aria-label={"ลบออกจากประวัติ: " + entry.text}
-                      onClick={() => removeFromHistory(entry.mode, entry.text)}
-                    >
-                      <X size={12} />
+                      <X size={13} />
                     </button>
                   </div>
                 );
@@ -349,623 +1061,20 @@ export default function Sidebar() {
             </div>
           </div>
         )}
+
+        </>}
       </div>
 
-      {/* Prompt builder — tts ไม่มี keyword picker แบบ image prompt (hasPromptBuilder) */}
-      {hasPromptBuilder(s.mode) && <div>
-        <label className={fieldLabel + " flex items-center gap-1.5"}><ListTree size={12} /> Prompt Builder</label>
-        <div className="relative mb-2">
-          <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
-          <input
-            type="text"
-            value={kwSearch}
-            onChange={e => setKwSearch(e.target.value)}
-            placeholder="ค้นหา keyword…"
-            aria-label="ค้นหา keyword ใน Prompt Builder"
-            className="w-full rounded-lg border border-border bg-surface py-[7px] pl-[26px] pr-8 text-[12px] text-text outline-none transition-colors placeholder:text-text-faint focus:border-accent"
-          />
-          {kwSearch && (
-            <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-text-faint hover:text-text"
-              title="ล้างคำค้นหา"
-              aria-label="ล้างคำค้นหา keyword"
-              onClick={() => setKwSearch("")}
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-
-        {!kwQuery && ms.recentKeywords.length > 0 && (
-          <div className="mb-2 rounded-lg border border-border bg-surface p-2.5">
-            <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[.5px] text-text-faint">ใช้ล่าสุด</div>
-            <div className="flex flex-wrap gap-1.5">
-              {ms.recentKeywords.map(kw => (
-                <button
-                  key={kw}
-                  className={
-                    "cursor-pointer rounded-full border px-[11px] py-[5px] text-[11.5px] transition-all " +
-                    (hasKeyword(ms.prompt, kw)
-                      ? "border-accent bg-accent font-semibold text-accent-ink"
-                      : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
-                  }
-                  aria-pressed={hasKeyword(ms.prompt, kw)}
-                  aria-label={(hasKeyword(ms.prompt, kw) ? "เอาคำ " + kw + " ออกจาก prompt" : "เพิ่มคำ " + kw + " เข้า prompt")}
-                  onClick={() => toggleKeyword(kw)}
-                >
-                  {kw}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {kwQuery && !filteredGroups.length ? (
-          <p className="px-1 py-2 text-[11.5px] text-text-faint">ไม่พบ keyword ที่ตรงกับ "{kwSearch}" ค่ะ</p>
-        ) : (
-          <div>
-            {filteredGroups.map((group, i) => (
-              <details key={group.label} className="kw-group mt-[7px] overflow-hidden rounded-lg border border-border bg-surface first:mt-0" open={i === 0 || !!kwQuery}>
-                <summary className="flex cursor-pointer select-none items-center justify-between px-3 py-[9px] text-[11px] font-semibold tracking-[.5px] text-text-dim transition-colors hover:text-text">
-                  {group.label}
-                </summary>
-                <div className="flex flex-wrap gap-1.5 px-3 pb-3 pt-0.5">
-                  {group.items.map(kw => (
-                    <button
-                      key={kw}
-                      className={
-                        "cursor-pointer rounded-full border px-[11px] py-[5px] text-[11.5px] transition-all " +
-                        (hasKeyword(ms.prompt, kw)
-                          ? "border-accent bg-accent font-semibold text-accent-ink"
-                          : "border-border bg-surface-2 text-text-dim hover:border-border-strong hover:text-text")
-                      }
-                      aria-pressed={hasKeyword(ms.prompt, kw)}
-                      aria-label={(hasKeyword(ms.prompt, kw) ? "เอาคำ " + kw + " ออกจาก prompt" : "เพิ่มคำ " + kw + " เข้า prompt")}
-                      onClick={() => toggleKeyword(kw)}
-                    >
-                      {kw}
-                    </button>
-                  ))}
-                </div>
-              </details>
-            ))}
-          </div>
-        )}
-      </div>}
-
-      {/* Attach reference / style / facial — โหมด audio/tts ไม่รองรับภาพอ้างอิง */}
-      {!isAudio && !isTts && <div>
-        <label className={fieldLabel + " flex items-center gap-1.5"}>
-          <ImagePlus size={12} /> Attach Reference
-          {ms.refs.length > 0 && (
-            <button
-              className="ml-auto flex cursor-pointer items-center gap-1 font-semibold normal-case tracking-normal text-text-faint hover:text-danger"
-              aria-label={`ล้างภาพอ้างอิงทั้งหมด (${ms.refs.length} รูป)`}
-              onClick={clearRefImages}
-            >
-              <Trash2 size={11} /> ล้างทั้งหมด ({ms.refs.length})
-            </button>
-          )}
-        </label>
-        {isVideo ? (
-          <div className={"overflow-hidden rounded-card border bg-surface " + (needsRefImage ? "border-danger" : "border-border")}>
-            {needsRefImage && (
-              <p className="border-b border-danger/40 bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger">
-                โมเดลนี้เป็น Image-to-Video ล้วน — ต้องแนบภาพอ้างอิงก่อนถึงจะ Generate ได้ค่ะ
-              </p>
-            )}
-            {ms.refs[0] ? (
-              <div className="group relative aspect-video overflow-hidden bg-surface-2">
-                <img src={ms.refs[0].dataUrl} alt={ms.refs[0].name} className="h-full w-full object-cover" />
-                <RefCropPreview ref_={ms.refs[0]} targetRatio={ms.ratio} />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-media-scrim to-transparent px-3 pb-2.5 pt-8">
-                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-on-media" title={ms.refs[0].name}>{ms.refs[0].name}</span>
-                  <button
-                    type="button"
-                    className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-on-media-dim bg-media-scrim/70 px-2.5 py-1 text-[10.5px] font-semibold text-on-media backdrop-blur transition-colors hover:border-danger hover:text-danger"
-                    aria-label={"ลบภาพอ้างอิง " + ms.refs[0].name}
-                    onClick={() => removeRefImage(ms.refs[0])}
-                  >
-                    <Trash2 size={11} /> ลบภาพ
-                  </button>
-                </div>
-                <span className="absolute left-2.5 top-2.5 rounded-full border border-on-media-dim bg-media-scrim/70 px-2 py-1 text-[9.5px] font-semibold uppercase tracking-[.12em] text-on-media backdrop-blur">First frame</span>
-              </div>
-            ) : (
-              <label className="flex cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-transparent px-4 py-7 text-center transition-colors hover:border-border-strong hover:bg-surface-2">
-                <span className="grid h-10 w-10 place-items-center rounded-full border border-border-strong bg-surface-2 text-text-dim"><ImagePlus size={17} /></span>
-                <span className="text-xs font-semibold text-text">{needsRefImage ? "แนบภาพเริ่มต้น (จำเป็น)" : "แนบภาพเริ่มต้น"}</span>
-                <span className="max-w-[230px] text-[10.5px] leading-relaxed text-text-faint">ภาพนี้จะเป็นเฟรมแรกสำหรับ Image-to-Video · สูงสุด 4MB</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  aria-label="แนบภาพเริ่มต้นสำหรับ Image-to-Video"
-                  onChange={e => {
-                    if (e.target.files?.length) addRefImages("ref", e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            )}
-            {ms.refs[0] && (
-              <label className="flex cursor-pointer items-center justify-center gap-1.5 border-t border-border py-2.5 text-[11px] font-semibold text-text-dim transition-colors hover:bg-surface-2 hover:text-text">
-                <ImagePlus size={12} /> เปลี่ยนภาพ
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  aria-label="เปลี่ยนภาพเริ่มต้นสำหรับ Image-to-Video"
-                  onChange={e => {
-                    if (e.target.files?.length) addRefImages("ref", e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            )}
-          </div>
-        ) : !canAttachRefs ? (
-          <p className="text-[11.5px] leading-relaxed text-text-faint">
-            โมเดลนี้สร้างภาพได้อย่างเดียว (image-only) จึงแนบภาพอ้างอิงไม่ได้ — เลือกโมเดลแบบ image+text เช่น Gemini หรือ GPT Image ค่ะ
-          </p>
-        ) : (
-          <div className="flex flex-col gap-[7px]">
-            {REF_KINDS.map(({ kind, label, hint }) => {
-              const items = ms.refs.filter(r => r.kind === kind);
-              const full = items.length >= MAX_REFS_PER_KIND;
-              return (
-                <div key={kind} className="rounded-lg border border-border bg-surface p-2.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[11.5px] font-semibold text-text">{label}</span>
-                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[10.5px] text-text-faint" title={hint}>{hint}</span>
-                  </div>
-                  {items.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {items.map((ref, i) => {
-                        // เฉพาะรูปแรกของ kind "ref" (composition/layout หลัก — มีผลต่อ framing มากสุดตาม REF_KINDS) โชว์ preview ขนาดใหญ่ขึ้นพอให้เห็น overlay ชัด
-                        const showCrop = kind === "ref" && i === 0;
-                        return (
-                          <div
-                            key={kind + i}
-                            className={"group relative overflow-hidden rounded-md border border-border-strong " + (showCrop ? "h-24 w-24" : "h-14 w-14")}
-                          >
-                            <img src={ref.dataUrl} alt={ref.name} title={ref.name} className="h-full w-full object-cover" />
-                            {showCrop && <RefCropPreview ref_={ref} targetRatio={ms.ratio} />}
-                            <button
-                              className="absolute right-0 top-0 grid h-4 w-4 cursor-pointer place-items-center bg-bg/80 text-text-dim hover:text-danger"
-                              title={"ลบ " + ref.name}
-                              aria-label={"ลบ " + ref.name}
-                              onClick={() => removeRefImage(ref)}
-                            >
-                              <X size={10} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <label
-                    className={
-                      "mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-dashed py-[7px] text-[11.5px] font-semibold transition-colors " +
-                      (full
-                        ? "cursor-not-allowed border-border text-text-faint opacity-50"
-                        : "cursor-pointer border-border-strong text-text-dim hover:border-text hover:text-text")
-                    }
-                  >
-                    <ImagePlus size={12} />
-                    {full ? `ครบ ${MAX_REFS_PER_KIND} รูปแล้ว` : "แนบรูป"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      disabled={full}
-                      className="hidden"
-                      aria-label={"แนบภาพอ้างอิงประเภท " + label}
-                      onChange={e => {
-                        if (e.target.files?.length) addRefImages(kind, e.target.files);
-                        e.target.value = ""; // เคลียร์เพื่อให้เลือกไฟล์เดิมซ้ำได้
-                      }}
-                    />
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>}
-
-      {/* Model */}
-      <div>
-        <label htmlFor="model" className={fieldLabel + " flex items-center gap-1.5"}><Cpu size={12} /> Model</label>
-        <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
-          <select
-            id="model"
-            className="w-full cursor-pointer appearance-none rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent disabled:cursor-default"
-            aria-label="เลือกโมเดลที่ใช้ generate"
-            disabled={!sourceLoaded && !sourceFailed}
-            value={ms.modelId ?? ""}
-            onMouseDown={e => {
-              if (!sourceLoaded && sourceFailed) {
-                e.preventDefault();
-                if (isVideo) loadVideoModels(); else loadModels();
-              }
-            }}
-            onChange={e => selectModel(e.target.value)}
-          >
-            {!sourceLoaded ? (
-              <option>{sourceFailed ? "โหลดโมเดลไม่สำเร็จ — คลิกเพื่อลองใหม่" : "กำลังโหลดรายชื่อโมเดล…"}</option>
-            ) : !list.length ? (
-              <option>ไม่พบโมเดลที่รองรับโหมดนี้</option>
-            ) : (
-              list.map(m => (
-                <option key={m.id} value={m.id}>
-                  {REF_BADGE_PREFIX[refSupportLevel(s.mode, m)]}{m.name || m.id}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-        {sourceLoaded && list.length > 0 && (
-          <div className="mt-[7px] flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] leading-normal text-text-faint" title="สัญลักษณ์นำหน้าชื่อโมเดลในลิสต์ด้านบน — บอกว่าโมเดลนั้นรองรับภาพอ้างอิง (Attach Reference) แค่ไหน">
-            <span className="flex items-center gap-1"><ImagePlus size={10} /> ● จำเป็นต้องมี ref</span>
-            <span className="flex items-center gap-1"><ImagePlus size={10} /> ◐ แนบ ref ได้ (ไม่บังคับ)</span>
-            <span className="flex items-center gap-1"><ImageOff size={10} /> ✕ แนบ ref ไม่ได้</span>
-          </div>
-        )}
-        {modelMeta && <div className="mt-[7px] font-mono text-[11px] leading-normal text-text-faint">{modelMeta}</div>}
-        {statAttempts > 0 && (
-          <div className={"mt-[5px] flex items-center gap-1 text-[11px] leading-normal " + (statWarn ? "text-danger" : "text-text-faint")}>
-            {statWarn && <TriangleAlert size={11} className="shrink-0" />}
-            {stat!.ok}/{statAttempts} สำเร็จใน session นี้
-            {statWarn && " — อัตราล้มเหลวสูงกว่า 30%"}
-          </div>
-        )}
-
-        {/* Bake-off — เทียบหลายโมเดลพร้อมกัน (PHASE 14) — เฉพาะโหมดภาพ, ยิงอิสระ N ก้อนทันที ไม่ผ่านคิว ไม่โดน MAX_QUEUE จำกัด */}
-        {isNegativePromptMode(s.mode) && sourceLoaded && list.length > 1 && (
-          <div className="mt-3 rounded-lg border border-border bg-surface p-2.5">
-            <label className="flex cursor-pointer select-none items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-[11.5px] font-semibold text-text">
-                <Layers3 size={13} /> Bake-off — เทียบหลายโมเดล
-              </span>
-              <input
-                type="checkbox"
-                className="cursor-pointer accent-accent"
-                checked={ms.bakeOffEnabled}
-                onChange={toggleBakeOff}
-              />
-            </label>
-            {ms.bakeOffEnabled && (
-              <>
-                <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
-                  เลือกโมเดลได้สูงสุด {MAX_BAKE_OFF_MODELS} ตัว — กด Generate จะยิงทุกโมเดลที่เลือกพร้อมกันด้วย prompt เดียวกัน (แยกจากปุ่มเลือกโมเดลด้านบน)
-                </p>
-                {/* ค้นหาโมเดล — ลิสต์ยาวหลายสิบตัวใน max-h-[180px] เลื่อนหาเองไม่ไหว
-                    ใช้แพทเทิร์นเดียวกับช่องค้นหา keyword ด้านบน */}
-                <div className="relative mt-2">
-                  <Search size={11} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint" />
-                  <input
-                    type="text"
-                    value={bakeOffSearch}
-                    onChange={e => setBakeOffSearch(e.target.value)}
-                    placeholder="ค้นหาโมเดล…"
-                    aria-label="ค้นหาโมเดลในรายการ Bake-off"
-                    className="w-full rounded-md border border-border bg-bg py-1.5 pl-7 pr-7 text-[11.5px] text-text outline-none transition-colors focus:border-accent"
-                  />
-                  {bakeOffSearch && (
-                    <button
-                      className="absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 cursor-pointer place-items-center rounded text-text-faint transition-colors hover:text-text"
-                      aria-label="ล้างคำค้นหาโมเดล"
-                      onClick={() => setBakeOffSearch("")}
-                    >
-                      <X size={11} />
-                    </button>
-                  )}
-                </div>
-                <div className="mt-1.5 flex max-h-[180px] flex-col gap-1 overflow-y-auto">
-                  {bakeOffList.length === 0 && (
-                    <p className="px-1 py-2 text-[11px] text-text-faint">ไม่พบโมเดลที่ตรงกับ "{bakeOffSearch}" ค่ะ</p>
-                  )}
-                  {bakeOffList.map(m => {
-                    const checked = ms.bakeOffModelIds.includes(m.id);
-                    const disabled = !checked && ms.bakeOffModelIds.length >= MAX_BAKE_OFF_MODELS;
-                    return (
-                      <label
-                        key={m.id}
-                        className={
-                          "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11.5px] transition-colors " +
-                          (checked ? "border-accent bg-accent/10 text-text" : "border-border text-text-dim") +
-                          (disabled ? " cursor-not-allowed opacity-40" : " cursor-pointer hover:border-border-strong")
-                        }
-                      >
-                        <input
-                          type="checkbox"
-                          className="cursor-pointer accent-accent disabled:cursor-not-allowed"
-                          checked={checked}
-                          disabled={disabled}
-                          onChange={() => toggleBakeOffModel(m.id)}
-                        />
-                        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{m.name || m.id}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                {/* โชว์ยอดรวมตั้งแต่ตอนติ๊กเลือก ไม่ใช่รอไปเซอร์ไพรส์ที่ confirm modal ตอนกด Generate
-                    — ใช้ bakeOffCostBreakdown() ตัวเดียวกับที่ modal ใช้ ตัวเลขจึงตรงกันเสมอ */}
-                <div className="mt-1.5 flex items-center justify-between gap-2 text-[10.5px] text-text-faint">
-                  <span>{ms.bakeOffModelIds.length}/{MAX_BAKE_OFF_MODELS} เลือกไว้</span>
-                  {bakeOffEstimate.count > 0 && (
-                    <span className="font-mono">
-                      ~${bakeOffEstimate.total.toFixed(4)}{bakeOffEstimate.hasUnknown ? "+" : ""} รวม
-                    </span>
-                  )}
-                </div>
-                {bakeOffEstimate.hasUnknown && bakeOffEstimate.count > 0 && (
-                  <div className="mt-0.5 text-[10px] text-text-faint">มีโมเดลที่ไม่ทราบราคา ยอดจริงอาจสูงกว่านี้ค่ะ</div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Usage bar */}
-      {usageRows.length > 0 && (
-        <div>
-          <label className={fieldLabel + " flex items-center gap-1.5"}>
-            <CircleDollarSign size={12} /> Usage <span className="normal-case tracking-normal">~${usageTotal.toFixed(4)}{hasUnknown ? " (บางโมเดลไม่ทราบราคา)" : ""}</span>
-          </label>
-          <div className="flex flex-col gap-2.5">
-            {usageRows.map(([name, g]) => (
-              <div key={name}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-text-dim" title={name}>{name}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-text-faint">${g.totalCost.toFixed(4)}</span>
-                </div>
-                <div
-                  className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-text-faint"
-                  title={usageBreakdown(name, g)}
-                >
-                  {usageBreakdown(name, g)}
-                </div>
-                <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
-                  <div className="h-full rounded-full bg-accent" style={{ width: (g.totalCost / usageMax) * 100 + "%" }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ปุ่ม retry Auto Save ที่พลาด — โชว์เฉพาะตอนมีชิ้นที่ autoSaveStatus === "failed" ในโหมดนี้ */}
-      {hasFailedAutoSaves() && (
-        <button
-          className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-danger/50 py-2 text-[11.5px] font-semibold text-danger transition-colors hover:bg-danger/10"
-          title="ลองเซฟไฟล์ที่ Auto Save พลาดไปใหม่อีกครั้ง"
-          onClick={retryFailedAutoSaves}
-        >
-          <RotateCw size={12} /> ลองเซฟไฟล์ที่พลาดใหม่
-        </button>
-      )}
-
-      {/* Aspect ratio — ไม่มีผลกับเสียง/tts */}
-      {!isAudio && !isTts && <div>
-        <label className={fieldLabel + " flex items-center gap-1.5"}><RectangleHorizontal size={12} /> Aspect Ratio</label>
-        <div className="grid grid-cols-5 gap-1.5">
-          {RATIOS.map(r => {
-            const disabled = !!(vRatios && !vRatios.includes(r.v));
-            return (
-              <button
-                key={r.v}
-                className={segBtn(ms.ratio === r.v, disabled)}
-                disabled={disabled}
-                aria-pressed={ms.ratio === r.v}
-                aria-label={"อัตราส่วน " + r.v}
-                onClick={() => mutate(() => { ms.ratio = r.v; })}
-              >
-                <span className="block rounded-[2px] border-[1.5px] border-current" style={{ width: r.w, height: r.h }} />
-                {r.v}
-              </button>
-            );
-          })}
-        </div>
-      </div>}
-
-      {/* Duration (video) */}
-      {isVideo && (
-        <div>
-          <label className={fieldLabel + " flex items-center gap-1.5"}><Clock size={12} /> Duration</label>
-          <div className="grid grid-cols-3 gap-1.5">
-            {DURATIONS.map(d => {
-              const disabled = !!(durs && !durs.includes(d));
-              return (
-                <button
-                  key={d}
-                  className={segBtn(ms.duration === d, disabled) + " !text-[13px]"}
-                  disabled={disabled}
-                  aria-pressed={ms.duration === d}
-                  aria-label={"ระยะเวลาวิดีโอ " + d + " วินาที"}
-                  onClick={() => mutate(() => { ms.duration = d; })}
-                >
-                  {d}s
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Audio (video) */}
-      {isVideo && (
-        <div>
-          <label className={fieldLabel + " flex items-center gap-1.5"}><Volume2 size={12} /> Audio</label>
-          <label className="flex cursor-pointer select-none items-center gap-[9px] text-[12.5px] text-text-dim">
-            <input
-              type="checkbox"
-              className="cursor-pointer accent-accent disabled:cursor-not-allowed"
-              aria-label="เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)"
-              disabled={!audioOk}
-              checked={ms.audio}
-              onChange={e => mutate(() => { ms.audio = e.target.checked; })}
-            />
-            <span className={audioOk ? "" : "opacity-40"}>เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)</span>
-          </label>
-          {audioOk && audioCostNote && (
-            <div className="mt-1.5 font-mono text-[10.5px] leading-normal text-text-faint">{audioCostNote}</div>
-          )}
-        </div>
-      )}
-
-      {/* Count — tts ไม่มีตัวเลือกจำนวน (สร้างครั้งละ 1 คลิปเสมอ) */}
-      {!isTts && <div>
-        <label className={fieldLabel + " flex items-center gap-1.5"}><Hash size={12} /> {meta.countLabel}</label>
-        <div className="grid grid-cols-4 gap-1.5">
-          {COUNTS.map(c => (
-            <button
-              key={c}
-              className={segBtn(ms.count === c) + " !text-[13px]"}
-              aria-pressed={ms.count === c}
-              aria-label={"จำนวน " + c + " " + meta.countLabel}
-              onClick={() => mutate(() => { ms.count = c; })}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-      </div>}
-
-      {/* Voice Actor (tts) */}
-      {isTts && (
-        <div>
-          <label htmlFor="tts-voice" className={fieldLabel + " flex items-center gap-1.5"}><Mic size={12} /> เสียงพากย์ (Voice Actor)</label>
-          {ms.ttsVoicesLoading ? (
-            <select
-              id="tts-voice"
-              disabled
-              className="w-full cursor-not-allowed rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text-faint outline-none"
-            >
-              <option>กำลังโหลดเสียง…</option>
-            </select>
-          ) : ms.ttsVoices.length === 0 ? (
-            <p className="text-[11.5px] leading-relaxed text-text-faint">ยังไม่มีเสียงพากย์ให้เลือกสำหรับโมเดลนี้ค่ะ</p>
-          ) : (
-            <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
-              <select
-                id="tts-voice"
-                className="w-full cursor-pointer appearance-none rounded-card border border-border bg-surface px-3 py-2.5 text-[13px] text-text outline-none transition-colors focus:border-accent"
-                aria-label="เลือกเสียงพากย์"
-                value={ms.voiceId ?? ""}
-                onChange={e => selectVoice(e.target.value)}
-              >
-                {ms.ttsVoices.map(v => (
-                  <option key={v.id} value={v.id}>{v.name ?? v.id}</option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Queue */}
-      {ms.queue.length > 0 && (
-        <div>
-          <label className={fieldLabel + " flex items-center gap-1.5"}>
-            <ListOrdered size={12} /> Queue <span className="normal-case tracking-normal">{ms.queue.length}/{MAX_QUEUE}</span>
-            <span className="ml-auto normal-case tracking-normal text-text-faint">
-              ~${queueTotalCost.toFixed(4)}{queueHasUnknown ? " (บางงานไม่ทราบราคา)" : ""}
-            </span>
-          </label>
-          <div className="flex flex-col gap-1.5">
-            {ms.queue.map((q, i) => {
-              const jobCost = computeQueueJobCost(s.mode, q);
-              const isDragging = dragQueueIndex === i;
-              return (
-                <div
-                  key={i}
-                  draggable
-                  onDragStart={e => { setDragQueueIndex(i); e.dataTransfer.effectAllowed = "move"; }}
-                  onDragEnd={() => setDragQueueIndex(null)}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => {
-                    e.preventDefault();
-                    if (dragQueueIndex != null && dragQueueIndex !== i) reorderQueue(dragQueueIndex, i);
-                    setDragQueueIndex(null);
-                  }}
-                  className={
-                    "flex items-center gap-[7px] rounded-lg border bg-surface px-2.5 py-2 transition-opacity " +
-                    (isDragging ? "border-accent opacity-50" : "border-border")
-                  }
-                >
-                  <span className="shrink-0 cursor-grab text-text-faint active:cursor-grabbing" title="ลากเพื่อจัดลำดับใหม่" aria-label={"ลากเพื่อจัดลำดับใหม่: " + q.prompt}>
-                    <GripVertical size={13} />
-                  </span>
-                  <span className="shrink-0 font-mono text-[10px] text-text-faint">{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-text">{q.prompt}</div>
-                    <div className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10px] text-text-faint">{q.modelName}</div>
-                    <div className="mt-[5px] flex flex-wrap items-center gap-1">
-                      {!isAudio && (
-                        <span className="rounded-full border border-border-strong px-[7px] py-[1px] text-[9.5px] font-medium text-text-dim">{q.ratio}</span>
-                      )}
-                      {isVideo && (
-                        <>
-                          <span className="rounded-full border border-border-strong px-[7px] py-[1px] text-[9.5px] font-medium text-text-dim">{q.duration}s</span>
-                          <span className={"rounded-full border px-[7px] py-[1px] text-[9.5px] font-medium " + (q.audio ? "border-accent/50 text-accent" : "border-border-strong text-text-faint")}>
-                            {q.audio ? "🔊 เสียงเปิด" : "เสียงปิด"}
-                          </span>
-                        </>
-                      )}
-                      <span className="rounded-full border border-border-strong px-[7px] py-[1px] text-[9.5px] font-medium text-text-dim">×{q.count}</span>
-                      <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
-                        {jobCost != null ? "~$" + jobCost.toFixed(4) : "ราคาไม่ทราบ"}
-                      </span>
-                    </div>
-                  </div>
-                  {/* ปุ่มขึ้น/ลง — fallback ของการลากสำหรับมือถือ/แตะหน้าจอที่ native drag-and-drop ทำงานไม่คงเส้นคงวา */}
-                  <div className="flex shrink-0 flex-col">
-                    <button
-                      className="cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-25"
-                      title="ย้ายขึ้น"
-                      aria-label={"ย้ายขึ้น: " + q.prompt}
-                      disabled={i === 0}
-                      onClick={() => reorderQueue(i, i - 1)}
-                    >
-                      <ArrowUp size={12} />
-                    </button>
-                    <button
-                      className="cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-text disabled:cursor-not-allowed disabled:opacity-25"
-                      title="ย้ายลง"
-                      aria-label={"ย้ายลง: " + q.prompt}
-                      disabled={i === ms.queue.length - 1}
-                      onClick={() => reorderQueue(i, i + 1)}
-                    >
-                      <ArrowDown size={12} />
-                    </button>
-                  </div>
-                  <button
-                    className="shrink-0 cursor-pointer px-1 py-0.5 text-text-faint transition-colors hover:text-danger"
-                    title="ลบออกจากคิว"
-                    aria-label={"ลบออกจากคิว: " + q.prompt}
-                    onClick={() => removeFromQueue(i)}
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Generate + queue buttons */}
+      {/* footer ติดล่าง — เห็นทุกแท็บ ไม่ต้องเลื่อนหา */}
+      <div className="flex shrink-0 flex-col gap-2 border-t border-border p-4">
+      {s.promptPlacement === "sidebar" && (
       <button
-        className="mt-0.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-35"
+        className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-card bg-accent py-[13px] text-sm font-bold tracking-[0.3px] text-accent-ink transition-all hover:opacity-90 active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-35"
         disabled={!canGenerateOrBakeOff}
         title={bakeOffActive && !canGenerateOrBakeOff ? "เลือกโมเดลอย่างน้อย 2 ตัวและใส่ prompt ก่อนค่ะ" : undefined}
         aria-label={
-          !s.apiKey
-            ? "Generate ปิดใช้งานอยู่ — ต้องใส่ OpenRouter API Key ก่อน กดปุ่ม \"ใส่ API Key\" ที่ header ด้านบนขวา"
-            : (generatingCount > 0 ? `กำลัง generate ${generatingCount} งานอยู่ — กดปุ่มนี้ซ้ำได้เรื่อยๆ เพื่อสร้างงานใหม่เพิ่มเข้าคิวพร้อมกัน ไม่ต้องรอให้เสร็จก่อน · ` : "")
+          (!s.apiKey ? "ยังไม่ได้ใส่ API Key — กดแล้วจะขอ key ก่อนเริ่มสร้าง · " : "")
+            + (generatingCount > 0 ? `กำลัง generate ${generatingCount} งานอยู่ — กดปุ่มนี้ซ้ำได้เรื่อยๆ เพื่อสร้างงานใหม่เพิ่มเข้าคิวพร้อมกัน ไม่ต้องรอให้เสร็จก่อน · ` : "")
               + (bakeOffActive
                 ? `Generate Bake-off (${ms.bakeOffModelIds.length} โมเดล)`
                 : ms.queue.length ? `Generate ทั้งคิว (${ms.queue.length} งาน)` : "Generate ภาพ/วิดีโอจาก prompt ปัจจุบัน")
@@ -977,8 +1086,9 @@ export default function Sidebar() {
           ? `Generate Bake-off (${ms.bakeOffModelIds.length})`
           : ms.queue.length ? `Generate Queue (${ms.queue.length})` : "Generate"}
       </button>
+      )}
       <button
-        className="-mt-3 flex w-full cursor-pointer items-center justify-center gap-1 rounded-card border border-dashed border-border-strong py-2.5 text-[12.5px] font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
+        className="flex w-full cursor-pointer items-center justify-center gap-1 rounded-card border border-dashed border-border-strong py-2.5 text-[12.5px] font-semibold text-text-dim transition-colors hover:border-text hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
         disabled={!(list.length > 0 && hasPrompt && ms.queue.length < MAX_QUEUE) || needsRefImage}
         aria-label={`เพิ่ม prompt ปัจจุบันเข้าคิว (สูงสุด ${MAX_QUEUE} งาน)`}
         onClick={addToQueue}
@@ -1003,7 +1113,8 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <p className="text-[11.5px] leading-relaxed text-text-faint">{meta.hint}</p>
+      </div>
     </aside>
+    </>
   );
 }

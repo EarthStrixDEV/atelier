@@ -422,6 +422,8 @@ export interface AppState {
   /** variant กำหนดสี/ไอคอนใน Toast — undefined ของ n=0 เริ่มต้น (ยังไม่เคย toast) ไม่มีผลเพราะ msg ว่างอยู่แล้ว */
   toast: { msg: string; n: number; variant: ToastVariant };
   sidebarCollapsed: boolean;
+  /** จอแคบกว่า 900px: sidebar เป็นลิ้นชักลอย เปิด/ปิดจากปุ่มใกล้ช่อง prompt — ไม่ persist (เปิดค้างตอน reload ไม่มีประโยชน์) */
+  sidebarDrawerOpen: boolean;
   promptPlacement: PromptPlacement;
   /**
    * ธีมที่ผู้ใช้ "เลือกไว้" — เก็บค่าดิบรวม "system" ไม่ใช่ค่าที่ resolve แล้ว
@@ -797,7 +799,8 @@ export type ThemeId =
   | "contrast"
   | "sepia"
   | "midnight"
-  | "nocturne";
+  | "nocturne"
+  | "blossom";
 
 /**
  * ธีมที่ resolve แล้ว — คือ `ThemeId` ที่ตัด `"system"` ออก

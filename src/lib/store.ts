@@ -154,7 +154,7 @@ export function clearStorageKey(key: string) {
     return;
   }
   if (key === PROMPT_PLACEMENT_KEY) {
-    mutate(s => { s.promptPlacement = "sidebar"; });
+    mutate(s => { s.promptPlacement = "center"; });
     return;
   }
   if (key === THEME_KEY) {
@@ -225,11 +225,15 @@ export function migrateHistoryList(list: unknown[]): HistoryEntry[] {
   return result.filter((x): x is HistoryEntry => x !== null);
 }
 
+/**
+ * ค่าเริ่มต้นคือ "center" (แถบลอยล่าง Gallery — Rework UI Studio R5) ให้ช่อง prompt + Generate เห็นทันทีโดยไม่ต้องเลื่อน
+ * ผู้ใช้ที่เคยเลือก "sidebar" เองไว้ยังได้ค่าเดิม — เปลี่ยนแค่ default ของคนที่ไม่เคยแตะ ไม่ทับค่าที่บันทึกไว้
+ */
 function loadPromptPlacement(): PromptPlacement {
   try {
-    return localStorage.getItem(PROMPT_PLACEMENT_KEY) === "center" ? "center" : "sidebar";
+    return localStorage.getItem(PROMPT_PLACEMENT_KEY) === "sidebar" ? "sidebar" : "center";
   } catch {
-    return "sidebar";
+    return "center";
   }
 }
 
@@ -244,7 +248,7 @@ function loadPromptPlacement(): PromptPlacement {
 export { DEFAULT_THEME };
 
 /** รายชื่อธีมที่รู้จักทั้งหมด — ใช้ตัวนี้ตัวเดียวเป็นเกณฑ์ sanitize ไม่ไล่เทียบ string เป็นรายตัวกระจัดกระจาย */
-const KNOWN_THEMES: readonly ThemeId[] = ["system", "paper", "ink", "contrast", "sepia", "midnight", "nocturne"];
+const KNOWN_THEMES: readonly ThemeId[] = ["system", "paper", "ink", "contrast", "sepia", "midnight", "nocturne", "blossom"];
 
 /**
  * ค่าที่อ่านจาก localStorage เชื่อไม่ได้ — ผู้ใช้แก้มือได้ผ่าน DevTools และอาจเป็นชื่อธีมจากเวอร์ชันที่ถูกลบไปแล้ว
@@ -826,6 +830,7 @@ export const state: AppState = {
   extendItemId: null,
   toast: { msg: "", n: 0, variant: "info" },
   sidebarCollapsed: false,
+  sidebarDrawerOpen: false,
   promptPlacement: loadPromptPlacement(),
   // ค่าดิบตามที่ผู้ใช้เลือก (อาจเป็น "system") — การ resolve เป็นธีมจริงเป็นหน้าที่ของ applyTheme/resolveTheme
   theme: loadTheme(),

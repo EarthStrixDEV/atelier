@@ -394,6 +394,50 @@ export const INFOGRAPHIC_STRUCTURAL_PRESETS: InfographicPreset[] = [
   },
 ];
 
+/**
+ * ตัวอย่าง prompt บน Gallery ว่าง (R7) — กดแล้วเติมลงช่อง prompt เท่านั้น ไม่ generate เอง
+ * label ไทยให้ผู้ใช้ใหม่อ่านรู้เรื่อง ส่วน text เป็นอังกฤษเพราะโมเดลภาพ/วิดีโอส่วนใหญ่ตอบ prompt อังกฤษได้แม่นกว่า
+ * (โหมด tts เป็นบทพูดจริง จึงเป็นภาษาไทย)
+ */
+export const EXAMPLE_PROMPTS: Record<Mode, { label: string; text: string }[]> = {
+  home: [
+    { label: "พอร์ตเทรตในคาเฟ่", text: "a young Thai woman reading in a cozy cafe, soft window light, warm tones, shallow depth of field, photorealistic" },
+    { label: "ภาพสินค้ามินิมอล", text: "a ceramic coffee mug on a marble table, minimalist product photo, studio lighting, clean background, highly detailed" },
+    { label: "เมืองนีออนยามฝนตก", text: "a rainy neon-lit street in Bangkok at night, reflections on wet asphalt, cinematic, cyberpunk mood" },
+    { label: "ตัวละครแฟนตาซี", text: "concept art of a young adventurer with a glowing lantern in an ancient forest, full body, fantasy illustration, dramatic lighting" },
+  ],
+  infographic: [
+    { label: "5 เคล็ดลับนอนหลับ", text: "5 tips for better sleep, modern flat design, bilingual Thai-English, with icons, numbered sections" },
+    { label: "ขั้นตอนชงกาแฟดริป", text: "how to brew pour-over coffee in 4 steps, hand-drawn style, Thai text, with illustrations" },
+    { label: "เทียบรถไฟฟ้า vs รถน้ำมัน", text: "electric car vs gasoline car comparison, comparison layout, with statistics, corporate style, English text" },
+    { label: "ไทม์ไลน์ประวัติอินเทอร์เน็ต", text: "a timeline of internet history from 1969 to today, timeline layout, isometric style, key takeaways" },
+  ],
+  video: [
+    { label: "โดรนบินเหนือทะเลหมอก", text: "FPV drone shot gliding over a sea of mist at sunrise in northern Thailand mountains, cinematic, golden hour" },
+    { label: "กาแฟสโลว์โมชัน", text: "slow motion close-up of milk pouring into iced coffee, studio lighting, macro shot, seamless loop" },
+    { label: "แมวเดินในเมือง", text: "tracking shot of an orange cat walking along a sunny old town street, handheld camera, warm tones" },
+    { label: "ไทม์แลปส์เมืองกลางคืน", text: "timelapse of a city skyline transitioning from dusk to night, lights turning on, wide angle" },
+  ],
+  cinematic: [
+    { label: "ฉากเปิดหนังไซไฟ", text: "an astronaut stepping out onto a red desert planet, cinematic wide shot, dust in the air, epic mood" },
+    { label: "นักสืบในตรอกฝนตก", text: "a detective in a trench coat walking into a rain-soaked alley at night, film noir, moody, backlit" },
+    { label: "ตลาดน้ำยามเช้า", text: "a floating market at dawn, boats drifting through mist, establishing shot, soft light, dreamy" },
+    { label: "เด็กกับว่าวบนทุ่งนา", text: "a child running with a kite across a green rice field, low-angle shot, golden hour, hopeful mood" },
+  ],
+  audio: [
+    { label: "Lo-fi สำหรับทำงาน", text: "a chill lo-fi hip hop track for studying, mellow piano, vinyl crackle, slow tempo, instrumental only" },
+    { label: "City pop ยุค 80", text: "an upbeat 80s city pop song about a summer night drive, female vocals, synthesizer, driving beat" },
+    { label: "ออร์เคสตราเปิดตัว", text: "an epic cinematic orchestral intro, strings section, brass section, powerful build-up, epic mood" },
+    { label: "อะคูสติกอบอุ่น", text: "a warm acoustic folk song about coming home, acoustic guitar, male vocals, mid-tempo, nostalgic" },
+  ],
+  tts: [
+    { label: "ทักทายช่อง", text: "สวัสดีค่ะทุกคน ยินดีต้อนรับเข้าสู่ช่องของเรา วันนี้มีเรื่องสนุกๆ มาเล่าให้ฟังกันค่ะ" },
+    { label: "โฆษณาสั้น", text: "กาแฟดริปหอมกรุ่น คั่วสดทุกสัปดาห์ สั่งวันนี้ ส่งฟรีทั่วประเทศ" },
+    { label: "ประกาศในงาน", text: "เรียนผู้เข้าร่วมงานทุกท่าน กิจกรรมช่วงถัดไปจะเริ่มในอีกสิบห้านาที ณ ห้องประชุมใหญ่ค่ะ" },
+    { label: "เล่านิทาน", text: "กาลครั้งหนึ่งนานมาแล้ว มีกระต่ายน้อยตัวหนึ่งอาศัยอยู่ในป่าใหญ่ริมลำธาร" },
+  ],
+};
+
 export const MODE_META: Record<Mode, { placeholder: string; empty: string; title: string; countLabel: string; hint: string }> = {
   home: {
     placeholder: "อธิบายภาพที่ต้องการ… เช่น a minimalist black and white portrait of a cat, studio lighting, high contrast",

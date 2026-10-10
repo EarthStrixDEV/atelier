@@ -423,6 +423,56 @@ export function setNegPrompt(v: string) {
   mutate(() => { cur().negPrompt = v; });
 }
 
+/**
+ * โฟกัสช่อง prompt ที่ mount อยู่จริงตอนนี้ (center bar หรือใน sidebar แท็บ Prompt) — ใช้จาก hero/ตัวอย่าง prompt
+ * ตอน Gallery ว่าง ถ้าไม่มีช่องไหน mount อยู่ (เช่น sidebar เป็นลิ้นชักที่ปิดอยู่) ก็แค่ไม่ทำอะไร prompt ยังถูกเติมแล้ว
+ */
+export function focusPromptInput() {
+  // ช่อง prompt อยู่ใน sidebar แต่ sidebar ถูกซ่อน/ลิ้นชักปิด — เปิดก่อน ไม่งั้นไม่มีอะไรให้โฟกัส
+  if (state.promptPlacement === "sidebar") {
+    const narrow = window.matchMedia("(max-width: 899px)").matches;
+    mutate(s => { if (narrow) s.sidebarDrawerOpen = true; else s.sidebarCollapsed = false; });
+  }
+  window.setTimeout(() => {
+    const input = document.querySelector<HTMLTextAreaElement>("[data-center-prompt], #prompt-sidebar-input");
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, 0);
+}
+
+/** R7 — เติมตัวอย่าง prompt ลงช่อง prompt เฉยๆ ห้ามเริ่ม generate เอง ผู้ใช้ต้องกดเองเสมอ */
+export function applyPromptSuggestion(text: string) {
+  setPrompt(text);
+  focusPromptInput();
+}
+
+/**
+ * R2 — ขอ API Key ตอนผู้ใช้ "ทำ" สิ่งที่ต้องใช้ key จริงเท่านั้น (ไม่ใช่ตอนเปิดหน้า) แล้วทำต่อให้เองหลังบันทึก key
+ * จำ resume ได้ทีละอันเดียว: ผู้ใช้กดอะไรล่าสุดก่อน modal เด้ง = สิ่งที่ตั้งใจจะทำจริง
+ * state (prompt/ref/ratio) ไม่ถูกแตะเลยระหว่างรอ key จึงทำต่อด้วยค่าเดิมเป๊ะ
+ */
+let resumeAfterKey: (() => void) | null = null;
+
+export function requireApiKey(resume: () => void): boolean {
+  if (state.apiKey) return true;
+  resumeAfterKey = resume;
+  mutate(s => { s.keyModalOpen = true; });
+  return false;
+}
+
+/** KeyModal ใช้บอกผู้ใช้ว่ากดบันทึกแล้วงานที่กดค้างไว้จะเริ่มต่อเอง */
+export function hasPendingKeyResume(): boolean {
+  return resumeAfterKey !== null;
+}
+
+/** เรียกจาก KeyModal — saved=true คือบันทึก key ที่ไม่ว่างแล้ว ให้ทำงานที่ค้างต่อ, false (ยกเลิก/ปิด) ทิ้งงานค้าง */
+export function settleKeyModal(saved: boolean) {
+  const resume = resumeAfterKey;
+  resumeAfterKey = null;
+  if (saved && state.apiKey && resume) resume();
+}
+
 export function setPromptPlacement(placement: PromptPlacement) {
   mutate(s => {
     s.promptPlacement = placement;
@@ -1034,7 +1084,7 @@ function runGenerate(approved?: { mode: Mode; jobs: QueueJob[] }) {
     return;
   }
 
-  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  if (!requireApiKey(() => { void runGenerate(approved); })) return;
   // T24/#4: รอบยืนยันผูกกับโหมดต้นทางของ batch เสมอ ไม่ใช่โหมดที่เปิดอยู่ตอนกดยืนยัน
   const mode = approved ? approved.mode : state.mode;
   // ขอสิทธิ์ notification แบบ lazy เฉพาะครั้งแรกที่กด generate ในโหมด video/cinematic — ต้องมาจาก user gesture นี้เท่านั้น
@@ -1161,7 +1211,8 @@ export function toggleBakeOffModel(modelId: string) {
 /** เงื่อนไขกด "Bake-off" ได้จริง — ต้องเปิด toggle, มี prompt, มีโมเดลเลือกไว้ ≥2 ตัว (1 ตัวไม่ต่างจาก generate ปกติ) */
 export function canRunBakeOff(): boolean {
   const ms = cur();
-  return ms.bakeOffEnabled && !!ms.prompt.trim() && ms.bakeOffModelIds.length >= 2 && !!state.apiKey;
+  // ไม่เช็ค apiKey ที่นี่ (R2) — ปุ่มต้องกดได้แม้ยังไม่มี key แล้วให้ openBakeOffConfirm ขอ key ตอนนั้นเอง
+  return ms.bakeOffEnabled && !!ms.prompt.trim() && ms.bakeOffModelIds.length >= 2;
 }
 
 export interface BakeOffCostRow {
@@ -1191,7 +1242,7 @@ export function bakeOffCostBreakdown(): BakeOffCostRow[] {
  * ต่อ item อยู่แล้ว ต้องเรียกจาก caller ที่ยืนยันค่าใช้จ่ายแล้วเท่านั้น (ดู BakeOffConfirmModal)
  */
 export function runBakeOff() {
-  if (!canRunBakeOff()) return;
+  if (!canRunBakeOff() || !state.apiKey) return;
   const ms = cur();
   const mode = state.mode;
   const list = modelsForMode(mode);
@@ -1238,6 +1289,7 @@ export function runBakeOff() {
 /** เปิดโมดัลยืนยันค่าใช้จ่ายก่อนยิง Bake-off จริง — เรียกจากปุ่ม Generate ตอน bakeOffEnabled แทนยิงตรง (ดู canRunBakeOff) */
 export function openBakeOffConfirm() {
   if (!canRunBakeOff()) return;
+  if (!requireApiKey(openBakeOffConfirm)) return;
   mutate(s => { s.bakeOffConfirmOpen = true; });
 }
 
@@ -2277,7 +2329,7 @@ export function copyPromptFromItem(item: GenItem) {
 // gen ซ้ำด้วย prompt/model/ratio/duration/audio เดิมของ card ทันที ไม่ต้องกดปุ่ม Generate เอง
 export function regenerateFromItem(item: GenItem) {
   if (item.mode !== state.mode) switchMode(item.mode);
-  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  if (!requireApiKey(() => { void regenerateFromItem(item); })) return;
   const model = modelsForMode(item.mode).find(m => m.id === item.model);
   if (!model) { toast("ไม่พบโมเดลเดิมของภาพนี้แล้วค่ะ (อาจถูกถอดออกจาก OpenRouter)", "error"); return; }
   let newItem!: GenItem;
@@ -2346,7 +2398,7 @@ export async function autoExtendFromLastFrame(item: GenItem) {
   // isImageDataUrl กัน synthetic root ที่ startFromItem สร้าง (url เป็นภาพนิ่ง ไม่ใช่วิดีโอจริงให้จับเฟรม)
   if (item.mode !== "cinematic" || item.status !== "done" || !item.url || isImageDataUrl(item.url)) return;
   if (autoExtendInFlight.has(item.id)) return;
-  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  if (!requireApiKey(() => { void autoExtendFromLastFrame(item); })) return;
   if (item.mode !== state.mode) switchMode(item.mode);
 
   const model = modelsForMode(item.mode).find(m => m.id === item.model);
@@ -3399,7 +3451,7 @@ function refKindsSummary(): string | null {
 export async function runOptimize() {
   const original = cur().prompt.trim();
   if (!original || state.optimize.status === "loading") return;
-  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  if (!requireApiKey(() => { void runOptimize(); })) return;
 
   mutate(s => { s.optimize = { status: "loading", result: null, error: "" }; });
 
@@ -3575,7 +3627,7 @@ function chatSystemPrompt(userMessage?: string): string {
 export async function sendChatMessage(text: string) {
   const t = text.trim();
   if (!t || state.chatPending) return;
-  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  if (!requireApiKey(() => { void sendChatMessage(text); })) return;
 
   mutate(s => {
     s.chatMessages.push({ role: "user", content: t });
@@ -3676,7 +3728,7 @@ export function resetGrill() {
 export async function sendGrillAnswer(text: string) {
   const t = text.trim();
   if (!t || state.grillPending || state.grillResult) return;
-  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  if (!requireApiKey(() => { void sendGrillAnswer(text); })) return;
 
   mutate(s => { s.grillMessages.push({ role: "user", content: t }); s.grillPending = true; });
   try {
@@ -3700,7 +3752,7 @@ export async function sendGrillAnswer(text: string) {
 /** บังคับตกผลึกทันที — ส่งคำสั่งปิดสัมภาษณ์ให้โมเดลโดยไม่แสดงเป็น bubble ในบทสนทนา */
 export async function finishGrill() {
   if (state.grillPending || state.grillResult || !state.grillMessages.length) return;
-  if (!state.apiKey) { mutate(s => { s.keyModalOpen = true; }); return; }
+  if (!requireApiKey(() => { void finishGrill(); })) return;
 
   mutate(s => { s.grillPending = true; });
   try {

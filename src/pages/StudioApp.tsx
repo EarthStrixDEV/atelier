@@ -6,6 +6,7 @@ import Lightbox from "../components/Lightbox";
 import ExtendTool from "../components/ExtendTool";
 import KeyModal from "../components/KeyModal";
 import SettingsModal from "../components/SettingsModal";
+import AssistFab from "../components/AssistFab";
 import ChatPanel from "../components/ChatPanel";
 import GrillPanel from "../components/GrillPanel";
 import ImportPreviewModal from "../components/ImportPreviewModal";
@@ -19,10 +20,9 @@ import { applyTheme, autosaveSessionSnapshot, checkSavedAutoSaveDir, loadModels,
 import { releaseAllBlobUrls } from "../lib/blobUrls";
 import { SESSION_SNAPSHOT_INTERVAL_MS } from "../lib/constants";
 import { useKeyboardShortcuts } from "../lib/shortcuts";
-import { mutate, saveQueueNonEmptyFlag, state, useApp } from "../lib/store";
+import { mutate, saveQueueNonEmptyFlag, state } from "../lib/store";
 
 export default function StudioApp() {
-  const s = useApp();
   useKeyboardShortcuts();
 
   useEffect(() => {
@@ -30,10 +30,8 @@ export default function StudioApp() {
     // reconcilePendingJobs() ต้องรอ videoModels โหลดเสร็จก่อน ถึงจะเช็คได้ว่าโมเดลของ job ค้างยังอยู่ไหม (ดู actions.ts)
     loadVideoModels().then(reconcilePendingJobs);
     checkSavedAutoSaveDir(); // เช็คเฉยๆ ว่ามี directory เก่าไหม — ยังไม่ขอ permission (ต้องรอ user gesture)
-    // เปิดมาให้ใส่ key ก่อนเลย ถ้ายังไม่มี
-    const t = setTimeout(() => {
-      if (!state.apiKey) mutate(st => { st.keyModalOpen = true; });
-    }, 400);
+    // ไม่เด้งขอ API Key ตอนเปิดหน้าแล้ว (R1) — ผู้ใช้ใหม่ต้องเห็นว่าแอปทำอะไรได้ก่อน
+    // key ถูกขอตอนกด Generate ครั้งแรกแทน แล้วทำงานต่อเองหลังบันทึก (ดู requireApiKey ใน actions.ts)
     // session snapshot autosave (PHASE 15) — เขียน metadata เดียวกับ exportSession ทับ localStorage ช่องเดียว
     // ทุก ~30s (เขียนจริงเฉพาะตอนมีอะไรเปลี่ยนจากครั้งก่อน ดู autosaveSessionSnapshot) กันข้อมูลหายเงียบๆ ถ้าแท็บ
     // ถูกปิด/crash กะทันหันโดยไม่ได้ export มือ — คนละเรื่องกับ "Auto Save" (เซฟไฟล์ผลลัพธ์ลงเครื่อง)
@@ -49,7 +47,6 @@ export default function StudioApp() {
     };
     window.addEventListener("beforeunload", handleUnload);
     return () => {
-      clearTimeout(t);
       clearInterval(snapshotTimer);
       window.removeEventListener("beforeunload", handleUnload);
     };
@@ -67,6 +64,19 @@ export default function StudioApp() {
    * `state.theme` เองตอน event ยิงอยู่แล้ว ถ้าใส่ deps จะกลายเป็น unsubscribe/resubscribe ทุกครั้ง
    * ที่ผู้ใช้เปลี่ยนธีม ซึ่งไม่ได้ประโยชน์อะไรเพิ่มเลยนอกจากโอกาส leak
    */
+  // ขยายจอข้าม 900px ขณะลิ้นชักเปิดค้าง — ปิดทิ้ง ไม่งั้นกลับมาจอแคบรอบหน้าลิ้นชักเด้งเปิดเองแบบงงๆ
+  // Escape ปิดลิ้นชักด้วย (เป็น overlay ทับหน้า ต้องปิดด้วยคีย์บอร์ดได้)
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 900px)");
+    const onChange = () => { if (mq.matches && state.sidebarDrawerOpen) mutate(st => { st.sidebarDrawerOpen = false; }); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && state.sidebarDrawerOpen && !state.keyModalOpen) mutate(st => { st.sidebarDrawerOpen = false; });
+    };
+    mq.addEventListener("change", onChange);
+    document.addEventListener("keydown", onKey);
+    return () => { mq.removeEventListener("change", onChange); document.removeEventListener("keydown", onKey); };
+  }, []);
+
   useEffect(() => {
     applyTheme(state.theme);
     return subscribeSystemTheme();
@@ -76,8 +86,9 @@ export default function StudioApp() {
     <div className="flex h-full flex-col">
       <Header />
       <RestoreBanner />
-      <div className="flex min-h-0 flex-1 max-[860px]:flex-col">
-        {!s.sidebarCollapsed && <Sidebar />}
+      <div className="flex min-h-0 flex-1">
+        {/* Sidebar ซ่อนตัวเองตาม sidebarCollapsed (≥900px) / sidebarDrawerOpen (<900px) ด้วย CSS — ดู Sidebar.tsx */}
+        <Sidebar />
         <Gallery />
       </div>
       <Lightbox />
@@ -86,6 +97,7 @@ export default function StudioApp() {
       <SettingsModal />
       <ChatPanel />
       <GrillPanel />
+      <AssistFab />
       <ImportPreviewModal />
       <ShortcutsModal />
       <CompareModal />

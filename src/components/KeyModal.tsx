@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, KeyRound, Settings, ShieldAlert, Trash2, X } from "lucide-react";
+import { hasPendingKeyResume, settleKeyModal } from "../lib/actions";
 import { loadRememberApiKey, mutate, saveApiKey, state, toast, useApp } from "../lib/store";
 
 export default function KeyModal() {
@@ -29,15 +30,34 @@ export default function KeyModal() {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
+  // Escape ปิด modal ได้ตามมาตรฐาน dialog — เดิมต้องคลิกพื้นหลังหรือปุ่มยกเลิกเท่านั้น
+  useEffect(() => {
+    if (!s.keyModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      mutate(st => { st.keyModalOpen = false; });
+      settleKeyModal(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [s.keyModalOpen]);
+
   if (!s.keyModalOpen) return null;
+
+  // อ่านตอน render ได้เพราะ resume ถูกตั้งก่อน mutate() ที่เปิด modal เสมอ (ดู requireApiKey)
+  const resumePending = hasPendingKeyResume();
 
   const save = () => {
     const v = value.trim();
     mutate(st => { st.apiKey = v; st.keyModalOpen = false; });
     saveApiKey(v, remember);
     if (v) toast(remember ? "บันทึก API Key ไว้ในเครื่องแล้วค่ะ" : "บันทึก API Key แล้วค่ะ");
+    settleKeyModal(!!v);
   };
-  const close = () => mutate(st => { st.keyModalOpen = false; });
+  const close = () => {
+    mutate(st => { st.keyModalOpen = false; });
+    settleKeyModal(false);
+  };
   // ตั้งใจไม่ปิด modal (ต่างจาก save) เพราะคนที่กดลบมักตามด้วยการใส่ key ใหม่ทันที
   // — คืน focus ให้ช่องกรอกเพื่อสื่อว่าพิมพ์ต่อได้เลย ไม่ต้องเปิด modal ใหม่
   const remove = () => {
@@ -57,7 +77,8 @@ export default function KeyModal() {
     >
       <div role="dialog" aria-modal="true" aria-label="ตั้งค่า OpenRouter API Key" className="w-[min(440px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-7">
         <h3 className="mb-1.5 flex items-center gap-1.5 text-base font-bold"><KeyRound size={16} /> OpenRouter API Key</h3>
-        <p className="mb-[18px] text-[12.5px] leading-relaxed text-text-dim">
+        <p className="mb-[18px] text-[13px] leading-relaxed text-text-dim">
+          {resumePending && <>ต้องใช้ key ก่อนค่ะ — กดบันทึกแล้วจะทำงานที่กดไว้ต่อให้ทันที prompt เดิมไม่หาย<br /></>}
           สร้าง key ได้ที่ <a className="text-text underline" href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>
         </p>
         <input
@@ -80,7 +101,7 @@ export default function KeyModal() {
           />
           <span className="min-w-0 flex-1">
             <span className="block text-[12.5px] font-semibold text-text">จำ key นี้ไว้ในเครื่อง</span>
-            <span className="mt-0.5 block text-[11px] leading-relaxed text-text-faint">
+            <span className="mt-0.5 block text-[13px] leading-relaxed text-text-dim">
               ไม่ต้องใส่ใหม่ทุกครั้งที่เปิดแอป — เลือกเฉพาะเครื่องส่วนตัวเท่านั้นนะคะ
             </span>
           </span>
@@ -90,7 +111,7 @@ export default function KeyModal() {
             จนผู้ใช้กดพลาดปุ่มที่ไม่ได้ตั้งใจ */}
         <div className="mt-2 min-h-[58px]">
           {remember && (
-            <p className="flex items-start gap-1.5 rounded-card border border-danger/30 bg-danger/5 px-3 py-2 text-[11px] leading-relaxed text-danger">
+            <p className="flex items-start gap-1.5 rounded-card border border-danger/30 bg-danger/5 px-3 py-2 text-[13px] leading-relaxed text-danger">
               <ShieldAlert size={13} className="mt-px shrink-0" />
               <span>
                 key จะถูกเก็บไว้ในเบราว์เซอร์ของเครื่องนี้จนกว่าจะกดลบ ใครที่เปิดเบราว์เซอร์นี้ได้ — รวมถึง
@@ -113,12 +134,12 @@ export default function KeyModal() {
             <Trash2 size={14} /> ลบ
           </button>
           <button className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] bg-accent py-[11px] text-[13px] font-semibold text-accent-ink transition-opacity hover:opacity-90" aria-label="บันทึก API Key" onClick={save}>
-            <Check size={14} /> บันทึก
+            <Check size={14} /> {resumePending ? "บันทึกแล้วทำต่อ" : "บันทึก"}
           </button>
         </div>
         {/* พูดเป็นเงื่อนไข ("ถ้ากดบันทึก") ไม่ใช่ยืนยันสถานะ เพราะ remember เป็น local state ของ checkbox
             ที่ยังไม่ได้ persist — ถ้าเขียนว่า "เก็บไว้แล้ว" ผู้ใช้ที่ติ๊กแล้วกดยกเลิกจะเข้าใจผิดว่า key ถูกเซฟ */}
-        <p className="mt-3.5 text-[11px] leading-relaxed text-text-faint">
+        <p className="mt-3.5 text-[13px] leading-relaxed text-text-dim">
           {remember
             ? "Key ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — กดบันทึกแล้วจะถูกเก็บไว้ในเครื่องนี้จนกว่าจะกดลบ ปิดแท็บแล้วเปิดใหม่ก็ยังใช้ได้ค่ะ"
             : "Key เก็บไว้ใน session ของแท็บนี้เท่านั้น ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — Refresh ได้สบาย แต่ปิดแท็บแล้วต้องใส่ใหม่ค่ะ ระบบจะเตือนก่อนปิดแท็บถ้ายังมี key อยู่"}
@@ -128,7 +149,7 @@ export default function KeyModal() {
           <button
             className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-2 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-text hover:text-text"
             aria-label="เปิดหน้าตั้งค่าเพิ่มเติม — storage, โมเดลผู้ช่วย AI, เพิ่มโมเดลเอง"
-            onClick={() => mutate(st => { st.keyModalOpen = false; st.settingsModalOpen = true; })}
+            onClick={() => { mutate(st => { st.keyModalOpen = false; st.settingsModalOpen = true; }); settleKeyModal(false); }}
           >
             <Settings size={13} /> ตั้งค่าเพิ่มเติม
           </button>
