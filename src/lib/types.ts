@@ -136,6 +136,17 @@ export interface GenItem {
    * ถ้าผู้ใช้ไปเปลี่ยน dropdown เสียงใน sidebar หลังยิง request นี้ไปแล้ว
    */
   ttsVoiceId?: string;
+  /** id แถวใน cloud_items (Supabase) — undefined = ยังไม่อยู่บน cloud ตั้งตอนอัพโหลดสำเร็จหรือกู้จาก cloud */
+  cloudId?: string;
+  /** path ของ object ใน bucket "media" (`{uid}/{mode}/{cloudId}.{ext}`) — ตั้งคู่กับ cloudId เสมอ */
+  cloudPath?: string;
+  /**
+   * สถานะ "เก็บขึ้น Cloud" ต่อชิ้น — undefined = ยังไม่เคยอัพโหลด, "uploading" = รอคิว/กำลังอัพโหลด,
+   * "done" = อยู่บน cloud แล้ว, "error" = อัพโหลดไม่สำเร็จ (กดลองใหม่ได้)
+   */
+  cloudStatus?: "uploading" | "done" | "error";
+  /** ข้อความ error ล่าสุดของการอัพโหลดขึ้น Cloud */
+  cloudErrMsg?: string;
 }
 
 /* ============================================================================

@@ -29,6 +29,28 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "actions.cloud.loggedOut": "ออกจากระบบแล้วค่ะ — ลบ API Key ออกจากเครื่องนี้แล้ว",
     "actions.cloud.keySaveFailed": "ซิงก์ API Key ขึ้น cloud ไม่สำเร็จค่ะ — key ยังใช้ในเครื่องนี้ได้ตามปกติ",
     "actions.cloud.keyDeleteFailed": "ลบ API Key บน cloud ไม่สำเร็จค่ะ — ลองกดลบอีกครั้งนะคะ",
+    "actions.cloud.readFailed": "อ่านไฟล์ผลงานไม่สำเร็จ",
+    "actions.cloud.uploadFailed": "เก็บขึ้น Cloud ไม่สำเร็จค่ะ — {{message}}",
+    "actions.cloud.nothingToUpload": "ที่เลือกไว้อยู่บน Cloud แล้ว หรือกำลังอัพโหลดอยู่ค่ะ",
+    "actions.cloud.uploadingBatch": "กำลังเก็บขึ้น Cloud {{count}} ไฟล์ค่ะ~",
+    "actions.cloud.batchFailed": "เก็บขึ้น Cloud ไม่สำเร็จ {{failed}} จาก {{count}} ไฟล์ — กดลองใหม่ที่การ์ดได้เลยค่ะ",
+
+    // ---------- Gallery / Lightbox: Cloud ----------
+    "gallery.cloud.save": "เก็บขึ้น Cloud",
+    "gallery.cloud.saveHint": "อัพโหลดไฟล์นี้ขึ้น Cloud (Supabase) ของบัญชีที่ล็อกอินอยู่",
+    "gallery.cloud.uploading": "กำลังอัพโหลด…",
+    "gallery.cloud.onCloud": "อยู่บน Cloud",
+    "gallery.cloud.retry": "ลองอัพโหลดใหม่",
+    "gallery.cloud.saveSelectedAria": "เก็บที่เลือกไว้ขึ้น Cloud ({{count}} รายการ)",
+
+    // ---------- SettingsModal: Cloud upload ----------
+    "settings.cloud.autoUpload": "อัพโหลดขึ้น Cloud อัตโนมัติ",
+    "settings.cloud.autoUploadHint": "ผลงานที่สร้างเสร็จต่อจากนี้จะถูกเก็บขึ้น Cloud ให้เอง — ตั้งค่าแยกต่อเบราว์เซอร์",
+    "settings.cloud.usageLoading": "กำลังอ่านพื้นที่บน Cloud…",
+    "settings.cloud.usageFailed": "อ่านพื้นที่บน Cloud ไม่สำเร็จค่ะ",
+    "settings.cloud.usageEmpty": "ยังไม่มีผลงานบน Cloud ค่ะ",
+    "settings.cloud.usageLabel": "บน Cloud",
+    "settings.cloud.usageItems": "ชิ้น",
   },
   en: {
     // เติมเพิ่มทีละ wave ตอน migrate แต่ละไฟล์
@@ -49,6 +71,28 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "actions.cloud.loggedOut": "Logged out — the API key was removed from this device",
     "actions.cloud.keySaveFailed": "Couldn't sync the API key to the cloud — it still works on this device",
     "actions.cloud.keyDeleteFailed": "Couldn't delete the API key from the cloud — please try removing it again",
+    "actions.cloud.readFailed": "Couldn't read the result file",
+    "actions.cloud.uploadFailed": "Couldn't save to Cloud — {{message}}",
+    "actions.cloud.nothingToUpload": "The selected items are already on Cloud or uploading",
+    "actions.cloud.uploadingBatch": "Saving {{count}} files to Cloud…",
+    "actions.cloud.batchFailed": "{{failed}} of {{count}} files couldn't be saved to Cloud — retry from the card",
+
+    // ---------- Gallery / Lightbox: Cloud ----------
+    "gallery.cloud.save": "Save to Cloud",
+    "gallery.cloud.saveHint": "Upload this file to the Cloud (Supabase) of the logged-in account",
+    "gallery.cloud.uploading": "Uploading…",
+    "gallery.cloud.onCloud": "On Cloud",
+    "gallery.cloud.retry": "Retry upload",
+    "gallery.cloud.saveSelectedAria": "Save selected to Cloud ({{count}} items)",
+
+    // ---------- SettingsModal: Cloud upload ----------
+    "settings.cloud.autoUpload": "Auto-upload to Cloud",
+    "settings.cloud.autoUploadHint": "New results are saved to Cloud automatically — set per browser",
+    "settings.cloud.usageLoading": "Reading Cloud usage…",
+    "settings.cloud.usageFailed": "Couldn't read Cloud usage",
+    "settings.cloud.usageEmpty": "Nothing on Cloud yet",
+    "settings.cloud.usageLabel": "On Cloud:",
+    "settings.cloud.usageItems": "items",
   },
 };
 

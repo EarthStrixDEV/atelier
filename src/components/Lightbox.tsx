@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, ImageDown, Play, Sparkles, Video, Wand2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CloudAlert, CloudCheck, CloudUpload, Download, ImageDown, Loader2, Play, Sparkles, Video, Wand2, X } from "lucide-react";
 import { isVideoMode } from "../lib/constants";
 import {
   canRefineItem, canStartFrom, closeLightbox, doneIndices, downloadCurrent, isChainableItem, lbStep, refineItem,
-  startFromItem, useAsVideoFirstFrame,
+  saveItemToCloud, startFromItem, useAsVideoFirstFrame,
 } from "../lib/actions";
 import { generateShareCard } from "../lib/shareCard";
 import { mutate, toast, useApp } from "../lib/store";
 import type { GenItem } from "../lib/types";
 import { isImageDataUrl, randomFileName, triggerDownload } from "../lib/utils";
+import { t } from "../lib/i18n";
 
 /**
  * Popover ยืนยันโหมดปลายทางของ "Start from this" ใน Lightbox — เหมือนกับใน Gallery Card
@@ -118,6 +119,33 @@ export default function Lightbox() {
           <button className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink" aria-label="ดาวน์โหลดไฟล์นี้" onClick={downloadCurrent}>
             <Download size={13} /> Download
           </button>
+          {!!s.cloudUser && item.status === "done" && !!item.url && (
+            item.cloudId || item.cloudStatus === "done" ? (
+              <span
+                className="flex items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media-dim"
+                title={t("gallery.cloud.onCloud")}
+              >
+                <CloudCheck size={13} /> {t("gallery.cloud.onCloud")}
+              </span>
+            ) : (
+              <button
+                className={
+                  "flex cursor-pointer items-center gap-1.5 rounded-lg border px-4 py-2 text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
+                  (item.cloudStatus === "error"
+                    ? "border-danger/60 text-danger hover:border-danger"
+                    : "border-on-media-dim text-on-media hover:border-accent hover:bg-accent hover:text-accent-ink")
+                }
+                title={item.cloudStatus === "error" ? (item.cloudErrMsg || t("gallery.cloud.retry")) : t("gallery.cloud.saveHint")}
+                aria-label={item.cloudStatus === "error" ? t("gallery.cloud.retry") : t("gallery.cloud.save")}
+                disabled={item.cloudStatus === "uploading"}
+                onClick={() => saveItemToCloud(item)}
+              >
+                {item.cloudStatus === "uploading" ? <><Loader2 size={13} className="animate-spin" /> {t("gallery.cloud.uploading")}</>
+                  : item.cloudStatus === "error" ? <><CloudAlert size={13} /> {t("gallery.cloud.retry")}</>
+                  : <><CloudUpload size={13} /> {t("gallery.cloud.save")}</>}
+              </button>
+            )
+          )}
           {!isAud && !!item.url && (
             <button
               className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-on-media-dim px-4 py-2 text-[12.5px] text-on-media transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:opacity-50"

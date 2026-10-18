@@ -532,3 +532,9 @@ export const GALLERY_MAX_TOTAL_BYTES = 500 * 1024 * 1024;
  * ชิ้นที่ใหญ่กว่านี้ข้ามไปเลย (ไม่เก็บ) เพราะจะไปเบียด item อื่นออกทั้งชุดตอน evict
  */
 export const GALLERY_MAX_ITEM_BYTES = 80 * 1024 * 1024;
+
+// ---------- Cloud gallery (Supabase Storage) ----------
+/** จำนวนไฟล์ที่อัพโหลดขึ้น Cloud พร้อมกันได้ — ที่เหลือรอคิว (คนละคิวกับ Request Governor และ Drive) */
+export const CLOUD_UPLOAD_CONCURRENCY = 2;
+/** localStorage key ของสวิตช์ "อัพโหลดขึ้น Cloud อัตโนมัติ" — ต่อเบราว์เซอร์, ไม่มีค่า = ปิด */
+export const CLOUD_AUTOUPLOAD_KEY = "atelier_cloud_autoupload";

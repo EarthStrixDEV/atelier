@@ -3,18 +3,19 @@ import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentPro
 import {
   ArrowDownWideNarrow, ArrowUp, Ban, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Cloud, CloudUpload, Columns2, Copy, Crosshair,
   Download, FastForward, HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Mic, Music, Play, RefreshCw, RotateCcw, Search, Sparkles,
-  Star, Trash2, Video, Wand2, X,
+  CloudAlert, CloudCheck, Star, Trash2, Video, Wand2, X,
 } from "lucide-react";
 import { EXAMPLE_PROMPTS, MODE_META, RATIOS, isVideoMode } from "../lib/constants";
 import {
   applyPromptSuggestion, autoExtendFromLastFrame, canCompareItem, focusPromptInput, canRefineItem, canStartFrom, cinematicChains, clearSelection,
   copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
   openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryWithOverride, saveItemToDrive,
-  saveSelectedToDrive, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
+  saveItemToCloud, saveSelectedToCloud, saveSelectedToDrive, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
 } from "../lib/actions";
 import { state, toast, useApp } from "../lib/store";
 import type { GenItem, Mode } from "../lib/types";
 import { classifyGenError, isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
+import { t } from "../lib/i18n";
 import PromptComposer from "./PromptComposer";
 
 const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9)
@@ -50,6 +51,8 @@ interface GridRowProps {
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
+  /** ล็อกอิน Cloud อยู่ (state.cloudUser) — ส่งเป็น prop เพราะ Card เป็น memo ไม่ได้ subscribe store เอง */
+  cloudEnabled: boolean;
 }
 
 /**
@@ -60,7 +63,7 @@ interface GridRowProps {
  */
 function GridRow({
   index, style, items, columnCount, selected, onToggleSelect, onOpen, registerRowEl,
-  focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
+  focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled,
 }: RowComponentProps<GridRowProps>) {
   const start = index * columnCount;
   const rowItems = items.slice(start, start + columnCount);
@@ -89,6 +92,7 @@ function GridRow({
             onFocusCard={onFocusCard}
             onArrowKey={onArrowKey}
             onEnterKey={onEnterKey}
+            cloudEnabled={cloudEnabled}
           />
         ))}
       </div>
@@ -122,6 +126,7 @@ interface VirtualGridProps {
   onAtTopChange: (atTop: boolean) => void;
   /** ปุ่มลอย "ผลลัพธ์ใหม่" — รับมาวางทับในกรอบเดียวกับ List แทนที่จะให้ Gallery ครอบ div เพิ่มเอง */
   newResultPill?: React.ReactNode;
+  cloudEnabled: boolean;
 }
 
 /**
@@ -192,7 +197,7 @@ function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObje
  * เป็นแถวๆ ละ columnCount ก่อนส่งให้ List วาดทีละแถวตาม viewport — List เป็นเจ้าของ scroll container ของตัวเอง
  * (overflow-y-auto ภายใน) จึงต้องอยู่ในกล่อง flex-1 min-h-0 แยกจาก header/StoryboardStrip ที่ไม่ virtualize
  */
-function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, onAtTopChange, newResultPill }: VirtualGridProps) {
+function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, onAtTopChange, newResultPill, cloudEnabled }: VirtualGridProps) {
   const [width, setWidth] = useState(0);
   const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: 320, key: mode });
   const rowElsRef = useRef(new Map<number, HTMLDivElement>());
@@ -257,8 +262,8 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, o
   }, [columnCount, rowCount, items.length, setRenderedRange, onAtTopChange]);
 
   const rowProps = useMemo<GridRowProps>(() => ({
-    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
-  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey]);
+    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled,
+  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -437,6 +442,8 @@ interface CardProps {
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
+  /** ล็อกอิน Cloud อยู่ — false = ซ่อนปุ่ม/badge ของ Cloud ทั้งหมด */
+  cloudEnabled: boolean;
 }
 
 /** เลื่อนลงมาไม่เกินเท่านี้ยังถือว่า "อยู่บนสุด" — เผื่อผู้ใช้ขยับเมาส์นิดหน่อยแล้วยังคาดหวังให้เลื่อนตามของใหม่ */
@@ -485,13 +492,15 @@ function GenErrorDetail({ errMsg }: { errMsg: string }) {
   );
 }
 
-function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, isTabEntry, onFocusCard, onArrowKey, onEnterKey }: CardProps) {
+function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, isTabEntry, onFocusCard, onArrowKey, onEnterKey, cloudEnabled }: CardProps) {
   // synthetic root ที่ startFromItem สร้าง (ดู actions.ts) เป็น video/cinematic mode แต่ url เป็นภาพนิ่ง (ยังไม่มีวิดีโอจริง) — render เป็น <img> แทน <video>
   const isVid = isVideoMode(item.mode) && !isImageDataUrl(item.url);
   const isAud = item.mode === "audio";
   const isTts = item.mode === "tts";
   const done = item.status === "done";
   const favorite = !!item.favorite;
+  // cloudId มาได้ทั้งจากอัพโหลดสำเร็จและจากการกู้คืน (Task 5) — มีแล้ว = อยู่บน cloud ไม่ต้องมีปุ่มอัพโหลด
+  const onCloud = !!item.cloudId || item.cloudStatus === "done";
   // Extend/Extend-จากเฟรมสุดท้าย ต้องมีวิดีโอจริงให้จับเฟรม — ซ่อนทั้งคู่บน synthetic root ที่ยังไม่มีวิดีโอ (url เป็นภาพนิ่ง/ไม่มี)
   const isCinematicVideoScene = item.mode === "cinematic" && !!item.url && !isImageDataUrl(item.url);
   const [retryPanelOpen, setRetryPanelOpen] = useState(false);
@@ -663,6 +672,15 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           </span>
         )}
 
+        {cloudEnabled && done && onCloud && (
+          <span
+            className="pointer-events-none absolute bottom-2 right-2 z-1 flex items-center gap-1 rounded-full border border-on-media-dim bg-media-scrim/80 px-2 py-[2px] text-[9.5px] text-on-media-dim backdrop-blur-sm"
+            title={t("gallery.cloud.onCloud")}
+          >
+            <CloudCheck size={10} /> {t("gallery.cloud.onCloud")}
+          </span>
+        )}
+
         {!done && item.status === "loading" && (
           isVid ? (
             <VideoProgress item={item} />
@@ -777,6 +795,24 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
                 <CloudUpload size={10} /> Save to Drive
               </button>
             )}
+            {cloudEnabled && !!item.url && !onCloud && (
+              <button
+                className={
+                  "flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border py-1.5 text-[10.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
+                  (item.cloudStatus === "error"
+                    ? "border-danger/50 text-danger hover:border-danger"
+                    : "border-border text-text-dim hover:border-border-strong hover:text-text")
+                }
+                title={item.cloudStatus === "error" ? (item.cloudErrMsg || t("gallery.cloud.retry")) : t("gallery.cloud.saveHint")}
+                aria-label={(item.cloudStatus === "error" ? t("gallery.cloud.retry") : t("gallery.cloud.save")) + ": " + item.prompt}
+                disabled={item.cloudStatus === "uploading"}
+                onClick={e => { e.stopPropagation(); saveItemToCloud(item); }}
+              >
+                {item.cloudStatus === "uploading" ? <><Loader2 size={10} className="animate-spin" /> {t("gallery.cloud.uploading")}</>
+                  : item.cloudStatus === "error" ? <><CloudAlert size={10} /> {t("gallery.cloud.retry")}</>
+                  : <><CloudUpload size={10} /> {t("gallery.cloud.save")}</>}
+              </button>
+            )}
             {isCinematicVideoScene && (
               <button
                 className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-accent/60 py-1.5 text-[10.5px] font-semibold text-text transition-colors hover:bg-accent hover:text-accent-ink"
@@ -850,6 +886,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
 function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): boolean {
   if (prev.index !== next.index || prev.selected !== next.selected || prev.autoExtending !== next.autoExtending) return false;
   if (prev.focused !== next.focused || prev.isTabEntry !== next.isTabEntry) return false;
+  if (prev.cloudEnabled !== next.cloudEnabled) return false;
   if (prev.onToggleSelect !== next.onToggleSelect || prev.onOpen !== next.onOpen) return false;
   if (prev.onFocusCard !== next.onFocusCard || prev.onArrowKey !== next.onArrowKey || prev.onEnterKey !== next.onEnterKey) return false;
   const a = prev.item;
@@ -869,6 +906,9 @@ function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): b
     a.errMsg === b.errMsg &&
     a.autoSaveStatus === b.autoSaveStatus &&
     a.autoSaveErrMsg === b.autoSaveErrMsg &&
+    a.cloudStatus === b.cloudStatus &&
+    a.cloudErrMsg === b.cloudErrMsg &&
+    a.cloudId === b.cloudId &&
     a.duration === b.duration &&
     a.audio === b.audio &&
     // การ์ด cancelled สลับ label ปุ่ม ("ทำต่อ" vs "สร้างใหม่") และ gate ข้อความ "ไม่เสียเงินเพิ่ม" จาก jobId
@@ -1183,6 +1223,15 @@ export default function Gallery() {
                   <CloudUpload size={11} /> Save to Drive
                 </button>
               )}
+              {!!s.cloudUser && (
+                <button
+                  className="flex cursor-pointer items-center gap-1 rounded-md border border-border-strong px-2.5 py-1 text-[11px] text-text transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+                  aria-label={t("gallery.cloud.saveSelectedAria", { count: selectedCount })}
+                  onClick={saveSelectedToCloud}
+                >
+                  <CloudUpload size={11} /> {t("gallery.cloud.save")}
+                </button>
+              )}
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
                 aria-label="ยกเลิกการเลือกทั้งหมด"
@@ -1306,6 +1355,7 @@ export default function Gallery() {
           mode={s.mode}
           listRef={listRef}
           onAtTopChange={onAtTopChange}
+          cloudEnabled={!!s.cloudUser}
           newResultPill={
             /* ปุ่มลอยแทนการดึงจอกลับขึ้นบนเอง — ผู้ใช้เลือกเองว่าจะขึ้นไปดูตอนไหน
                ต้องวางในตัว VirtualGrid เอง ห้ามครอบ div เพิ่มรอบนอก ไม่งั้น flex chain

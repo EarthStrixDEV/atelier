@@ -1,7 +1,7 @@
 import {
   ASSIST_RATE_LIMIT_BACKOFF_MS, ASSIST_RATE_LIMIT_RETRIES,
   AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
-  BUILTIN_TEMPLATES, CHAT_MODEL, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
+  BUILTIN_TEMPLATES, CHAT_MODEL, CLOUD_AUTOUPLOAD_KEY, CLOUD_UPLOAD_CONCURRENCY, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
   MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_CONCURRENT_REQUESTS, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage,
   NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, PREFERRED,
@@ -25,7 +25,7 @@ import {
   clearApiKeyStorage, saveApiKey,
 } from "./store";
 import {
-  cloudDeleteKey, cloudGetSession, cloudLoadKey, cloudSaveKey, cloudSignIn, cloudSignOut, isCloudConfigured, onCloudAuthChange,
+  cloudDeleteKey, cloudGetSession, cloudLoadKey, cloudSaveKey, cloudSignIn, cloudSignOut, cloudUploadItem, isCloudConfigured, onCloudAuthChange,
 } from "./supabase";
 import { t } from "./i18n";
 import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, ResolvedThemeId, SpendConfirmRequest, SpendLedger, StoryboardChain, ThemeId, TtsVoice } from "./types";
@@ -1711,6 +1711,8 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
   // ตั้งใจเปิดไว้เพื่อเอาไฟล์ลงเครื่องจริง ห้ามให้ storage layer ที่เป็น cache แย่งคิว I/O ไปก่อน
   // fire-and-forget เหมือนกัน: เขียนพลาด/quota เต็ม ต้องไม่ทำให้ item ที่ done แล้วกลายเป็น error
   if (item.status === "done") persistItemToGallery(item);
+  // Cloud auto-upload (opt-in ต่อเบราว์เซอร์) — fire-and-forget, พลาดแค่โชว์บนการ์ด ไม่ toast ไม่แตะ item.status
+  if (item.status === "done" && state.cloudUser && isCloudAutoUpload()) void enqueueCloudUpload(item, false);
   // แจ้งเตือน desktop/title flicker เฉพาะงานที่ใช้เวลานาน (video/cinematic/audio/tts) — ภาพนิ่งเร็วพอไม่ต้องรบกวน
   if (isVideoMode(item.mode) || item.mode === "audio" || item.mode === "tts") notifyJobSettled(item, batchId);
 }
@@ -2130,6 +2132,126 @@ export function saveSelectedToDrive() {
   if (!items.length) return;
   for (const item of items) enqueueDriveSave(() => performDriveSave(item));
   toast(`กำลังอัพโหลดขึ้น Drive ${items.length} ไฟล์ค่ะ~`);
+}
+
+// ---------- Cloud gallery upload (Supabase Storage — manual + auto) ----------
+/**
+ * คิวกว้าง CLOUD_UPLOAD_CONCURRENCY (2) — แยกจาก Request Governor (ไม่ใช้เงิน OpenRouter) และจาก Drive
+ * cloudStatus = "uploading" ถูกตั้งตั้งแต่ตอนเข้าคิว ไม่ใช่ตอนเริ่มอัพโหลดจริง เพื่อให้ guard ใน canUploadToCloud
+ * กันกดซ้ำ/auto+manual ชนกันได้ตั้งแต่ชิ้นยังรอคิว และการ์ดโชว์ spinner ทันที
+ */
+let cloudActive = 0;
+const cloudWaiters: (() => void)[] = [];
+
+function runCloudSlot<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = () => {
+      cloudActive++;
+      task().then(resolve, reject).finally(() => {
+        cloudActive--;
+        cloudWaiters.shift()?.();
+      });
+    };
+    if (cloudActive < CLOUD_UPLOAD_CONCURRENCY) start();
+    else cloudWaiters.push(start);
+  });
+}
+
+function canUploadToCloud(item: GenItem): boolean {
+  return !!state.cloudUser && item.status === "done" && !!item.url && !item.cloudId && item.cloudStatus !== "uploading";
+}
+
+/** หา cloudId ของ item ต้นทางใน chain — ไล่ทุกโหมดเพราะ startFromItem สร้าง root ข้ามโหมดได้ */
+function parentCloudIdOf(item: GenItem): string | null {
+  if (item.parentId == null) return null;
+  for (const ms of Object.values(state.modes)) {
+    const parent = ms.images.find(x => x.id === item.parentId);
+    if (parent) return parent.cloudId ?? null;
+  }
+  return null;
+}
+
+/** อัพโหลดหนึ่งชิ้น — ไม่ throw; manual = ผู้ใช้กดเอง (toast error ได้), auto = โชว์บนการ์ดอย่างเดียว คืน true ถ้าสำเร็จ */
+async function performCloudUpload(item: GenItem, manual: boolean): Promise<boolean> {
+  let res: Awaited<ReturnType<typeof cloudUploadItem>>;
+  try {
+    const blob = await urlToBlob(item.url!);
+    res = await cloudUploadItem({
+      mode: item.mode,
+      prompt: item.prompt,
+      model: item.model,
+      modelName: item.modelName,
+      ratio: item.ratio,
+      duration: item.duration,
+      audio: item.audio,
+      negPrompt: item.negPrompt ?? "",
+      bakeOffGroupId: item.bakeOffGroupId ?? 0,
+      favorite: !!item.favorite,
+      ttsVoiceId: item.ttsVoiceId ?? null,
+      parentCloudId: parentCloudIdOf(item),
+    }, blob);
+  } catch (e) {
+    res = { ok: false, message: t("actions.cloud.readFailed") + ": " + errMsg(e) };
+  }
+  if (res.ok) {
+    item.cloudId = res.id;
+    item.cloudPath = res.storagePath;
+    item.cloudStatus = "done";
+    item.cloudErrMsg = "";
+  } else {
+    item.cloudStatus = "error";
+    item.cloudErrMsg = res.message;
+    if (manual) toast(t("actions.cloud.uploadFailed", { message: res.message }), "error");
+  }
+  mutate();
+  return res.ok;
+}
+
+function enqueueCloudUpload(item: GenItem, manual: boolean): Promise<boolean> {
+  if (!canUploadToCloud(item)) return Promise.resolve(false);
+  item.cloudStatus = "uploading";
+  item.cloudErrMsg = "";
+  mutate();
+  return runCloudSlot(() => performCloudUpload(item, manual));
+}
+
+/** ปุ่ม "เก็บขึ้น Cloud" บนการ์ด/Lightbox — กดซ้ำตอน error = ลองใหม่ */
+export function saveItemToCloud(item: GenItem): void {
+  void enqueueCloudUpload(item, true);
+}
+
+/** multi-select bar — ข้ามชิ้นที่อยู่บน cloud แล้ว/กำลังอัพโหลด สรุป error เป็น toast เดียวตอนจบทั้งชุด (ไม่ toast ทีละชิ้น) */
+export function saveSelectedToCloud(): void {
+  if (!state.cloudUser) return;
+  const ms = cur();
+  const items = [...ms.selected]
+    .map(id => ms.images.find(x => x.id === id))
+    .filter((x): x is GenItem => !!x && canUploadToCloud(x));
+  if (!items.length) {
+    toast(t("actions.cloud.nothingToUpload"), "info");
+    return;
+  }
+  toast(t("actions.cloud.uploadingBatch", { count: items.length }));
+  void Promise.all(items.map(item => enqueueCloudUpload(item, false))).then(results => {
+    const failed = results.filter(ok => !ok).length;
+    if (failed) toast(t("actions.cloud.batchFailed", { failed, count: items.length }), "error");
+  });
+}
+
+export function isCloudAutoUpload(): boolean {
+  try {
+    return localStorage.getItem(CLOUD_AUTOUPLOAD_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setCloudAutoUpload(on: boolean): void {
+  if (on) writeLocalStorage(CLOUD_AUTOUPLOAD_KEY, "1");
+  else {
+    try { localStorage.removeItem(CLOUD_AUTOUPLOAD_KEY); } catch { /* localStorage ถูกปิด — ค่าเดิมคือปิดอยู่แล้ว */ }
+  }
+  mutate(); // isCloudAutoUpload อ่านจาก localStorage ไม่ได้อยู่ใน AppState — broadcast ให้สวิตช์ใน Settings repaint
 }
 
 /**

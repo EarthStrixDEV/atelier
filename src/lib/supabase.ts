@@ -6,6 +6,7 @@
 // เพื่อให้ฟีเจอร์ cloud ล้มได้เงียบๆ โดยไม่ทำให้แอปหลักพัง
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Mode } from "./types";
 
 export interface CloudUser {
   userId: string;
@@ -139,5 +140,141 @@ export async function cloudDeleteKey(): Promise<boolean> {
     return !error;
   } catch {
     return false;
+  }
+}
+
+// ---------- Cloud gallery: ตาราง cloud_items + bucket "media" ----------
+
+const MEDIA_BUCKET = "media";
+/** ตรงกับ allowed MIME ของ bucket และ ALLOWED_MIME_PREFIX ใน galleryStore.ts */
+const ALLOWED_MIME_PREFIX = ["image/", "video/", "audio/"];
+
+/**
+ * metadata หนึ่งแถวของ cloud_items — allowlist เหมือน PersistedGenItem (ไม่มี refs/apiKey/jobId/error text)
+ * ชื่อ field เป็น camelCase เฉพาะฝั่งแอป แปลงเป็น snake_case ของคอลัมน์จริงในไฟล์นี้ที่เดียว (toRow)
+ */
+export interface CloudItemMeta {
+  id: string;
+  mode: Mode;
+  storagePath: string;
+  mime: string;
+  bytes: number;
+  prompt: string;
+  model: string;
+  modelName: string;
+  ratio: string;
+  duration: number;
+  audio: boolean;
+  negPrompt: string;
+  bakeOffGroupId: number;
+  favorite: boolean;
+  ttsVoiceId: string | null;
+  /** cloudId ของ item ต้นทางใน chain (cinematic/refine) — null = root หรือ parent ยังไม่ได้อัพโหลด */
+  parentCloudId: string | null;
+  createdAt: string;
+}
+
+function toRow(m: Omit<CloudItemMeta, "createdAt">) {
+  return {
+    id: m.id,
+    mode: m.mode,
+    storage_path: m.storagePath,
+    mime: m.mime,
+    bytes: m.bytes,
+    prompt: m.prompt,
+    model: m.model,
+    model_name: m.modelName,
+    ratio: m.ratio,
+    duration: m.duration,
+    audio: m.audio,
+    neg_prompt: m.negPrompt,
+    bake_off_group_id: m.bakeOffGroupId,
+    favorite: m.favorite,
+    tts_voice_id: m.ttsVoiceId,
+    parent_cloud_id: m.parentCloudId,
+  };
+}
+
+/** นามสกุลไฟล์จาก MIME — ใช้แค่ตั้งชื่อ object ใน storage (contentType จริงส่งแยกอยู่แล้ว) */
+function extForMime(mime: string): string {
+  const sub = mime.split(";")[0].split("/")[1]?.trim().toLowerCase() ?? "";
+  const known: Record<string, string> = {
+    jpeg: "jpg", "svg+xml": "svg", mpeg: mime.startsWith("audio/") ? "mp3" : "mpeg",
+    quicktime: "mov", "x-wav": "wav", wave: "wav", "x-m4a": "m4a", mp4: "mp4",
+  };
+  if (known[sub]) return known[sub];
+  return /^[a-z0-9]+$/.test(sub) ? sub : "bin";
+}
+
+/**
+ * อัพโหลดหนึ่งชิ้น: insert แถวก่อน (id สร้างฝั่ง client เพราะ path ต้องมี id) → upload object
+ * upload พลาด → ลบแถวทิ้ง ไม่ให้มีแถวกำพร้าที่ไม่มีไฟล์ — ไม่ throw ทุกกรณี
+ */
+export async function cloudUploadItem(
+  meta: Omit<CloudItemMeta, "id" | "createdAt" | "storagePath" | "bytes" | "mime">,
+  blob: Blob,
+): Promise<{ ok: true; id: string; storagePath: string } | { ok: false; message: string }> {
+  const sb = getClient();
+  if (!sb) return { ok: false, message: "ยังไม่ได้ตั้งค่า Cloud Sync" };
+  const mime = (blob.type || "").split(";")[0].trim().toLowerCase();
+  if (!ALLOWED_MIME_PREFIX.some(p => mime.startsWith(p))) {
+    return { ok: false, message: "ไฟล์ประเภทนี้อัพโหลดขึ้น Cloud ไม่ได้ (" + (mime || "ไม่ทราบชนิด") + ")" };
+  }
+  try {
+    const { data } = await sb.auth.getSession();
+    const userId = data.session?.user.id;
+    if (!userId) return { ok: false, message: "ยังไม่ได้เข้าสู่ระบบ Cloud" };
+
+    const id = crypto.randomUUID();
+    const storagePath = `${userId}/${meta.mode}/${id}.${extForMime(mime)}`;
+    const { error: insertErr } = await sb
+      .from("cloud_items")
+      .insert(toRow({ ...meta, id, storagePath, mime, bytes: blob.size }));
+    if (insertErr) return { ok: false, message: "บันทึกข้อมูลขึ้น Cloud ไม่สำเร็จ: " + insertErr.message };
+
+    let uploadMsg: string | null = null;
+    try {
+      const { error: upErr } = await sb.storage
+        .from(MEDIA_BUCKET)
+        .upload(storagePath, blob, { contentType: mime, upsert: false });
+      if (upErr) uploadMsg = upErr.message;
+    } catch (e) {
+      uploadMsg = e instanceof Error ? e.message : String(e);
+    }
+    if (uploadMsg !== null) {
+      try {
+        await sb.from("cloud_items").delete().eq("id", id);
+      } catch { /* ลบแถวไม่สำเร็จ — ไม่มีอะไรให้ทำต่อ (แถวไม่มีไฟล์ Task 5 ต้องข้ามเองตอน restore) */ }
+      return { ok: false, message: "อัพโหลดไฟล์ไม่สำเร็จ: " + uploadMsg };
+    }
+    return { ok: true, id, storagePath };
+  } catch {
+    return { ok: false, message: "เชื่อมต่อ Cloud ไม่ได้ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" };
+  }
+}
+
+/**
+ * จำนวนชิ้น + ขนาดรวมบน cloud ของผู้ใช้ปัจจุบัน (RLS กรองให้แล้ว)
+ * ok: false = อ่านไม่สำเร็จ แยกจาก "ยังไม่มีอะไร" (count 0) เพื่อไม่โชว์ 0 ชิ้นหลอกตอน network ล้ม
+ * ไล่อ่านทีละหน้า เพราะ PostgREST คืนสูงสุด 1000 แถวต่อ request และ aggregate (sum) ปิดไว้เป็นค่าเริ่มต้น
+ */
+export async function cloudUsage(): Promise<{ ok: true; count: number; bytes: number } | { ok: false }> {
+  const sb = getClient();
+  if (!sb) return { ok: false };
+  const PAGE = 1000;
+  try {
+    let count = 0;
+    let bytes = 0;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await sb.from("cloud_items").select("bytes").order("id").range(from, from + PAGE - 1);
+      if (error) return { ok: false };
+      const rows = (data ?? []) as { bytes: number | string }[];
+      count += rows.length;
+      for (const r of rows) bytes += Number(r.bytes) || 0;
+      if (rows.length < PAGE) break;
+    }
+    return { ok: true, count, bytes };
+  } catch {
+    return { ok: false };
   }
 }
