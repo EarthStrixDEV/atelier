@@ -53,6 +53,19 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.cloud.restoring": "กำลังโหลดจาก Cloud…",
     "gallery.cloud.retryDownload": "ลองโหลดใหม่",
 
+    // ---------- Gallery: ลบ (ลบที่เลือก / ล้างแกลเลอรี) + ซิงก์ Cloud ----------
+    "actions.cloud.deleteFailed": "ลบสำเนาบน Cloud ไม่สำเร็จ {{count}} ชิ้นค่ะ — การ์ดถูกลบออกจากแกลเลอรีแล้ว แต่ไฟล์บน Cloud ยังอยู่",
+    "actions.cloud.favoriteFailed": "อัปเดตดาวบน Cloud ไม่สำเร็จค่ะ — ดาวในเครื่องนี้ยังเปลี่ยนตามที่กด",
+    "gallery.delete.selected": "ลบที่เลือก",
+    "gallery.delete.selectedAria": "ลบที่เลือกไว้ออกจากแกลเลอรี ({{count}} รายการ)",
+    "gallery.delete.selectedTitle": "ลบผลงานที่เลือก",
+    "gallery.delete.selectedConfirm": "ลบผลงานที่เลือก {{count}} ชิ้นออกจากแกลเลอรีใช่ไหมคะ? ชิ้นที่ติดดาวไว้ก็จะถูกลบด้วย กู้คืนไม่ได้นะคะ",
+    "gallery.delete.selectedDone": "ลบผลงานที่เลือกแล้ว {{count}} ชิ้นค่ะ",
+    "gallery.delete.clearTitle": "ล้างแกลเลอรี",
+    "gallery.delete.cloudNote": "ชิ้นที่เก็บไว้บน Cloud จะถูกลบออกจาก Cloud อย่างถาวรด้วย",
+    "gallery.delete.confirm": "ลบ",
+    "gallery.delete.cancel": "ยกเลิก",
+
     // ---------- SettingsModal: Cloud upload ----------
     "settings.cloud.autoUpload": "อัพโหลดขึ้น Cloud อัตโนมัติ",
     "settings.cloud.autoUploadHint": "ผลงานที่สร้างเสร็จต่อจากนี้จะถูกเก็บขึ้น Cloud ให้เอง — ตั้งค่าแยกต่อเบราว์เซอร์",
@@ -104,6 +117,19 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.cloud.saveSelectedAria": "Save selected to Cloud ({{count}} items)",
     "gallery.cloud.restoring": "Loading from Cloud…",
     "gallery.cloud.retryDownload": "Retry download",
+
+    // ---------- Gallery: delete (selected / clear gallery) + Cloud sync ----------
+    "actions.cloud.deleteFailed": "Couldn't delete {{count}} items from Cloud — they're gone from the gallery, but the files are still on Cloud",
+    "actions.cloud.favoriteFailed": "Couldn't update the favorite on Cloud — it still changed on this device",
+    "gallery.delete.selected": "Delete selected",
+    "gallery.delete.selectedAria": "Delete selected from the gallery ({{count}} items)",
+    "gallery.delete.selectedTitle": "Delete selected items",
+    "gallery.delete.selectedConfirm": "Delete {{count}} selected items from the gallery? Favorites among them will be deleted too. This can't be undone.",
+    "gallery.delete.selectedDone": "Deleted {{count}} selected items",
+    "gallery.delete.clearTitle": "Clear gallery",
+    "gallery.delete.cloudNote": "Items stored on Cloud will also be permanently deleted from Cloud.",
+    "gallery.delete.confirm": "Delete",
+    "gallery.delete.cancel": "Cancel",
 
     // ---------- SettingsModal: Cloud upload ----------
     "settings.cloud.autoUpload": "Auto-upload to Cloud",

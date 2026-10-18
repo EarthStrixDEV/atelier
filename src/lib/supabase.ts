@@ -316,6 +316,51 @@ export async function cloudUploadItem(
 }
 
 /**
+ * ลบหลายชิ้นจาก cloud: ลบ object ใน bucket ก่อน แล้วค่อยลบแถว — ลบไฟล์ไม่ผ่านจะไม่แตะแถว
+ * (แถวที่เหลืออยู่ยังชี้ไปหาไฟล์ได้ ดีกว่าไฟล์กำพร้าที่ไม่มีแถวไหนอ้างถึงแล้วไม่มีใครลบให้อีก)
+ * storagePath ว่าง (record เก่าที่มีแค่ cloudId) → อ่าน storage_path จากแถวก่อน ไม่งั้นไฟล์จะค้างใน bucket
+ * ไม่ throw — คืน false เมื่อขั้นไหนก็ตามไม่สำเร็จ
+ */
+export async function cloudDeleteItems(items: { id: string; storagePath: string }[]): Promise<boolean> {
+  const sb = getClient();
+  if (!sb) return false;
+  const ids = items.map(x => x.id).filter(Boolean);
+  if (!ids.length) return true;
+  try {
+    const paths = items.map(x => x.storagePath).filter(Boolean);
+    const missing = items.filter(x => x.id && !x.storagePath).map(x => x.id);
+    if (missing.length) {
+      const { data, error } = await sb.from("cloud_items").select("storage_path").in("id", missing);
+      if (error) return false;
+      for (const r of (data ?? []) as { storage_path: unknown }[]) {
+        if (typeof r.storage_path === "string" && r.storage_path) paths.push(r.storage_path);
+      }
+    }
+    if (paths.length) {
+      const { error: rmErr } = await sb.storage.from(MEDIA_BUCKET).remove(paths);
+      if (rmErr) return false;
+    }
+    const { error } = await sb.from("cloud_items").delete().in("id", ids);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** ตั้งค่า favorite ให้หลายแถวพร้อมกัน (RLS กรองเป็นของผู้ใช้ปัจจุบันแล้ว) — ไม่ throw */
+export async function cloudSetFavorite(ids: string[], favorite: boolean): Promise<boolean> {
+  const sb = getClient();
+  if (!sb) return false;
+  if (!ids.length) return true;
+  try {
+    const { error } = await sb.from("cloud_items").update({ favorite }).in("id", ids);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * จำนวนชิ้น + ขนาดรวมบน cloud ของผู้ใช้ปัจจุบัน (RLS กรองให้แล้ว)
  * ok: false = อ่านไม่สำเร็จ แยกจาก "ยังไม่มีอะไร" (count 0) เพื่อไม่โชว์ 0 ชิ้นหลอกตอน network ล้ม
  * ไล่อ่านทีละหน้า เพราะ PostgREST คืนสูงสุด 1000 แถวต่อ request และ aggregate (sum) ปิดไว้เป็นค่าเริ่มต้น

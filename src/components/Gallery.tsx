@@ -9,14 +9,15 @@ import { EXAMPLE_PROMPTS, MODE_META, RATIOS, isVideoMode } from "../lib/constant
 import {
   applyPromptSuggestion, autoExtendFromLastFrame, canCompareItem, focusPromptInput, canRefineItem, canStartFrom, cinematicChains, clearSelection,
   copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
-  isGenerating, openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryCloudRestore, retryWithOverride, saveItemToDrive,
-  saveItemToCloud, saveSelectedToCloud, saveSelectedToDrive, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
+  deleteSelected, isGenerating, modeResetHasCloudItems, openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryCloudRestore, retryWithOverride, saveItemToDrive,
+  saveItemToCloud, saveSelectedToCloud, saveSelectedToDrive, selectionHasCloudItems, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
 } from "../lib/actions";
 import { state, toast, useApp } from "../lib/store";
 import type { GenItem, Mode } from "../lib/types";
 import { classifyGenError, isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
 import { t } from "../lib/i18n";
 import PromptComposer from "./PromptComposer";
+import ConfirmModal, { type ConfirmRequest } from "./ConfirmModal";
 
 const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9)
 
@@ -1205,16 +1206,46 @@ export default function Gallery() {
   // resetModeGallery เป็นคน revoke blob URL ให้เฉพาะชิ้นที่ถูกลบจริง (ดู actions.ts) การ์ดที่ติดดาวจึงยังเล่นต่อได้
   const clearableCount = ms.images.filter(x => !x.favorite).length;
 
+  // โมดัลยืนยันการลบ (ล้างแกลเลอรี / ลบที่เลือก) — closeConfirm ต้อง stable เพราะ ConfirmModal ผูก effect กับมัน
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+  const closeConfirm = useCallback(() => setConfirmReq(null), []);
+
   const clearGallery = () => {
     if (!clearableCount) return;
+    const mode = s.mode;
     const question = favCount
       ? `ลบผลงาน ${clearableCount} ชิ้นในโหมดนี้ออกจากแกลเลอรีใช่ไหมคะ?
 (${favCount} ชิ้นที่ติดดาวไว้จะถูกเก็บไว้ ส่วนที่เหลือกู้คืนไม่ได้)`
       : `ลบผลงานทั้ง ${clearableCount} ชิ้นในโหมดนี้ออกจากแกลเลอรีใช่ไหมคะ? กู้คืนไม่ได้นะคะ`;
-    if (!window.confirm(question)) return;
-    const removed = resetModeGallery(s.mode);
-    resetFilters();
-    toast(favCount ? `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ (เก็บรายการโปรดไว้ ${favCount} ชิ้น)` : `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ`);
+    const kept = favCount;
+    setConfirmReq({
+      title: t("gallery.delete.clearTitle"),
+      body: question,
+      warning: modeResetHasCloudItems(mode) ? t("gallery.delete.cloudNote") : undefined,
+      confirmLabel: t("gallery.delete.confirm"),
+      onConfirm: () => {
+        const removed = resetModeGallery(mode);
+        resetFilters();
+        toast(kept ? `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ (เก็บรายการโปรดไว้ ${kept} ชิ้น)` : `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ`);
+      },
+    });
+  };
+
+  // ลบที่เลือก — ยืนยันทุกครั้ง (destructive และลบชิ้นที่ติดดาวด้วย) เพิ่มประโยคเตือนเมื่อจะลบสำเนาบน Cloud ด้วย
+  // นับแบบเดียวกับ deleteSelected() (ข้ามงานที่กำลัง generate) ให้ตัวเลขในโมดัลตรงกับที่จะลบจริง
+  const deleteSelectedItems = () => {
+    const count = selectedItems.filter(x => !isGenerating(x)).length;
+    if (!count) return;
+    setConfirmReq({
+      title: t("gallery.delete.selectedTitle"),
+      body: t("gallery.delete.selectedConfirm", { count }),
+      warning: selectionHasCloudItems() ? t("gallery.delete.cloudNote") : undefined,
+      confirmLabel: t("gallery.delete.confirm"),
+      onConfirm: () => {
+        const removed = deleteSelected();
+        if (removed) toast(t("gallery.delete.selectedDone", { count: removed }));
+      },
+    });
   };
 
   return (
@@ -1264,6 +1295,13 @@ export default function Gallery() {
                   <CloudUpload size={11} /> {t("gallery.cloud.save")}
                 </button>
               )}
+              <button
+                className="flex cursor-pointer items-center gap-1 rounded-md border border-border-strong px-2.5 py-1 text-[11px] text-text transition-colors hover:border-danger hover:text-danger"
+                aria-label={t("gallery.delete.selectedAria", { count: selectedCount })}
+                onClick={deleteSelectedItems}
+              >
+                <Trash2 size={11} /> {t("gallery.delete.selected")}
+              </button>
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
                 aria-label="ยกเลิกการเลือกทั้งหมด"
@@ -1418,6 +1456,7 @@ export default function Gallery() {
           </div>
         </div>
       )}
+      <ConfirmModal request={confirmReq} onClose={closeConfirm} />
     </main>
   );
 }

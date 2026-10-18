@@ -25,7 +25,7 @@ import {
   clearApiKeyStorage, saveApiKey,
 } from "./store";
 import {
-  cloudDeleteKey, cloudDownload, cloudGetSession, cloudListRecent, cloudLoadKey, cloudSaveKey, cloudSignIn, cloudSignOut, cloudUploadItem,
+  cloudDeleteItems, cloudDeleteKey, cloudDownload, cloudGetSession, cloudListRecent, cloudLoadKey, cloudSaveKey, cloudSetFavorite, cloudSignIn, cloudSignOut, cloudUploadItem,
   isCloudConfigured, onCloudAuthChange, type CloudItemMeta, type CloudUploadErrorCode,
 } from "./supabase";
 import { t } from "./i18n";
@@ -1168,16 +1168,16 @@ export function reorderQueue(fromIndex: number, toIndex: number) {
  */
 export function resetModeGallery(mode: Mode): number {
   let removed = 0;
-  // id ของชิ้นที่ถูกลบจริงในรอบนี้ — เก็บไว้ลบ record ใน IndexedDB หลัง mutate() จบ (ดู forgetPersistedItems)
+  // ชิ้นที่ถูกลบจริงในรอบนี้ — เก็บไว้ลบ record ใน IndexedDB และบน cloud หลัง mutate() จบ (forgetPersistedItems/forgetCloudItems)
   // ต้องเป็น "เฉพาะชิ้นที่ลบจริง" ไม่ใช่ทั้งโหมด ไม่งั้นของที่ติดดาวจะหายจากดิสก์ทั้งที่การ์ดยังอยู่
-  const droppedIds: number[] = [];
+  const dropped: GenItem[] = [];
   mutate(s => {
     const ms = s.modes[mode];
     const kept: GenItem[] = [];
     for (const item of ms.images) {
       if (item.favorite) { kept.push(item); continue; }
       releaseBlobUrls(item.id);
-      droppedIds.push(item.id);
+      dropped.push(item);
       removed++;
     }
     ms.images = kept;
@@ -1188,8 +1188,56 @@ export function resetModeGallery(mode: Mode): number {
   });
   // fire-and-forget หลัง mutate() สำเร็จ — no-op เงียบถ้า opt-in ปิด (pattern เดียวกับ syncFavoriteToGallery)
   // ห้ามทำ resetModeGallery เป็น async: Gallery.tsx เรียกใน onClick แล้วใช้ค่า return ต่อทันที
-  forgetPersistedItems(droppedIds);
+  forgetPersistedItems(dropped.map(x => x.id));
+  forgetCloudItems(dropped);
   return removed;
+}
+
+/**
+ * ลบเฉพาะชิ้นที่เลือกไว้ในโหมดปัจจุบัน — ต่างจาก resetModeGallery ตรงที่ลบชิ้นที่ติดดาวด้วย (ผู้ใช้เลือกเองชัดๆ)
+ * ข้ามงานที่กำลัง generate อยู่ (ลบการ์ดทิ้งไม่ได้หยุด request ที่จ่ายเงินไปแล้ว) — การ์ด Cloud ที่กำลังโหลดลบได้
+ * sync เหมือน resetModeGallery: Gallery.tsx ใช้ค่า return ใน onClick ทันที
+ */
+export function deleteSelected(): number {
+  const dropped: GenItem[] = [];
+  mutate(s => {
+    const ms = s.modes[s.mode];
+    const kept: GenItem[] = [];
+    for (const item of ms.images) {
+      if (ms.selected.has(item.id) && !isGenerating(item)) {
+        releaseBlobUrls(item.id);
+        dropped.push(item);
+      } else {
+        kept.push(item);
+      }
+    }
+    if (!dropped.length) return;
+    ms.images = kept;
+    ms.selected = new Set();
+    ms.lbIndex = -1;
+  });
+  if (!dropped.length) return 0;
+  forgetPersistedItems(dropped.map(x => x.id));
+  forgetCloudItems(dropped);
+  return dropped.length;
+}
+
+/** ชิ้นนี้จะมีสำเนาบน cloud ให้ลบตาม (มีแล้ว หรือกำลังอัพโหลด) — ใช้ตัดสินว่าต้องเตือนเรื่องลบถาวรไหม */
+function hasCloudCopy(item: GenItem): boolean {
+  return !!item.cloudId || item.cloudStatus === "uploading";
+}
+
+/** ที่เลือกไว้ในโหมดปัจจุบันมีชิ้นที่ deleteSelected() จะลบบน cloud ด้วยไหม — ไม่ได้ล็อกอิน = ไม่ลบ cloud = false */
+export function selectionHasCloudItems(): boolean {
+  if (!state.cloudUser) return false;
+  const ms = cur();
+  return ms.images.some(x => ms.selected.has(x.id) && !isGenerating(x) && hasCloudCopy(x));
+}
+
+/** resetModeGallery(mode) จะลบสำเนาบน cloud ด้วยไหม — นับเฉพาะชิ้นที่ไม่ติดดาว (ชิ้นติดดาวไม่ถูกลบ) */
+export function modeResetHasCloudItems(mode: Mode): boolean {
+  if (!state.cloudUser) return false;
+  return state.modes[mode].images.some(x => !x.favorite && hasCloudCopy(x));
 }
 
 // ---------- generation ----------
@@ -2201,6 +2249,8 @@ async function performCloudUpload(item: GenItem, manual: boolean): Promise<boole
   const removed = () => !state.modes[item.mode].images.includes(item);
   if (removed()) { item.cloudStatus = undefined; return true; }
   let res: Awaited<ReturnType<typeof cloudUploadItem>>;
+  // ค่าดาวที่ส่งขึ้นไปกับแถว — ผู้ใช้กดดาวระหว่างอัพโหลดได้ (ยังไม่มี cloudId ให้ toggleFavorite ซิงก์) ดูด้านล่าง
+  const favoriteAtUpload = !!item.favorite;
   try {
     const blob = await urlToBlob(item.url!);
     if (removed()) { item.cloudStatus = undefined; return true; }
@@ -2214,19 +2264,23 @@ async function performCloudUpload(item: GenItem, manual: boolean): Promise<boole
       audio: item.audio,
       negPrompt: item.negPrompt ?? "",
       bakeOffGroupId: item.bakeOffGroupId ?? 0,
-      favorite: !!item.favorite,
+      favorite: favoriteAtUpload,
       ttsVoiceId: item.ttsVoiceId ?? null,
       parentCloudId: parentCloudIdOf(item),
     }, blob);
   } catch (e) {
     res = { ok: false, code: "read_failed", detail: errMsg(e) };
   }
+  // การ์ดถูกลบระหว่างอ่านไฟล์ (blob URL ถูก revoke) → อ่านพลาดเพราะการลบเอง ไม่ใช่ error ที่ผู้ใช้ต้องเห็น
+  // อัพโหลดสำเร็จแล้วค่อยลบ = ยังต้องตั้ง cloudId ด้านล่าง forgetCloudItems รอ promise นี้แล้วลบแถว/ไฟล์ตามให้
+  if (!res.ok && removed()) { item.cloudStatus = undefined; return true; }
   if (res.ok) {
     item.cloudId = res.id;
     item.cloudPath = res.storagePath;
     item.cloudStatus = "done";
     item.cloudErrMsg = "";
     linkPersistedCloudId(item, res.id, res.storagePath);
+    if (!!item.favorite !== favoriteAtUpload && !removed()) syncFavoriteToCloud([item]);
   } else {
     const message = cloudUploadErrorText(res.code, res.detail);
     item.cloudStatus = "error";
@@ -2272,6 +2326,66 @@ export function saveSelectedToCloud(): void {
     const failed = results.filter(ok => !ok).length;
     if (failed) toast(t("actions.cloud.batchFailed", { failed, count: items.length }), "error");
   });
+}
+
+/**
+ * cloudId ที่ผู้ใช้สั่งลบไปแล้วในเซสชันนี้ — runCloudRestore ข้ามแถวเหล่านี้ เผื่อ list ของ restore จบก่อนการลบ
+ * แล้วการ์ดที่เพิ่งลบโผล่กลับมา (ไฟล์ถูกลบแล้ว = จะกลายเป็นการ์ด error ที่โหลดไม่ได้)
+ */
+const deletedCloudIds = new Set<string>();
+
+/**
+ * ลบสำเนาบน cloud ของชิ้นที่ผู้ใช้ลบออกจากแกลเลอรี — bridge แยกจาก forgetPersistedItems โดยตั้งใจ
+ * (อันนั้น return ทันทีถ้า Gallery Persistence ปิด แต่สำเนาบน cloud มีได้โดยไม่ขึ้นกับ opt-in นั้น)
+ *
+ * - มี cloudId แล้ว (รวมการ์ดที่กำลังโหลดกลับจาก cloud) → ลบทันที; downloadCloudRestore เช็ค inGallery()
+ *   หลังโหลดเสร็จอยู่แล้ว การ์ดที่ลบไปจึงไม่ฟื้นกลับมา
+ * - กำลังอัพโหลด (ยังไม่มี cloudId) → รออัพโหลดที่วิ่งอยู่ (activeCloudUploads) จบก่อน แล้วลบชิ้นที่ได้ cloudId มา
+ *   ชิ้นที่ยังรอ slot ไม่ต้องรอ — performCloudUpload เห็นว่าการ์ดหายแล้วจะไม่สร้างแถวตั้งแต่แรก
+ *
+ * fire-and-forget + ไม่มี rollback: การ์ดหายไปแล้วในสายตาผู้ใช้ ลบบน cloud ไม่สำเร็จ = toast error อย่างเดียว
+ */
+function forgetCloudItems(items: GenItem[]): void {
+  if (!state.cloudUser || !items.length) return;
+  const toRef = (x: GenItem) => ({ id: x.cloudId!, storagePath: x.cloudPath ?? "" });
+  const ready = items.filter(x => x.cloudId);
+  const uploading = items.filter(x => !x.cloudId && x.cloudStatus === "uploading");
+  for (const x of ready) deletedCloudIds.add(x.cloudId!);
+  if (!ready.length && !uploading.length) return;
+  const inFlight = [...activeCloudUploads];
+  void (async () => {
+    let failed = 0;
+    if (ready.length && !(await cloudDeleteItems(ready.map(toRef)))) failed += ready.length;
+    if (uploading.length) {
+      await Promise.allSettled(inFlight);
+      const landed = uploading.filter(x => x.cloudId);
+      for (const x of landed) deletedCloudIds.add(x.cloudId!);
+      if (landed.length && !(await cloudDeleteItems(landed.map(toRef)))) failed += landed.length;
+    }
+    if (failed) toast(t("actions.cloud.deleteFailed", { count: failed }), "error");
+  })();
+}
+
+/** คิวเดียวของการตั้งดาวบน cloud — กดดาวรัวๆ แล้ว request ถึงสลับลำดับกันจะทำให้แถวบน cloud ค้างค่าผิด */
+let cloudFavoriteChain: Promise<void> = Promise.resolve();
+
+/** ซิงก์ดาวของชิ้นที่ถูกแตะ (ทุกชิ้นที่ favoriteKeyOf ตรงกัน) ขึ้นแถว cloud — no-op ถ้าไม่ได้ล็อกอิน */
+function syncFavoriteToCloud(touched: GenItem[]): void {
+  if (!state.cloudUser) return;
+  const byValue = new Map<boolean, string[]>();
+  for (const it of touched) {
+    if (!it.cloudId) continue;
+    const fav = !!it.favorite;
+    const list = byValue.get(fav) ?? [];
+    list.push(it.cloudId);
+    byValue.set(fav, list);
+  }
+  if (!byValue.size) return;
+  cloudFavoriteChain = cloudFavoriteChain.then(async () => {
+    for (const [favorite, ids] of byValue) {
+      if (!(await cloudSetFavorite(ids, favorite))) toast(t("actions.cloud.favoriteFailed"), "error");
+    }
+  }, () => {});
 }
 
 /**
@@ -2449,6 +2563,7 @@ async function runCloudRestore(): Promise<void> {
   mutate(s => {
     const known = new Set<string>();
     for (const ms of Object.values(s.modes)) for (const x of ms.images) if (x.cloudId) known.add(x.cloudId);
+    for (const id of deletedCloudIds) known.add(id); // ผู้ใช้ลบไประหว่างที่ list ยังไม่จบ — ห้ามฟื้นการ์ด
 
     lists.forEach((rows, i) => {
       const mode = modes[i];
@@ -3286,6 +3401,7 @@ export function toggleFavorite(id: number) {
   }
   // fire-and-forget หลัง mutate() สำเร็จ — ห้ามเปลี่ยน toggleFavorite เป็น async (Gallery เรียกใน onClick)
   syncFavoriteToGallery(touched);
+  syncFavoriteToCloud(touched);
 }
 
 // ---------- lightbox ----------
