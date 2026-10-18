@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, KeyRound, Settings, ShieldAlert, Trash2, X } from "lucide-react";
-import { hasPendingKeyResume, settleKeyModal } from "../lib/actions";
+import { hasPendingKeyResume, onApiKeyCleared, onApiKeySaved, settleKeyModal } from "../lib/actions";
 import { loadRememberApiKey, mutate, saveApiKey, state, toast, useApp } from "../lib/store";
 
 export default function KeyModal() {
@@ -50,6 +50,7 @@ export default function KeyModal() {
   const save = () => {
     const v = value.trim();
     mutate(st => { st.apiKey = v; st.keyModalOpen = false; });
+    onApiKeySaved(v); // ล็อกอิน cloud อยู่ → upsert ขึ้น cloud ด้วย (ไม่ล็อกอิน = no-op)
     saveApiKey(v, remember);
     if (v) toast(remember ? "บันทึก API Key ไว้ในเครื่องแล้วค่ะ" : "บันทึก API Key แล้วค่ะ");
     settleKeyModal(!!v);
@@ -66,6 +67,7 @@ export default function KeyModal() {
     mutate(st => { st.apiKey = ""; });
     // ส่ง remember=false เพื่อล้าง key ออกจากทั้ง localStorage และ sessionStorage พร้อมกัน
     saveApiKey("", false);
+    onApiKeyCleared(); // ล็อกอิน cloud อยู่ → ลบแถวบน cloud ด้วย (ไม่ล็อกอิน = no-op)
     toast("ลบ API Key ออกจากเครื่องแล้วค่ะ");
     inputRef.current?.focus();
   };

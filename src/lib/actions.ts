@@ -22,7 +22,12 @@ import {
   freshSpendLedger, loadGalleryMaxId, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
   PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveLocale, saveSessionSnapshotRaw,
   saveSpendLedger, saveTheme, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
+  clearApiKeyStorage, saveApiKey,
 } from "./store";
+import {
+  cloudDeleteKey, cloudGetSession, cloudLoadKey, cloudSaveKey, cloudSignIn, cloudSignOut, isCloudConfigured, onCloudAuthChange,
+} from "./supabase";
+import { t } from "./i18n";
 import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, ResolvedThemeId, SpendConfirmRequest, SpendLedger, StoryboardChain, ThemeId, TtsVoice } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
@@ -265,6 +270,8 @@ function snapshotDiffersFromFresh(snapshot: ImportFileShape): boolean {
  * snapshotDiffersFromFresh) เป็น banner เดียวกันเสมอ ไม่ยิงซ้อนหลายอันตอน boot
  */
 export function reconcilePendingJobs() {
+  // Cloud Sync: เริ่มโหลด session + key จาก Supabase ก่อนอย่างอื่น (no-op ถ้าไม่ได้ตั้งค่า → keyReady resolve ทันที)
+  initCloud();
   // F2: กู้ผลงานที่เก็บไว้ใน IndexedDB กลับเข้าแกลเลอรี — เกาะจุดบูตนี้เพราะเป็นฟังก์ชันเดียวใน actions.ts
   // ที่ StudioApp เรียกให้ครั้งเดียวตอน mount อยู่แล้ว (StudioApp.tsx ไม่ได้อยู่ในขอบเขตงานนี้)
   // ยิงก่อนตัดสินใจ return ด้านล่าง เพราะ ledger ว่างไม่ได้แปลว่าไม่มีของให้กู้
@@ -285,6 +292,9 @@ export function reconcilePendingJobs() {
   // ล้างคีย์โปรดกำพร้าตอนบูต — fire-and-forget, รอ rehydrate เองข้างใน (ดู pruneOrphanFavorites)
   void pruneOrphanFavorites();
 
+  // Cloud Sync: การ "อ่าน" ledger/flag/snapshot ยังทำแบบ sync ที่จุดเดิม — ถ้าไปอ่านหลัง keyReady (สูงสุด ~5s)
+  // ผู้ใช้ที่กด Generate ระหว่างรอจะมี entry ใหม่ของ session นี้โผล่ใน ledger แล้วถูกนับเป็นงานค้าง/resume ซ้ำ
+  // ส่วนที่ต้องรอคือการตัดสิน resume ซึ่งเช็ค state.apiKey — ถ้าตัดสินตอน key cloud ยังไม่มา job ที่จ่ายเงินแล้วจะถูกทิ้งถาวร
   const ledger = loadPendingJobs();
   const lostQueueModes = consumeQueueNonEmptyFlag().filter(m => state.modes[m].queue.length === 0);
 
@@ -299,6 +309,16 @@ export function reconcilePendingJobs() {
 
   if (!ledger.length && !lostQueueModes.length && !snapshotRestorable) return;
 
+  // ยก s.seq ให้พ้น id ของ ledger ตั้งแต่ตอนนี้ (sync) — item ใหม่ที่ผู้ใช้สร้างระหว่างรอ keyReady จะได้ไม่ชน id
+  // ของ job ที่กำลังจะ resume (ข้างล่างยัง bump ซ้ำอีกรอบ เหมือนเดิม — ไม่มีผลถ้าค่านี้สูงกว่าแล้ว)
+  const ledgerMaxId = ledger.reduce((mx, e) => Math.max(mx, e.id), 0);
+  if (ledgerMaxId > 0) mutate(s => { if (ledgerMaxId > s.seq) s.seq = ledgerMaxId; });
+
+  void keyReady.then(() => resolvePendingLedger(ledger, lostQueueModes, snapshotRestorable));
+}
+
+/** ครึ่งหลังของ reconcilePendingJobs — รันหลัง keyReady เพื่อให้ state.apiKey จาก cloud มาถึงก่อนตัดสิน resume */
+function resolvePendingLedger(ledger: PendingJobEntry[], lostQueueModes: Mode[], snapshotRestorable: boolean) {
   let lostJobCount = 0;
   const resumable: { entry: PendingJobEntry; model: ORModel }[] = [];
 
@@ -449,6 +469,97 @@ export function applyPromptSuggestion(text: string) {
   focusPromptInput();
 }
 
+// ---------- Cloud Sync (Supabase): login + OpenRouter key ----------
+/** กัน network ตายแล้ว resume video job / ปุ่ม Generate ค้างรอ cloud ตลอดไป */
+const CLOUD_KEY_TIMEOUT_MS = 5000;
+
+/**
+ * "key พร้อมแล้ว" — resolve เมื่อโหลด session + key จาก cloud เสร็จ (หรือล้ม/timeout) ตัวเดียวของทั้งแอป
+ * reconcilePendingJobs (ส่วนตัดสิน resume) และ requireApiKey รอตัวนี้ก่อนตัดสินว่า "ไม่มี key"
+ * ไม่ได้ตั้งค่าฟีเจอร์ → resolve ทันทีและ keySettled = true ตั้งแต่โหลด module = พฤติกรรมเดิมทุกอย่าง
+ */
+export let keyReady: Promise<void> = Promise.resolve();
+let keySettled = !isCloudConfigured();
+let cloudInitStarted = false;
+let keyWaitPending = false;
+
+// Task 5 เติม: กู้แกลเลอรีจาก cloud หลังโหลด key แล้ว (ตอนนี้ยังเป็น no-op)
+async function restoreCloudGallery(): Promise<void> {}
+
+/**
+ * ดึง key จาก cloud: มี → ชนะ key ในเครื่อง (เขียนลง storage ด้วย saveApiKey ตาม remember เดิม ให้ code path
+ * อื่นที่อ่าน storage ตรงกัน); cloud ไม่มีแต่เครื่องมี → seed ขึ้น cloud (ล็อกอินครั้งแรกบนเครื่องหลัก)
+ */
+async function syncCloudKey(): Promise<void> {
+  const key = await cloudLoadKey();
+  if (key) {
+    if (key !== state.apiKey) {
+      mutate(s => { s.apiKey = key; });
+      saveApiKey(key);
+    }
+  } else if (state.apiKey) {
+    await cloudSaveKey(state.apiKey);
+  }
+}
+
+export function initCloud(): void {
+  if (cloudInitStarted) return;
+  cloudInitStarted = true;
+  if (!isCloudConfigured()) {
+    keyReady = Promise.resolve();
+    keySettled = true;
+    return;
+  }
+  // session หมดจากที่อื่น (token ถูก revoke/หมดอายุ) → แค่ล้าง cloudUser — ไม่ล้าง key (ล้างเฉพาะตอนกด Logout เอง)
+  onCloudAuthChange(user => {
+    if (user?.userId === state.cloudUser?.userId && user?.email === state.cloudUser?.email) return;
+    mutate(s => { s.cloudUser = user; });
+  });
+  const load = (async () => {
+    const user = await cloudGetSession();
+    if (!user) return;
+    mutate(s => { s.cloudUser = user; });
+    await syncCloudKey();
+    void restoreCloudGallery();
+  })().catch(() => { /* ฟังก์ชันใน supabase.ts ไม่ throw อยู่แล้ว — กันไว้ให้ keyReady ไม่ reject */ });
+  keyReady = Promise.race([load, sleep(CLOUD_KEY_TIMEOUT_MS)]).then(() => { keySettled = true; });
+}
+
+export async function cloudLogin(email: string, password: string): Promise<boolean> {
+  const res = await cloudSignIn(email, password);
+  if (!res.ok) {
+    toast(res.message, "error");
+    return false;
+  }
+  const user = await cloudGetSession();
+  if (user) mutate(s => { s.cloudUser = user; });
+  await syncCloudKey();
+  void restoreCloudGallery();
+  toast(t("actions.cloud.loggedIn"));
+  return true;
+}
+
+/** ออกจากระบบ: ล้าง key ทั้งใน state และ storage ทั้งสองที่ แต่ไม่แตะ remember flag (ไม่ใช้ saveApiKey("", false)) — แกลเลอรีคงไว้ */
+export async function cloudLogout(): Promise<void> {
+  await cloudSignOut();
+  clearApiKeyStorage();
+  mutate(s => { s.apiKey = ""; s.cloudUser = null; });
+  toast(t("actions.cloud.loggedOut"));
+}
+
+/** KeyModal เรียกหลังบันทึก key — upsert ขึ้น cloud ถ้าล็อกอินอยู่ (ไม่ล็อกอิน = no-op), key ว่าง = ลบ */
+export function onApiKeySaved(key: string): void {
+  if (!state.cloudUser) return;
+  if (!key) { onApiKeyCleared(); return; }
+  void cloudSaveKey(key).then(ok => { if (!ok) toast(t("actions.cloud.keySaveFailed"), "error"); });
+}
+
+/** KeyModal เรียกหลังกดลบ key — ลบแถว user_secrets ด้วยถ้าล็อกอินอยู่ (ไม่ล็อกอิน = no-op) */
+export function onApiKeyCleared(): void {
+  if (!state.cloudUser) return;
+  void cloudDeleteKey().then(ok => { if (!ok) toast(t("actions.cloud.keyDeleteFailed"), "error"); });
+}
+
 /**
  * R2 — ขอ API Key ตอนผู้ใช้ "ทำ" สิ่งที่ต้องใช้ key จริงเท่านั้น (ไม่ใช่ตอนเปิดหน้า) แล้วทำต่อให้เองหลังบันทึก key
  * จำ resume ได้ทีละอันเดียว: ผู้ใช้กดอะไรล่าสุดก่อน modal เด้ง = สิ่งที่ตั้งใจจะทำจริง
@@ -459,6 +570,27 @@ let resumeAfterKey: (() => void) | null = null;
 export function requireApiKey(resume: () => void): boolean {
   if (state.apiKey) return true;
   resumeAfterKey = resume;
+  if (!keySettled) {
+    // key อาจกำลังมาจาก cloud — ห้ามเด้ง modal ขอ key ที่ผู้ใช้เก็บไว้แล้ว รอให้ keyReady จบก่อนค่อยตัดสิน
+    // requireApiKey ถูกเรียกก่อน reconcilePendingJobs ได้ (ปุ่มกดได้ระหว่างรอ loadVideoModels) จึงต้องสั่ง
+    // initCloud() เองตรงนี้ด้วย — idempotent ถ้าเริ่มไปแล้วคือ no-op และ keyReady เป็น promise ตัวเดียวกัน
+    initCloud();
+    if (!keyWaitPending) {
+      // กดซ้ำระหว่างรอ = แค่เปลี่ยน resumeAfterKey เป็นอันล่าสุด (เหมือน modal) ไม่ผูก .then ซ้ำ → ไม่เปิด modal สองรอบ
+      keyWaitPending = true;
+      void keyReady.then(() => {
+        keyWaitPending = false;
+        if (state.apiKey) {
+          const r = resumeAfterKey;
+          resumeAfterKey = null;
+          r?.();
+        } else if (resumeAfterKey) {
+          mutate(s => { s.keyModalOpen = true; });
+        }
+      });
+    }
+    return false;
+  }
   mutate(s => { s.keyModalOpen = true; });
   return false;
 }

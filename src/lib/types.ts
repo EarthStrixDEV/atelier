@@ -509,6 +509,11 @@ export interface AppState {
    * ทุกจุดที่อ่านค่านี้ไม่ต้องเผื่อ undefined
    */
   locale: Locale;
+  /**
+   * บัญชี Supabase ที่ล็อกอินอยู่ (Cloud Sync) — memory-only, null = ไม่ได้ล็อกอินหรือไม่ได้ตั้งค่าฟีเจอร์
+   * session จริงอยู่ใน localStorage ของ supabase-js เอง (atelier_supabase_auth) — ค่านี้ถูกเติมตอน boot ใน initCloud()
+   */
+  cloudUser: { userId: string; email: string } | null;
 }
 
 

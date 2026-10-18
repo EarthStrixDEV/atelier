@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { Bot, Check, Database, HardDrive, ListPlus, Settings, Trash2, TriangleAlert, X } from "lucide-react";
-import { assistModelOptions, isKnownModelId, modelListsStillLoading, setAssistModelId, setUserExtraModels } from "../lib/actions";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Bot, Check, Cloud, Database, HardDrive, ListPlus, LogIn, LogOut, Settings, Trash2, TriangleAlert, X } from "lucide-react";
+import { assistModelOptions, cloudLogin, cloudLogout, isKnownModelId, modelListsStillLoading, setAssistModelId, setUserExtraModels } from "../lib/actions";
 import { atelierStorageBreakdown, clearStorageKey, estimateAtelierStorageBytes, mutate, toast, useApp } from "../lib/store";
 import type { ORModel } from "../lib/types";
 import { GALLERY_MAX_ITEMS_PER_MODE, GALLERY_MAX_TOTAL_BYTES } from "../lib/constants";
 import { clearAllPersistedItems, getGalleryUsage, isGalleryPersistEnabled, setGalleryPersistEnabled } from "../lib/galleryStore";
+import { isCloudConfigured } from "../lib/supabase";
+import { t } from "../lib/i18n";
 
 /** โชว์ขนาดเป็นหน่วยที่อ่านง่าย — localStorage เต็มปกติจะอยู่หลัก KB ไม่ต้องรองรับหน่วยใหญ่กว่า MB */
 function fmtBytes(n: number): string {
@@ -219,6 +221,99 @@ function GalleryPersistSettings() {
   );
 }
 
+/**
+ * Cloud (Supabase) — ล็อกอินเพื่อซิงก์ OpenRouter key (Task 3: login อย่างเดียว; auto-upload + usage มาใน Task 4)
+ * parent render เฉพาะตอน isCloudConfigured() → ไม่ตั้ง env = section นี้ไม่มีอยู่เลย
+ * ข้อความ error ของการล็อกอินไปทาง toast("…", "error") ใน cloudLogin ตาม convention — ไม่ซ้ำเป็น inline text
+ */
+function CloudSettings() {
+  const s = useApp();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const aliveRef = useRef(true);
+
+  // ปิด modal ระหว่างรอ login/logout ได้จริง — กัน setState หลัง unmount (pattern เดียวกับ GalleryPersistSettings)
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; };
+  }, []);
+
+  const login = async (e: FormEvent) => {
+    e.preventDefault();
+    if (pending || !email.trim() || !password) return;
+    setPending(true);
+    const ok = await cloudLogin(email.trim(), password);
+    if (!aliveRef.current) return;
+    setPending(false);
+    if (ok) setPassword(""); // ไม่เก็บรหัสผ่านค้างไว้ใน state ของ component หลังใช้เสร็จ
+  };
+
+  const logout = async () => {
+    if (pending) return;
+    setPending(true);
+    await cloudLogout();
+    if (aliveRef.current) setPending(false);
+  };
+
+  const inputCls = "w-full rounded-md border border-border bg-bg px-2.5 py-1.5 text-[12px] text-text outline-none transition-colors focus:border-accent";
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+      <span className="flex items-center gap-1.5 text-[12px] text-text-dim">
+        <Cloud size={13} /> {t("settings.cloud.title")}
+      </span>
+      {s.cloudUser ? (
+        <>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-[11.5px] text-text-dim">
+              {t("settings.cloud.loggedInAs")} <span className="font-semibold text-text" title={s.cloudUser.email}>{s.cloudUser.email}</span>
+            </span>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={logout}
+              className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <LogOut size={11} /> {t("settings.cloud.logout")}
+            </button>
+          </div>
+          <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">{t("settings.cloud.logoutHint")}</p>
+        </>
+      ) : (
+        <form className="mt-2 flex flex-col gap-1.5" onSubmit={login}>
+          <p className="text-[10.5px] leading-relaxed text-text-faint">{t("settings.cloud.desc")}</p>
+          <input
+            type="email"
+            autoComplete="username"
+            placeholder={t("settings.cloud.email")}
+            aria-label={t("settings.cloud.email")}
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className={inputCls}
+          />
+          <input
+            type="password"
+            autoComplete="current-password"
+            placeholder={t("settings.cloud.password")}
+            aria-label={t("settings.cloud.password")}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            className={inputCls}
+          />
+          <button
+            type="submit"
+            disabled={pending || !email.trim() || !password}
+            className="mt-1 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <LogIn size={12} /> {pending ? t("settings.cloud.loggingIn") : t("settings.cloud.login")}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 /** ตรวจ shape ของ entry หนึ่งตัวว่าพอจะเป็น ORModel ได้ไหม (id string ไม่ว่างเป็นข้อบังคับเดียว ฟิลด์อื่น optional เหมือน EXTRA_MODELS จริง) */
 function isValidModelEntry(x: unknown): x is ORModel {
   return !!x && typeof x === "object" && typeof (x as ORModel).id === "string" && !!(x as ORModel).id.trim();
@@ -384,6 +479,8 @@ export default function SettingsModal() {
           </div>
 
           <GalleryPersistSettings />
+
+          {isCloudConfigured() && <CloudSettings />}
 
           <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
             <label htmlFor="assist-model-select" className="flex items-center gap-1.5 text-[12px] text-text-dim">

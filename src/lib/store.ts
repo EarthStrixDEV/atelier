@@ -865,6 +865,7 @@ export const state: AppState = {
   driveConnecting: false,
   driveConnected: false,
   locale: loadLocale(),
+  cloudUser: null,
 };
 
 let version = 0;
