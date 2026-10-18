@@ -207,30 +207,37 @@ function extForMime(mime: string): string {
 }
 
 /**
+ * เหตุที่อัพโหลดไม่สำเร็จ — ไฟล์นี้ไม่มีข้อความ UI (ผู้เรียกแปลผ่าน t("actions.cloud.err.<code>") ใน actions.ts)
+ * read_failed ไม่ได้มาจากไฟล์นี้ — actions.ts ใช้ตอนอ่าน blob จาก item.url ไม่สำเร็จ
+ */
+export type CloudUploadErrorCode =
+  | "not_configured" | "bad_mime" | "not_signed_in" | "insert_failed" | "upload_failed" | "network" | "read_failed";
+
+/**
  * อัพโหลดหนึ่งชิ้น: insert แถวก่อน (id สร้างฝั่ง client เพราะ path ต้องมี id) → upload object
  * upload พลาด → ลบแถวทิ้ง ไม่ให้มีแถวกำพร้าที่ไม่มีไฟล์ — ไม่ throw ทุกกรณี
  */
 export async function cloudUploadItem(
   meta: Omit<CloudItemMeta, "id" | "createdAt" | "storagePath" | "bytes" | "mime">,
   blob: Blob,
-): Promise<{ ok: true; id: string; storagePath: string } | { ok: false; message: string }> {
+): Promise<{ ok: true; id: string; storagePath: string } | { ok: false; code: CloudUploadErrorCode; detail?: string }> {
   const sb = getClient();
-  if (!sb) return { ok: false, message: "ยังไม่ได้ตั้งค่า Cloud Sync" };
+  if (!sb) return { ok: false, code: "not_configured" };
   const mime = (blob.type || "").split(";")[0].trim().toLowerCase();
   if (!ALLOWED_MIME_PREFIX.some(p => mime.startsWith(p))) {
-    return { ok: false, message: "ไฟล์ประเภทนี้อัพโหลดขึ้น Cloud ไม่ได้ (" + (mime || "ไม่ทราบชนิด") + ")" };
+    return { ok: false, code: "bad_mime", detail: mime || undefined };
   }
   try {
     const { data } = await sb.auth.getSession();
     const userId = data.session?.user.id;
-    if (!userId) return { ok: false, message: "ยังไม่ได้เข้าสู่ระบบ Cloud" };
+    if (!userId) return { ok: false, code: "not_signed_in" };
 
     const id = crypto.randomUUID();
     const storagePath = `${userId}/${meta.mode}/${id}.${extForMime(mime)}`;
     const { error: insertErr } = await sb
       .from("cloud_items")
       .insert(toRow({ ...meta, id, storagePath, mime, bytes: blob.size }));
-    if (insertErr) return { ok: false, message: "บันทึกข้อมูลขึ้น Cloud ไม่สำเร็จ: " + insertErr.message };
+    if (insertErr) return { ok: false, code: "insert_failed", detail: insertErr.message };
 
     let uploadMsg: string | null = null;
     try {
@@ -245,11 +252,11 @@ export async function cloudUploadItem(
       try {
         await sb.from("cloud_items").delete().eq("id", id);
       } catch { /* ลบแถวไม่สำเร็จ — ไม่มีอะไรให้ทำต่อ (แถวไม่มีไฟล์ Task 5 ต้องข้ามเองตอน restore) */ }
-      return { ok: false, message: "อัพโหลดไฟล์ไม่สำเร็จ: " + uploadMsg };
+      return { ok: false, code: "upload_failed", detail: uploadMsg };
     }
     return { ok: true, id, storagePath };
   } catch {
-    return { ok: false, message: "เชื่อมต่อ Cloud ไม่ได้ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" };
+    return { ok: false, code: "network" };
   }
 }
 

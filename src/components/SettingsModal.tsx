@@ -8,11 +8,12 @@ import { clearAllPersistedItems, getGalleryUsage, isGalleryPersistEnabled, setGa
 import { cloudUsage, isCloudConfigured } from "../lib/supabase";
 import { t } from "../lib/i18n";
 
-/** โชว์ขนาดเป็นหน่วยที่อ่านง่าย — localStorage เต็มปกติจะอยู่หลัก KB ไม่ต้องรองรับหน่วยใหญ่กว่า MB */
+/** โชว์ขนาดเป็นหน่วยที่อ่านง่าย — GB สำหรับพื้นที่บน Cloud ที่ไม่มีเพดาน */
 function fmtBytes(n: number): string {
   if (n < 1024) return n + " B";
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
-  return (n / 1024 / 1024).toFixed(2) + " MB";
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(2) + " MB";
+  return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
 }
 
 /**

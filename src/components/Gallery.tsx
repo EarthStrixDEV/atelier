@@ -37,8 +37,31 @@ function columnCountForWidth(width: number): number {
   return Math.max(1, n);
 }
 
+/** ลายเซ็นสั้นของ url — data URL ยาวหลาย MB ห้ามเอาทั้งก้อนมาต่อ string ทุก render; ยาว+หัว+ท้ายพอแยกไฟล์คนละชิ้นได้ */
+function urlSig(url: string | null): string {
+  if (!url) return "";
+  return url.length <= 160 ? url : url.length + ":" + url.slice(0, 96) + ":" + url.slice(-32);
+}
+
+/**
+ * snapshot แบบ primitive ของทุก field ที่ Card ใช้เรนเดอร์ — item ถูก mutate in-place (reference เดิมเสมอ)
+ * React.memo จึงเห็นการเปลี่ยนแปลงจาก object ไม่ได้เลย ต้องเทียบ string นี้แทน
+ * เพิ่ม field ที่ CardImpl อ่านเมื่อไหร่ ต้องเติมที่นี่ด้วย ไม่งั้นการ์ดค้างสถานะเก่า
+ */
+function cardRev(it: GenItem): string {
+  return [
+    it.status, urlSig(it.url), it.prompt, it.model, it.modelName, it.ratio, it.mode, it.startedAt ?? "",
+    it.jobStatus, it.jobId ?? "", it.errMsg, it.duration, it.audio ? 1 : 0, it.cancelReason ?? "",
+    it.favorite ? 1 : 0, it.bakeOffGroupId ?? "", it.parentId ?? "",
+    it.autoSaveStatus ?? "", it.autoSaveErrMsg ?? "", it.driveSaveStatus ?? "", it.driveSaveErrMsg ?? "",
+    it.cloudStatus ?? "", it.cloudErrMsg ?? "", it.cloudId ?? "",
+  ].join("\u0001");
+}
+
 interface GridRowProps {
   items: GenItem[];
+  /** cardRev ของ items ทุกชิ้น (index ตรงกัน) — คำนวณครั้งเดียวต่อ render ใน VirtualGrid */
+  revs: string[];
   columnCount: number;
   selected: Set<number>;
   onToggleSelect: (id: number) => void;
@@ -62,7 +85,7 @@ interface GridRowProps {
  * และเรียก observeRowElements (ผ่าน registerRowEl ที่ Gallery ส่งลงมา) ให้ ResizeObserver ของ hook รู้จักแถวนี้
  */
 function GridRow({
-  index, style, items, columnCount, selected, onToggleSelect, onOpen, registerRowEl,
+  index, style, items, revs, columnCount, selected, onToggleSelect, onOpen, registerRowEl,
   focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled,
 }: RowComponentProps<GridRowProps>) {
   const start = index * columnCount;
@@ -82,6 +105,7 @@ function GridRow({
           <Card
             key={item.id}
             item={item}
+            rev={revs[start + i]}
             index={start + i}
             selected={selected.has(item.id)}
             autoExtending={isAutoExtending(item.id)}
@@ -261,9 +285,15 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, o
     setMountedCount(Math.min(items.length, full * columnCount + (includesLastRow ? lastRowSize : columnCount)));
   }, [columnCount, rowCount, items.length, setRenderedRange, onAtTopChange]);
 
+  // item ถูก mutate in-place: `items` reference เดิมแม้สถานะในนั้นเปลี่ยน — revKey (string) เป็นตัวบอก useMemo ว่า
+  // มีการ์ดไหนเปลี่ยนจริง ให้ rowProps ใหม่ → แถว re-render → Card ใบที่ rev เปลี่ยนเท่านั้นที่ re-render (ใบอื่นยัง memo)
+  const revs = items.map(cardRev);
+  const revKey = revs.join("\u0002");
   const rowProps = useMemo<GridRowProps>(() => ({
-    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled,
-  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled]);
+    items, revs, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled,
+    // revs ถูกจับจาก render ที่ revKey เปลี่ยน — เนื้อหาตรงกับ revKey เสมอ จึงไม่ต้องใส่ array (reference ใหม่ทุก render) ใน deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [items, revKey, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -428,6 +458,8 @@ function StartFromThisMenu({ item, onDone }: { item: GenItem; onDone: () => void
 
 interface CardProps {
   item: GenItem;
+  /** cardRev(item) — memo เทียบตัวนี้แทน field ของ item (item เป็น object เดิมเสมอเพราะ mutate in-place) */
+  rev: string;
   index: number;
   selected: boolean;
   /** ผลของ isAutoExtending(item.id) คำนวณจาก Gallery ให้เป็น prop จริง — ตัว item เองไม่เปลี่ยน reference ตอน
@@ -879,9 +911,9 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
 
 /**
  * item ถูก mutate ทีละ field ใน-place เสมอ (ดู actions.ts — runRequest ฯลฯ set item.status/url/... ตรงบน object เดิม
- * แล้วค่อย mutate() broadcast) reference ของ item จึงไม่เปลี่ยนแม้เนื้อหาเปลี่ยนจริง — ต้องเทียบทีละ field ที่ Card
- * ใช้เรนเดอร์จริง ห้ามเทียบ prevProps.item === nextProps.item เฉยๆ เพราะจะกลายเป็น false positive (บอกว่า "เหมือนเดิม"
- * ทั้งที่ status เพิ่ง loading → done) แล้ว card ก็จะค้างสถานะเก่าตลอดไป
+ * แล้วค่อย mutate() broadcast) reference ของ item จึงไม่เปลี่ยนแม้เนื้อหาเปลี่ยนจริง — และเทียบ field ของ prev.item กับ
+ * next.item ก็ไร้ผล เพราะเป็น object เดียวกัน ค่าเท่ากันเสมอ จึงเทียบ `rev` (cardRev — snapshot primitive ที่ VirtualGrid
+ * คำนวณตอน render) แทน ห้ามเทียบ prevProps.item === nextProps.item อย่างเดียว ไม่งั้นการ์ดค้างสถานะเก่าตลอดไป
  */
 function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): boolean {
   if (prev.index !== next.index || prev.selected !== next.selected || prev.autoExtending !== next.autoExtending) return false;
@@ -889,36 +921,9 @@ function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): b
   if (prev.cloudEnabled !== next.cloudEnabled) return false;
   if (prev.onToggleSelect !== next.onToggleSelect || prev.onOpen !== next.onOpen) return false;
   if (prev.onFocusCard !== next.onFocusCard || prev.onArrowKey !== next.onArrowKey || prev.onEnterKey !== next.onEnterKey) return false;
-  const a = prev.item;
-  const b = next.item;
-  if (a === b) return true;
-  return (
-    a.id === b.id &&
-    a.status === b.status &&
-    a.url === b.url &&
-    a.prompt === b.prompt &&
-    a.model === b.model &&
-    a.modelName === b.modelName &&
-    a.ratio === b.ratio &&
-    a.mode === b.mode &&
-    a.startedAt === b.startedAt &&
-    a.jobStatus === b.jobStatus &&
-    a.errMsg === b.errMsg &&
-    a.autoSaveStatus === b.autoSaveStatus &&
-    a.autoSaveErrMsg === b.autoSaveErrMsg &&
-    a.cloudStatus === b.cloudStatus &&
-    a.cloudErrMsg === b.cloudErrMsg &&
-    a.cloudId === b.cloudId &&
-    a.duration === b.duration &&
-    a.audio === b.audio &&
-    // การ์ด cancelled สลับ label ปุ่ม ("ทำต่อ" vs "สร้างใหม่") และ gate ข้อความ "ไม่เสียเงินเพิ่ม" จาก jobId
-    // ส่วนข้อความสถานะเลือกจาก cancelReason — ทั้งคู่จึงต้องอยู่ใน comparator ไม่งั้นการ์ดค้าง label เดิม
-    // แล้วผู้ใช้เห็นไม่ตรงกับสิ่งที่ retry() จะทำจริง (ทางลงเอยคือจ่ายเงินซ้ำ)
-    a.jobId === b.jobId &&
-    a.cancelReason === b.cancelReason &&
-    // ไม่มีบรรทัดนี้ = กดดาวแล้วการ์ดไม่ repaint เพราะ item ถูก mutate in-place (reference เดิม) — ดู comment ด้านบน
-    !!a.favorite === !!b.favorite
-  );
+  // object ต่างกัน = คนละชิ้น (หรือถูกแทนที่) → ต้อง re-render ให้ callback ในการ์ดจับ object ใหม่
+  // object เดิม → เทียบ rev (snapshot ของทุก field ที่เรนเดอร์) เพราะ field บน object เดียวกันเทียบกันเองได้ค่าเท่ากันเสมอ
+  return prev.item === next.item && prev.rev === next.rev;
 }
 
 // React.memo กัน Card ที่ไม่เกี่ยวข้อง re-render ตอน toggle selection ของ card อื่นใบเดียว (Gallery re-render ทุกครั้งที่
@@ -1130,6 +1135,10 @@ export default function Gallery() {
 
   // ms.images เรียงใหม่→เก่าอยู่แล้ว (item ใหม่ถูก unshift ขึ้นหัว) — "newest" จึงคงลำดับเดิม, "oldest" แค่กลับด้าน
   // toSorted/reverse บน copy เสมอ ห้าม mutate ms.images ตรงๆ เพราะเป็น state จริงใน store
+  // addToGallery ทำ unshift ลง ms.images ตัวเดิม (in-place) และ status/favorite ก็เปลี่ยนบน object เดิม — reference
+  // ของ ms.images ใช้เป็น dep อย่างเดียวไม่ได้ (เคยทำให้ผลงานใหม่ไม่โผล่ในกริดเลย ขึ้น "ไม่มีผลงานที่ตรงกับตัวกรองนี้")
+  // listKey ครอบทุกอย่างที่ตัวกรองข้างล่างอ่าน: ลำดับ/จำนวน (id), status, favorite (prompt ของ item ไม่เปลี่ยนหลังสร้าง)
+  const listKey = ms.images.map(x => x.id + ":" + x.status + ":" + (x.favorite ? 1 : 0)).join(",");
   const visibleItems = useMemo(() => {
     const q = query.trim().toLowerCase();
     let out = ms.images.filter(x => {
@@ -1140,7 +1149,8 @@ export default function Gallery() {
     });
     if (sortOrder === "oldest") out = [...out].reverse();
     return out;
-  }, [ms.images, query, statusFilter, favOnly, sortOrder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ms.images, listKey, query, statusFilter, favOnly, sortOrder]);
 
   const favCount = ms.images.filter(x => !!x.favorite).length;
 

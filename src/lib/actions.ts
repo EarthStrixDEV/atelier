@@ -26,6 +26,7 @@ import {
 } from "./store";
 import {
   cloudDeleteKey, cloudGetSession, cloudLoadKey, cloudSaveKey, cloudSignIn, cloudSignOut, cloudUploadItem, isCloudConfigured, onCloudAuthChange,
+  type CloudUploadErrorCode,
 } from "./supabase";
 import { t } from "./i18n";
 import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, ResolvedThemeId, SpendConfirmRequest, SpendLedger, StoryboardChain, ThemeId, TtsVoice } from "./types";
@@ -2171,11 +2172,25 @@ function parentCloudIdOf(item: GenItem): string | null {
   return null;
 }
 
-/** อัพโหลดหนึ่งชิ้น — ไม่ throw; manual = ผู้ใช้กดเอง (toast error ได้), auto = โชว์บนการ์ดอย่างเดียว คืน true ถ้าสำเร็จ */
+/** แปลง error code จาก supabase.ts เป็นข้อความตาม locale — detail เป็นข้อความดิบจาก Supabase/เบราว์เซอร์ (ไม่แปล) */
+function cloudUploadErrorText(code: CloudUploadErrorCode, detail?: string): string {
+  const base = t("actions.cloud.err." + code);
+  return detail ? base + ": " + detail : base;
+}
+
+/**
+ * อัพโหลดหนึ่งชิ้น — ไม่ throw; manual = ผู้ใช้กดเอง (toast error ได้), auto = โชว์บนการ์ดอย่างเดียว
+ * คืน false เฉพาะตอนอัพโหลดไม่สำเร็จ (ใช้นับสรุปของ batch)
+ */
 async function performCloudUpload(item: GenItem, manual: boolean): Promise<boolean> {
+  // ผู้ใช้ลบการ์ดทิ้งระหว่างรอคิว/อ่านไฟล์ — ห้ามสร้างแถวบน cloud ให้ของที่ไม่อยู่ในแกลเลอรีแล้ว (ไม่มีใครลบให้ทีหลัง)
+  // เช็คก่อนอ่านไฟล์ด้วย เพราะ blob URL ของการ์ดที่ลบแล้วถูก revoke → อ่านพลาดแล้วจะ toast error หลอก
+  const removed = () => !state.modes[item.mode].images.includes(item);
+  if (removed()) { item.cloudStatus = undefined; return true; }
   let res: Awaited<ReturnType<typeof cloudUploadItem>>;
   try {
     const blob = await urlToBlob(item.url!);
+    if (removed()) { item.cloudStatus = undefined; return true; }
     res = await cloudUploadItem({
       mode: item.mode,
       prompt: item.prompt,
@@ -2191,7 +2206,7 @@ async function performCloudUpload(item: GenItem, manual: boolean): Promise<boole
       parentCloudId: parentCloudIdOf(item),
     }, blob);
   } catch (e) {
-    res = { ok: false, message: t("actions.cloud.readFailed") + ": " + errMsg(e) };
+    res = { ok: false, code: "read_failed", detail: errMsg(e) };
   }
   if (res.ok) {
     item.cloudId = res.id;
@@ -2199,9 +2214,10 @@ async function performCloudUpload(item: GenItem, manual: boolean): Promise<boole
     item.cloudStatus = "done";
     item.cloudErrMsg = "";
   } else {
+    const message = cloudUploadErrorText(res.code, res.detail);
     item.cloudStatus = "error";
-    item.cloudErrMsg = res.message;
-    if (manual) toast(t("actions.cloud.uploadFailed", { message: res.message }), "error");
+    item.cloudErrMsg = message;
+    if (manual) toast(t("actions.cloud.uploadFailed", { message }), "error");
   }
   mutate();
   return res.ok;
