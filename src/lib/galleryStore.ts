@@ -109,6 +109,11 @@ export interface PersistedGenItem {
    */
   cloudId?: string;
   /**
+   * path ของ object ใน bucket "media" คู่กับ cloudId — Task 6 ลบไฟล์บน Storage ด้วยค่านี้ (เดา path จาก id ไม่ได้
+   * เพราะนามสกุลมาจาก MIME ตอนอัพโหลด) optional: record v1/v2 และ record v3 ที่เขียนก่อนมีฟิลด์นี้ไม่มีค่า
+   */
+  cloudPath?: string;
+  /**
    * เวอร์ชันของ *รูปร่าง record* ตัวนี้ (ไม่ใช่ DB_VERSION ของ IndexedDB) — ปัจจุบัน = PERSISTED_ITEM_VERSION
    *
    * ทำไมต้องมีทั้งที่ IndexedDB มี version ของตัวเองอยู่แล้ว: DB_VERSION คุมเฉพาะ "โครงสร้าง store/index"
@@ -148,8 +153,9 @@ function migrateRecord(rec: PersistedGenItem): PersistedGenItem | null {
   if (v > PERSISTED_ITEM_VERSION) return null; // ผู้ใช้ downgrade แอป — ข้ามไว้ ห้ามลบของเขาทิ้ง
   if (v === 0) { rec = { ...rec, favorite: !!rec.favorite, version: 1 }; v = 1; }
   if (v === 1) { rec = { ...rec, ttsVoiceId: rec.ttsVoiceId, version: 2 }; v = 2; }
-  // v2→v3: เพิ่ม cloudId (optional) — record เก่าไม่เคยขึ้น cloud ผ่านช่องทางที่บันทึกไว้ จึงเป็น undefined ได้ตรงๆ
-  if (v === 2) { rec = { ...rec, cloudId: rec.cloudId, version: 3 }; v = 3; }
+  // v2→v3: เพิ่ม cloudId + cloudPath (optional ทั้งคู่) — record เก่าไม่เคยขึ้น cloud ผ่านช่องทางที่บันทึกไว้ จึงเป็น undefined ได้ตรงๆ
+  // record v3 ที่ไม่มี cloudPath (เขียนก่อนเพิ่มฟิลด์นี้ใน v3 เดียวกัน) ใช้ได้ตามเดิม — ฟิลด์ optional ไม่ต้องมี step แยก
+  if (v === 2) { rec = { ...rec, cloudId: rec.cloudId, cloudPath: rec.cloudPath, version: 3 }; v = 3; }
   return rec;
 }
 
@@ -351,6 +357,7 @@ export async function saveItem(item: GenItem): Promise<string | null> {
     favorite: !!item.favorite,
     ttsVoiceId: item.ttsVoiceId,
     cloudId: item.cloudId,
+    cloudPath: item.cloudPath,
     version: PERSISTED_ITEM_VERSION,
     // หมายเหตุ: refs / jobId / errMsg / autoSaveStatus / autoSaveErrMsg ไม่ถูกคัดลอกมาโดยเจตนา (ดูหัวไฟล์)
   };
@@ -399,10 +406,10 @@ export async function setFavorite(key: string, favorite: boolean): Promise<boole
 }
 
 /**
- * ผูก cloudId ให้ record ที่เซฟไว้แล้ว (อัพโหลดขึ้น Cloud สำเร็จทีหลังการเซฟลงเครื่อง) — pattern เดียวกับ setFavorite
+ * ผูก cloudId + cloudPath ให้ record ที่เซฟไว้แล้ว (อัพโหลดขึ้น Cloud สำเร็จทีหลังการเซฟลงเครื่อง) — pattern เดียวกับ setFavorite
  * ไม่ต้องเขียน blob ใหม่ คืน false ถ้าไม่พบ record (ถูก evict ไปแล้ว) หรือเขียนไม่สำเร็จ
  */
-export async function setCloudId(key: string, cloudId: string): Promise<boolean> {
+export async function setCloudId(key: string, cloudId: string, cloudPath: string): Promise<boolean> {
   try {
     const db = await openDb();
     const tx = db.transaction(STORE_ITEMS, "readwrite");
@@ -410,6 +417,7 @@ export async function setCloudId(key: string, cloudId: string): Promise<boolean>
     const rec = await reqDone<PersistedGenItem | undefined>(store.get(key));
     if (!rec) return false;
     rec.cloudId = cloudId;
+    rec.cloudPath = cloudPath;
     store.put(rec);
     await txDone(tx);
     return true;
