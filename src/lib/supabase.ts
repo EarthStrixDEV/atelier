@@ -58,11 +58,13 @@ export async function cloudSignIn(
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if (!error) return { ok: true };
     // แยกเคส "ข้อมูลผิด" ออกจาก "เครือข่าย/ระบบ" ให้ผู้ใช้รู้ว่าต้องแก้อะไร — ไม่ echo password กลับ
-    if (error.status === 400 || /invalid login credentials/i.test(error.message)) {
-      return { ok: false, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" };
-    }
-    if (/email not confirmed/i.test(error.message)) {
+    // email_not_confirmed ก็มาเป็น HTTP 400 เหมือนกัน — ต้องเช็ก code นี้ก่อน ไม่งั้นถูกกลืนเป็น "รหัสผิด"
+    if (error.code === "email_not_confirmed" || /email not confirmed/i.test(error.message)) {
       return { ok: false, message: "ยังไม่ได้ยืนยันอีเมล — เช็กกล่องจดหมายก่อน" };
+    }
+    // fallback ด้วย message สำหรับ error รุ่นเก่าที่ไม่มี code
+    if (error.code === "invalid_credentials" || /invalid login credentials/i.test(error.message)) {
+      return { ok: false, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" };
     }
     if (error.status === 429) {
       return { ok: false, message: "ลองบ่อยเกินไป — รอสักครู่แล้วลองใหม่" };
