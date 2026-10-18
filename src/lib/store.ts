@@ -449,6 +449,15 @@ export function saveApiKey(key: string, remember = loadRememberApiKey()) {
   } catch { /* เช่นเดียวกัน */ }
 }
 
+/**
+ * ลบ key ออกจากทั้งสอง storage (ใช้ตอน sign out จาก cloud) — ตั้งใจไม่แตะ API_KEY_REMEMBER_KEY
+ * เพราะนั่นคือ preference ของผู้ใช้ ไม่ใช่ข้อมูลลับ
+ */
+export function clearApiKeyStorage() {
+  try { localStorage.removeItem(API_KEY_KEY); } catch { /* storage ถูกปิด — ข้าม */ }
+  try { sessionStorage.removeItem(API_KEY_KEY); } catch { /* เช่นเดียวกัน */ }
+}
+
 function loadHistory(mode: Mode): HistoryEntry[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY_PREFIX + mode);
