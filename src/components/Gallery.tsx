@@ -9,8 +9,9 @@ import { EXAMPLE_PROMPTS, MODE_META, RATIOS, isVideoMode } from "../lib/constant
 import {
   applyPromptSuggestion, autoExtendFromLastFrame, canCompareItem, focusPromptInput, canRefineItem, canStartFrom, cinematicChains, clearSelection,
   copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
-  deleteSelected, isGenerating, modeResetHasCloudItems, openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryCloudRestore, retryWithOverride, saveItemToDrive,
-  saveItemToCloud, saveSelectedToCloud, saveSelectedToDrive, selectionHasCloudItems, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
+  deleteSelected, isGenerating, modeResetCloudDeleteEffect, openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryCloudRestore, retryWithOverride, saveItemToDrive,
+  saveItemToCloud, saveSelectedToCloud, saveSelectedToDrive, selectionCloudDeleteEffect, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
+  type CloudDeleteEffect,
 } from "../lib/actions";
 import { state, toast, useApp } from "../lib/store";
 import type { GenItem, Mode } from "../lib/types";
@@ -1210,6 +1211,12 @@ export default function Gallery() {
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const closeConfirm = useCallback(() => setConfirmReq(null), []);
 
+  // ไม่ได้ล็อกอิน → ลบได้แค่ในเครื่อง สำเนาบน Cloud ยังอยู่และจะกลับมาตอนล็อกอิน ต้องบอกก่อนกดยืนยัน
+  const cloudDeleteWarning = (effect: CloudDeleteEffect) =>
+    effect === "delete" ? t("gallery.delete.cloudNote")
+      : effect === "kept" ? t("gallery.delete.cloudKeptNote")
+        : undefined;
+
   const clearGallery = () => {
     if (!clearableCount) return;
     const mode = s.mode;
@@ -1221,7 +1228,7 @@ export default function Gallery() {
     setConfirmReq({
       title: t("gallery.delete.clearTitle"),
       body: question,
-      warning: modeResetHasCloudItems(mode) ? t("gallery.delete.cloudNote") : undefined,
+      warning: cloudDeleteWarning(modeResetCloudDeleteEffect(mode)),
       confirmLabel: t("gallery.delete.confirm"),
       onConfirm: () => {
         const removed = resetModeGallery(mode);
@@ -1239,7 +1246,7 @@ export default function Gallery() {
     setConfirmReq({
       title: t("gallery.delete.selectedTitle"),
       body: t("gallery.delete.selectedConfirm", { count }),
-      warning: selectionHasCloudItems() ? t("gallery.delete.cloudNote") : undefined,
+      warning: cloudDeleteWarning(selectionCloudDeleteEffect()),
       confirmLabel: t("gallery.delete.confirm"),
       onConfirm: () => {
         const removed = deleteSelected();

@@ -63,6 +63,7 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.delete.selectedDone": "ลบผลงานที่เลือกแล้ว {{count}} ชิ้นค่ะ",
     "gallery.delete.clearTitle": "ล้างแกลเลอรี",
     "gallery.delete.cloudNote": "ชิ้นที่เก็บไว้บน Cloud จะถูกลบออกจาก Cloud อย่างถาวรด้วย",
+    "gallery.delete.cloudKeptNote": "ตอนนี้ไม่ได้เข้าสู่ระบบ Cloud — สำเนาบน Cloud จะไม่ถูกลบ และจะกลับมาเมื่อเข้าสู่ระบบอีกครั้ง (เข้าสู่ระบบก่อนถ้าต้องการลบออกจาก Cloud ด้วย)",
     "gallery.delete.confirm": "ลบ",
     "gallery.delete.cancel": "ยกเลิก",
 
@@ -128,6 +129,7 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.delete.selectedDone": "Deleted {{count}} selected items",
     "gallery.delete.clearTitle": "Clear gallery",
     "gallery.delete.cloudNote": "Items stored on Cloud will also be permanently deleted from Cloud.",
+    "gallery.delete.cloudKeptNote": "You are not signed in to Cloud — Cloud copies will NOT be deleted and will come back when you sign in again. Sign in first to delete them from Cloud too.",
     "gallery.delete.confirm": "Delete",
     "gallery.delete.cancel": "Cancel",
 

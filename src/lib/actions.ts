@@ -1227,17 +1227,29 @@ function hasCloudCopy(item: GenItem): boolean {
   return !!item.cloudId || item.cloudStatus === "uploading";
 }
 
-/** ที่เลือกไว้ในโหมดปัจจุบันมีชิ้นที่ deleteSelected() จะลบบน cloud ด้วยไหม — ไม่ได้ล็อกอิน = ไม่ลบ cloud = false */
-export function selectionHasCloudItems(): boolean {
-  if (!state.cloudUser) return false;
-  const ms = cur();
-  return ms.images.some(x => ms.selected.has(x.id) && !isGenerating(x) && hasCloudCopy(x));
+/**
+ * ผลต่อสำเนาบน cloud ของการลบชุดหนึ่ง — ใช้เลือกข้อความเตือนในโมดัลยืนยัน
+ * "delete" = ล็อกอินอยู่ สำเนาบน cloud จะถูกลบตาม
+ * "kept"   = ไม่ได้ล็อกอิน (หรือ session หมดอายุ) แต่มีชิ้นที่มี cloudId — forgetCloudItems จะข้าม cloud
+ *            สำเนาจึงยังอยู่และจะกลับมาตอนล็อกอินครั้งหน้า ผู้ใช้ต้องรู้ก่อนกดยืนยัน
+ * "none"   = ไม่มีชิ้นไหนเกี่ยวกับ cloud
+ */
+export type CloudDeleteEffect = "none" | "delete" | "kept";
+
+function cloudDeleteEffect(items: GenItem[]): CloudDeleteEffect {
+  if (state.cloudUser) return items.some(hasCloudCopy) ? "delete" : "none";
+  return items.some(x => !!x.cloudId) ? "kept" : "none";
 }
 
-/** resetModeGallery(mode) จะลบสำเนาบน cloud ด้วยไหม — นับเฉพาะชิ้นที่ไม่ติดดาว (ชิ้นติดดาวไม่ถูกลบ) */
-export function modeResetHasCloudItems(mode: Mode): boolean {
-  if (!state.cloudUser) return false;
-  return state.modes[mode].images.some(x => !x.favorite && hasCloudCopy(x));
+/** ที่เลือกไว้ในโหมดปัจจุบัน deleteSelected() จะมีผลกับสำเนาบน cloud อย่างไร (ข้ามงานที่กำลัง generate เหมือน deleteSelected) */
+export function selectionCloudDeleteEffect(): CloudDeleteEffect {
+  const ms = cur();
+  return cloudDeleteEffect(ms.images.filter(x => ms.selected.has(x.id) && !isGenerating(x)));
+}
+
+/** resetModeGallery(mode) จะมีผลกับสำเนาบน cloud อย่างไร — นับเฉพาะชิ้นที่ไม่ติดดาว (ชิ้นติดดาวไม่ถูกลบ) */
+export function modeResetCloudDeleteEffect(mode: Mode): CloudDeleteEffect {
+  return cloudDeleteEffect(state.modes[mode].images.filter(x => !x.favorite));
 }
 
 // ---------- generation ----------
@@ -1855,7 +1867,7 @@ function syncFavoriteToGallery(touched: GenItem[]) {
         // false = record ถูก evict ไปแล้ว — ไม่ rollback state ดาวใน UI ยังเป็นความจริงของเซสชันนี้
         const ok = await setFavorite(key, favorite);
         if (!ok) persistKeys.delete(item.id);
-      } else if (item.status === "done") {
+      } else if (item.status === "done" && !cloudRestoredItems.has(item)) {
         const fresh = await saveItem(item);
         if (fresh) {
           persistKeys.set(item.id, fresh);
@@ -2426,6 +2438,12 @@ function insertRestoredItem(images: GenItem[], item: GenItem) {
   else images.splice(idx, 0, item);
 }
 
+/**
+ * การ์ดที่กู้จาก Cloud สำเร็จแล้ว — ห้ามลง IndexedDB (ทั้งตอนโหลดเสร็จและตอนกดดาวใน syncFavoriteToGallery)
+ * เพราะ saveItem จะ evict ผลงานในเครื่องที่ยังไม่เคยอัพโหลด WeakSet: การ์ดที่ถูกลบหลุดไปเองไม่ต้องล้าง
+ */
+const cloudRestoredItems = new WeakSet<GenItem>();
+
 /** MIME จากแถว cloud_items ต่อ item — fallback เมื่อ Blob ที่ดาวน์โหลดมาไม่มี type (ใช้ตอน retry ด้วย) */
 const cloudRestoreMime = new Map<number, string>();
 
@@ -2453,7 +2471,7 @@ function runRestoreSlot(task: () => Promise<void>): Promise<void> {
 
 /**
  * โหลดไฟล์ของการ์ดที่กู้จาก Cloud หนึ่งใบ — ไม่ throw
- * สำเร็จ → url + status "done" แล้วเซฟลงเครื่องถ้าเปิด Gallery Persistence (record พก cloudId ไปด้วย = บูตหน้าไม่กู้ซ้ำ)
+ * สำเร็จ → url + status "done" — ไม่เซฟลง IndexedDB (ดู cloudRestoredItems) บูตหน้ากู้จาก cloud ใหม่
  * ไม่ส่งเข้า Auto Save/Drive/อัพโหลด: ไม่ใช่ผลงานใหม่ และ canUploadToCloud ข้ามชิ้นที่มี cloudId อยู่แล้ว
  * พลาด → status "error" + ข้อความ การ์ดยังอยู่ (แถวบน cloud ไม่แตะ) กด "ลองโหลดใหม่" ได้
  */
@@ -2498,7 +2516,9 @@ async function downloadCloudRestore(item: GenItem): Promise<void> {
       delete item.cloudRestoring;
     });
     cloudRestoreMime.delete(item.id);
-    persistItemToGallery(item);
+    // ไม่เซฟลง IndexedDB โดยเจตนา: saveItem รัน eviction — กู้ 30 ชิ้นต่อโหมดจะไล่ลบผลงานในเครื่องที่ยังไม่เคย
+    // อัพโหลด (เสียข้อมูลถาวร) บ้านของชิ้นนี้คือ cloud และมันจะถูกกู้จาก cloud ใหม่ทุกครั้งที่บูตอยู่แล้ว
+    cloudRestoredItems.add(item);
   } else {
     mutate(() => {
       item.status = "error";

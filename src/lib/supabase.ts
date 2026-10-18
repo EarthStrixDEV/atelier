@@ -80,7 +80,8 @@ export async function cloudSignOut(): Promise<void> {
   const sb = getClient();
   if (!sb) return;
   try {
-    await sb.auth.signOut();
+    // scope local — ค่าเริ่มต้นของ supabase-js คือ global ซึ่งจะ revoke session ของทุกเครื่อง
+    await sb.auth.signOut({ scope: "local" });
   } catch { /* ออกจากระบบฝั่ง server ไม่สำเร็จ — ไม่มีอะไรให้ทำต่อ */ }
 }
 
