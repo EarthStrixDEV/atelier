@@ -136,6 +136,23 @@ export interface GenItem {
    * ถ้าผู้ใช้ไปเปลี่ยน dropdown เสียงใน sidebar หลังยิง request นี้ไปแล้ว
    */
   ttsVoiceId?: string;
+  /** id แถวใน cloud_items (Supabase) — undefined = ยังไม่อยู่บน cloud ตั้งตอนอัพโหลดสำเร็จหรือกู้จาก cloud */
+  cloudId?: string;
+  /** path ของ object ใน bucket "media" (`{uid}/{mode}/{cloudId}.{ext}`) — ตั้งคู่กับ cloudId เสมอ */
+  cloudPath?: string;
+  /**
+   * สถานะ "เก็บขึ้น Cloud" ต่อชิ้น — undefined = ยังไม่เคยอัพโหลด, "uploading" = รอคิว/กำลังอัพโหลด,
+   * "done" = อยู่บน cloud แล้ว, "error" = อัพโหลดไม่สำเร็จ (กดลองใหม่ได้)
+   */
+  cloudStatus?: "uploading" | "done" | "error";
+  /** ข้อความ error ล่าสุดของการอัพโหลดขึ้น Cloud */
+  cloudErrMsg?: string;
+  /**
+   * true = การ์ดนี้กู้มาจาก Cloud และไฟล์ยังโหลดไม่เสร็จ (status "loading") หรือโหลดไม่สำเร็จ (status "error")
+   * การ์ดโชว์ spinner กลางๆ / ปุ่ม "ลองโหลดใหม่" แทนวงแหวนวิดีโอ/ปุ่มสร้างใหม่ — retry ห้ามยิง OpenRouter (เสียเงิน)
+   * ลบทิ้งเมื่อโหลดเสร็จ ไม่ลงดิสก์ (saveItem เซฟเฉพาะ done และ allowlist ไม่มีฟิลด์นี้)
+   */
+  cloudRestoring?: boolean;
 }
 
 /* ============================================================================
@@ -509,6 +526,11 @@ export interface AppState {
    * ทุกจุดที่อ่านค่านี้ไม่ต้องเผื่อ undefined
    */
   locale: Locale;
+  /**
+   * บัญชี Supabase ที่ล็อกอินอยู่ (Cloud Sync) — memory-only, null = ไม่ได้ล็อกอินหรือไม่ได้ตั้งค่าฟีเจอร์
+   * session จริงอยู่ใน localStorage ของ supabase-js เอง (atelier_supabase_auth) — ค่านี้ถูกเติมตอน boot ใน initCloud()
+   */
+  cloudUser: { userId: string; email: string } | null;
 }
 
 

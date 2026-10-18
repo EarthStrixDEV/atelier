@@ -17,7 +17,7 @@ const MODE_ICONS: Record<Mode, typeof Image> = {
 };
 import {
   cancelAll, connectAutoSaveDir, connectDrive, disconnectAutoSaveDir, disconnectDrive, exportSession,
-  getSchedulerStats, getSpendLedger, importSession, isAutoSaveSupported, isDriveSaveConfigured,
+  getSchedulerStats, getSpendLedger, importSession, isAutoSaveSupported, isDriveSaveConfigured, isGenerating,
   reconnectSavedAutoSaveDir, resetSpendLedger, setSpendCap, switchMode, toggleAutoSaveEnabled,
 } from "../lib/actions";
 import { loadExportLog, mutate, toast, useApp } from "../lib/store";
@@ -378,7 +378,7 @@ function RunningJobsControl() {
 
   // นับจาก state (ทุกโหมด) เพื่อ "ตัดสินใจว่าจะโชว์ไหม" — governor นับได้เฉพาะงานที่ผ่านมันอยู่ตอนนี้
   const loadingCount = Object.values(s.modes).reduce(
-    (n, m) => n + m.images.filter(x => x.status === "loading").length, 0,
+    (n, m) => n + m.images.filter(isGenerating).length, 0,
   );
 
   useEffect(() => {

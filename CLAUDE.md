@@ -18,12 +18,12 @@ There are no tests or lint config. `npm run build` is the gate — it must pass 
 
 ## Routes
 
-`react-router-dom` with a base of `/atelier/`:
-- `/atelier/` — `pages/Landing.tsx`, a marketing hero page
-- `/atelier/studio` — `pages/StudioApp.tsx`, the actual app (header + sidebar + gallery + modals)
-- `/atelier/models` — `pages/ModelCatalog.tsx`, a standalone public page (no API key required). See [Model Catalog page](#model-catalog-page) below.
+`react-router-dom` (`BrowserRouter` in `main.tsx`, no basename — the app is served from the root):
+- `/` — `pages/Landing.tsx`, a marketing hero page
+- `/studio` — `pages/StudioApp.tsx`, the actual app (header + sidebar + gallery + modals)
+- `/models` — `pages/ModelCatalog.tsx`, a standalone public page (no API key required). See [Model Catalog page](#model-catalog-page) below.
 
-When testing in a browser, the studio is at `http://localhost:<port>/atelier/studio`, not the root.
+When testing in a browser, the studio is at `http://localhost:<port>/studio`, not the root.
 
 ## Architecture
 
@@ -45,6 +45,7 @@ src/
 │   ├── blobUrls.ts           # blob URL registry + lifecycle/cleanup
 │   ├── fsAccess.ts           # Auto Save via File System Access API
 │   ├── galleryStore.ts       # IndexedDB persistence for generated media (opt-in, see Persistence)
+│   ├── supabase.ts           # Supabase client + auth/key/cloud_items/Storage helpers (see Cloud Sync)
 │   ├── googleDrive.ts        # Google Drive OAuth (GIS) + upload
 │   ├── shortcuts.ts          # global keyboard shortcut handling
 │   ├── shareCard.ts          # share-card image generation
@@ -62,6 +63,7 @@ src/
 │   ├── ExtendTool.tsx        # pick a frame from a video to extend from
 │   ├── CompareModal.tsx      # 2 images = swipe compare, 3–4 = side-by-side grid
 │   ├── SettingsModal.tsx     # assist model, custom model JSON, storage breakdown, gallery-persist toggle
+│   ├── ConfirmModal.tsx      # generic destructive-action confirm (delete all / delete selected, incl. cloud copies)
 │   ├── SpendGuardModal.tsx   # confirms a batch that would exceed/already exceeds the spend cap
 │   ├── KeyModal.tsx / Lightbox.tsx / Toast.tsx / ShortcutsModal.tsx
 │   ├── BakeOffConfirmModal.tsx / ImportPreviewModal.tsx / RestoreBanner.tsx
@@ -70,8 +72,9 @@ src/
 │       ├── ModelGridShowroom.tsx      # card-grid view, plain CSS grid (not react-window)
 │       ├── ModelComparisonTable.tsx   # table view, domain-specific columns
 │       └── WorkflowRecommendations.tsx # resolves catalogData ids against live fetched models
+supabase/migrations/          # SQL for Cloud Sync (tables, RLS, private `media` bucket) — run by hand in Supabase
 └── pages/
-    └── ModelCatalog.tsx      # /atelier/models — see Model Catalog page
+    └── ModelCatalog.tsx      # /models — see Model Catalog page
 ```
 
 ## Modes
@@ -103,6 +106,18 @@ Two things worth knowing before touching this:
 - Records carry their own `PERSISTED_ITEM_VERSION`, migrated lazily per-record on read via `migrateRecord()` — this is independent of the IndexedDB `DB_VERSION` itself, so a schema change doesn't require a blocking bulk migration over potentially large blobs.
 
 Eviction is enforced by two caps in `constants.ts` (per-mode item count, global byte total); non-favorites are evicted before favorites, oldest first within each group.
+
+#### Cloud Sync (Supabase)
+
+Opt-in via login; independent of Gallery Persistence. `src/lib/supabase.ts` is the only module that talks to Supabase; `actions.ts` bridges into `AppState` (search "cloud"). Needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` — if either is missing, `isCloudConfigured()` is false and every cloud UI (Settings Cloud section, card cloud buttons) is hidden and no request to Supabase is made. Schema lives in `supabase/migrations/`: `user_secrets` (OpenRouter key), `cloud_items` (metadata), and a **private** Storage bucket `media` with RLS; object path is `{uid}/{mode}/{id}.{ext}`.
+
+- **Auth** — Supabase Auth email+password, sign-ups disabled, single user. The session lives in localStorage under `atelier_supabase_auth` (supabase-js's own storage; prefixed so the Settings storage breakdown counts it). It is not part of the session snapshot or Export JSON, and neither is the OpenRouter key (`buildSessionData` whitelists fields).
+- **Key sync** — cloud wins on login; the local key is uploaded only when the cloud read succeeded **and** was empty (a failed read never seeds). Logout clears the in-memory/session key but not the "remember" flag.
+- **`cloudKeyLoaded` vs `keyReady`** — `cloudKeyLoaded` is the untimed load (30 s safety ceiling only) and gates pending-job resume/drop, so a slow login can't make jobs look lost. `keyReady` is the same promise raced against 5 s and gates `requireApiKey` so UI buttons don't stay silent.
+- **Upload** — manual per card / selection, plus auto-upload (`atelier_cloud_autoupload`, off by default). Queue width is `CLOUD_UPLOAD_CONCURRENCY`, separate from the Request Governor (no OpenRouter spend).
+- **Restore** — after `galleryRehydrated`, the latest `CLOUD_RESTORE_PER_MODE` (30) items per mode are listed; items already present are skipped by `cloudId`. Each gets an immediate `loading` placeholder card with `cloudRestoring` set, files download in the background (`CLOUD_RESTORE_CONCURRENCY`), failures offer retry.
+- **Delete** — "delete all" keeps favorites; "delete selected" deletes favorites too. Both go through `ConfirmModal` and also delete the cloud copies (Storage object + row). Favorite toggles sync to `cloud_items`.
+- **Allowlist** — `cloud_items` columns are a hand-kept allowlist (`CloudItemMeta`), same idea as `PersistedGenItem`: no refs/apiKey/jobId/error text. New `GenItem.cloud*` fields are in-memory only; the only ones that reach IndexedDB are `cloudId` and `cloudPath` (`PERSISTED_ITEM_VERSION` 3).
 
 ### Generation routing (actions.ts)
 
@@ -136,6 +151,8 @@ A cross-mode spend ledger (`ledger()`, `capUsd`, `totalUsd`, all in `actions.ts`
 
 Virtualized with `react-window` (`List` + `useDynamicRowHeight`) — rows are grouped into `columnCount` cards, measured after render. Cards outside the viewport **unmount**; any logic that assumes all cards are in the DOM is wrong.
 
+**Card repaint (`cardRev`)** — items are mutated in place, so the item object identity never changes and `React.memo` can't see edits. `VirtualGrid` computes a per-item `cardRev(item)` primitive snapshot once per render and Cards memo on that. **Any new field a card renders must be added to `cardRev`**, or the card won't repaint when it changes.
+
 **Gallery Focus Mode** — arrow keys move focus card-to-card, Enter opens the lightbox. Focus is tracked by `id`, not index. Implemented as a **roving tabindex**: exactly one card has `tabIndex=0` (the entry point) and the rest are `-1`, so Tab enters the grid once and arrows take over. The entry point must always be a card that's currently mounted — `onRowsRendered` reports the rendered range for this. Card `onFocus` filters `e.target === e.currentTarget` because React's `onFocus` bubbles from the buttons inside the card.
 
 ### Video progress ring
@@ -156,7 +173,7 @@ Run one prompt across several models at once to compare. Selected in the Sidebar
 
 ### Model Catalog page
 
-`/atelier/models` (`pages/ModelCatalog.tsx`) is a standalone public page, separate from the in-studio model select — no API key required, and it fetches its own `loadModels()`/`loadVideoModels()` independently of `StudioApp`'s mount effect. It's an editorial/comparison view: domain tabs (image/video/audio) plus a grid/table toggle.
+`/models` (`pages/ModelCatalog.tsx`) is a standalone public page, separate from the in-studio model select — no API key required, and it fetches its own `loadModels()`/`loadVideoModels()` independently of `StudioApp`'s mount effect. It's an editorial/comparison view: domain tabs (image/video/audio) plus a grid/table toggle.
 
 `lib/catalogData.ts` holds hand-curated content, **not** derived from the OpenRouter API — `WORKFLOW_RECOMMENDATIONS` (use-case → model id → rationale) and `MODEL_QUALITY_TAGS` (model id → short descriptive tags). Both are resolved against the live fetched model list at render time; if OpenRouter has since removed an id, `WorkflowRecommendations` falls back to showing the raw id with a "not found" note instead of erroring.
 

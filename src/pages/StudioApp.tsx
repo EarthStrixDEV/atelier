@@ -17,7 +17,7 @@ import CompareModal from "../components/CompareModal";
 import BakeOffConfirmModal from "../components/BakeOffConfirmModal";
 import SpendGuardModal from "../components/SpendGuardModal";
 import Toast from "../components/Toast";
-import { applyTheme, autosaveSessionSnapshot, checkSavedAutoSaveDir, loadModels, loadVideoModels, reconcilePendingJobs, subscribeSystemTheme } from "../lib/actions";
+import { applyTheme, autosaveSessionSnapshot, checkSavedAutoSaveDir, initCloud, loadModels, loadVideoModels, reconcilePendingJobs, subscribeSystemTheme } from "../lib/actions";
 import { releaseAllBlobUrls } from "../lib/blobUrls";
 import { SESSION_SNAPSHOT_INTERVAL_MS } from "../lib/constants";
 import { useKeyboardShortcuts } from "../lib/shortcuts";
@@ -28,6 +28,9 @@ export default function StudioApp() {
   useKeyboardShortcuts();
 
   useEffect(() => {
+    // เริ่มโหลด session + key ของ Cloud Sync ทันที ไม่ต้องรอ loadVideoModels — idempotent (reconcilePendingJobs
+    // เรียกซ้ำได้) และการ resume งานวิดีโอยังรอ cloudKeyLoaded ใน reconcilePendingJobs เหมือนเดิม
+    initCloud();
     loadModels();
     // reconcilePendingJobs() ต้องรอ videoModels โหลดเสร็จก่อน ถึงจะเช็คได้ว่าโมเดลของ job ค้างยังอยู่ไหม (ดู actions.ts)
     loadVideoModels().then(reconcilePendingJobs);

@@ -3,19 +3,22 @@ import { List, useDynamicRowHeight, type ListImperativeAPI, type RowComponentPro
 import {
   ArrowDownWideNarrow, ArrowUp, Ban, Check, ChevronDown, CircleAlert, Clapperboard, Clock, Cloud, CloudUpload, Columns2, Copy, Crosshair,
   Download, FastForward, HardDriveDownload, ImageIcon, Layers3, ListVideo, Loader2, Mic, Music, Play, RefreshCw, RotateCcw, Search, Sparkles,
-  Star, Trash2, Video, Wand2, X,
+  CloudAlert, CloudCheck, Star, Trash2, Video, Wand2, X,
 } from "lucide-react";
 import { EXAMPLE_PROMPTS, MODE_META, RATIOS, isVideoMode } from "../lib/constants";
 import {
   applyPromptSuggestion, autoExtendFromLastFrame, canCompareItem, focusPromptInput, canRefineItem, canStartFrom, cinematicChains, clearSelection,
   copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
-  openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryWithOverride, saveItemToDrive,
-  saveSelectedToDrive, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
+  deleteSelected, isGenerating, modeResetCloudDeleteEffect, openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryCloudRestore, retryWithOverride, saveItemToDrive,
+  saveItemToCloud, saveSelectedToCloud, saveSelectedToDrive, selectionCloudDeleteEffect, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
+  type CloudDeleteEffect,
 } from "../lib/actions";
 import { state, toast, useApp } from "../lib/store";
 import type { GenItem, Mode } from "../lib/types";
 import { classifyGenError, isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
+import { t } from "../lib/i18n";
 import PromptComposer from "./PromptComposer";
+import ConfirmModal, { type ConfirmRequest } from "./ConfirmModal";
 
 const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9)
 
@@ -36,8 +39,31 @@ function columnCountForWidth(width: number): number {
   return Math.max(1, n);
 }
 
+/** ลายเซ็นสั้นของ url — data URL ยาวหลาย MB ห้ามเอาทั้งก้อนมาต่อ string ทุก render; ยาว+หัว+ท้ายพอแยกไฟล์คนละชิ้นได้ */
+function urlSig(url: string | null): string {
+  if (!url) return "";
+  return url.length <= 160 ? url : url.length + ":" + url.slice(0, 96) + ":" + url.slice(-32);
+}
+
+/**
+ * snapshot แบบ primitive ของทุก field ที่ Card ใช้เรนเดอร์ — item ถูก mutate in-place (reference เดิมเสมอ)
+ * React.memo จึงเห็นการเปลี่ยนแปลงจาก object ไม่ได้เลย ต้องเทียบ string นี้แทน
+ * เพิ่ม field ที่ CardImpl อ่านเมื่อไหร่ ต้องเติมที่นี่ด้วย ไม่งั้นการ์ดค้างสถานะเก่า
+ */
+function cardRev(it: GenItem): string {
+  return [
+    it.status, urlSig(it.url), it.prompt, it.model, it.modelName, it.ratio, it.mode, it.startedAt ?? "",
+    it.jobStatus, it.jobId ?? "", it.errMsg, it.duration, it.audio ? 1 : 0, it.cancelReason ?? "",
+    it.favorite ? 1 : 0, it.bakeOffGroupId ?? "", it.parentId ?? "",
+    it.autoSaveStatus ?? "", it.autoSaveErrMsg ?? "", it.driveSaveStatus ?? "", it.driveSaveErrMsg ?? "",
+    it.cloudStatus ?? "", it.cloudErrMsg ?? "", it.cloudId ?? "", it.cloudRestoring ? 1 : 0,
+  ].join("\u0001");
+}
+
 interface GridRowProps {
   items: GenItem[];
+  /** cardRev ของ items ทุกชิ้น (index ตรงกัน) — คำนวณครั้งเดียวต่อ render ใน VirtualGrid */
+  revs: string[];
   columnCount: number;
   selected: Set<number>;
   onToggleSelect: (id: number) => void;
@@ -50,6 +76,8 @@ interface GridRowProps {
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
+  /** ล็อกอิน Cloud อยู่ (state.cloudUser) — ส่งเป็น prop เพราะ Card เป็น memo ไม่ได้ subscribe store เอง */
+  cloudEnabled: boolean;
 }
 
 /**
@@ -59,8 +87,8 @@ interface GridRowProps {
  * และเรียก observeRowElements (ผ่าน registerRowEl ที่ Gallery ส่งลงมา) ให้ ResizeObserver ของ hook รู้จักแถวนี้
  */
 function GridRow({
-  index, style, items, columnCount, selected, onToggleSelect, onOpen, registerRowEl,
-  focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
+  index, style, items, revs, columnCount, selected, onToggleSelect, onOpen, registerRowEl,
+  focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled,
 }: RowComponentProps<GridRowProps>) {
   const start = index * columnCount;
   const rowItems = items.slice(start, start + columnCount);
@@ -79,6 +107,7 @@ function GridRow({
           <Card
             key={item.id}
             item={item}
+            rev={revs[start + i]}
             index={start + i}
             selected={selected.has(item.id)}
             autoExtending={isAutoExtending(item.id)}
@@ -89,6 +118,7 @@ function GridRow({
             onFocusCard={onFocusCard}
             onArrowKey={onArrowKey}
             onEnterKey={onEnterKey}
+            cloudEnabled={cloudEnabled}
           />
         ))}
       </div>
@@ -122,6 +152,7 @@ interface VirtualGridProps {
   onAtTopChange: (atTop: boolean) => void;
   /** ปุ่มลอย "ผลลัพธ์ใหม่" — รับมาวางทับในกรอบเดียวกับ List แทนที่จะให้ Gallery ครอบ div เพิ่มเอง */
   newResultPill?: React.ReactNode;
+  cloudEnabled: boolean;
 }
 
 /**
@@ -192,7 +223,7 @@ function useGalleryFocus(items: GenItem[], columnCount: number, listRef: RefObje
  * เป็นแถวๆ ละ columnCount ก่อนส่งให้ List วาดทีละแถวตาม viewport — List เป็นเจ้าของ scroll container ของตัวเอง
  * (overflow-y-auto ภายใน) จึงต้องอยู่ในกล่อง flex-1 min-h-0 แยกจาก header/StoryboardStrip ที่ไม่ virtualize
  */
-function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, onAtTopChange, newResultPill }: VirtualGridProps) {
+function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, onAtTopChange, newResultPill, cloudEnabled }: VirtualGridProps) {
   const [width, setWidth] = useState(0);
   const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: 320, key: mode });
   const rowElsRef = useRef(new Map<number, HTMLDivElement>());
@@ -256,9 +287,15 @@ function VirtualGrid({ items, selected, onToggleSelect, onOpen, mode, listRef, o
     setMountedCount(Math.min(items.length, full * columnCount + (includesLastRow ? lastRowSize : columnCount)));
   }, [columnCount, rowCount, items.length, setRenderedRange, onAtTopChange]);
 
+  // item ถูก mutate in-place: `items` reference เดิมแม้สถานะในนั้นเปลี่ยน — revKey (string) เป็นตัวบอก useMemo ว่า
+  // มีการ์ดไหนเปลี่ยนจริง ให้ rowProps ใหม่ → แถว re-render → Card ใบที่ rev เปลี่ยนเท่านั้นที่ re-render (ใบอื่นยัง memo)
+  const revs = items.map(cardRev);
+  const revKey = revs.join("\u0002");
   const rowProps = useMemo<GridRowProps>(() => ({
-    items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey,
-  }), [items, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey]);
+    items, revs, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled,
+    // revs ถูกจับจาก render ที่ revKey เปลี่ยน — เนื้อหาตรงกับ revKey เสมอ จึงไม่ต้องใส่ array (reference ใหม่ทุก render) ใน deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [items, revKey, columnCount, selected, onToggleSelect, onOpen, registerRowEl, focusedId, tabEntryId, onFocusCard, onArrowKey, onEnterKey, cloudEnabled]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -423,6 +460,8 @@ function StartFromThisMenu({ item, onDone }: { item: GenItem; onDone: () => void
 
 interface CardProps {
   item: GenItem;
+  /** cardRev(item) — memo เทียบตัวนี้แทน field ของ item (item เป็น object เดิมเสมอเพราะ mutate in-place) */
+  rev: string;
   index: number;
   selected: boolean;
   /** ผลของ isAutoExtending(item.id) คำนวณจาก Gallery ให้เป็น prop จริง — ตัว item เองไม่เปลี่ยน reference ตอน
@@ -437,6 +476,8 @@ interface CardProps {
   onFocusCard: (id: number) => void;
   onArrowKey: (id: number, dir: "left" | "right" | "up" | "down") => void;
   onEnterKey: (index: number) => void;
+  /** ล็อกอิน Cloud อยู่ — false = ซ่อนปุ่ม/badge ของ Cloud ทั้งหมด */
+  cloudEnabled: boolean;
 }
 
 /** เลื่อนลงมาไม่เกินเท่านี้ยังถือว่า "อยู่บนสุด" — เผื่อผู้ใช้ขยับเมาส์นิดหน่อยแล้วยังคาดหวังให้เลื่อนตามของใหม่ */
@@ -485,13 +526,15 @@ function GenErrorDetail({ errMsg }: { errMsg: string }) {
   );
 }
 
-function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, isTabEntry, onFocusCard, onArrowKey, onEnterKey }: CardProps) {
+function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen, focused, isTabEntry, onFocusCard, onArrowKey, onEnterKey, cloudEnabled }: CardProps) {
   // synthetic root ที่ startFromItem สร้าง (ดู actions.ts) เป็น video/cinematic mode แต่ url เป็นภาพนิ่ง (ยังไม่มีวิดีโอจริง) — render เป็น <img> แทน <video>
   const isVid = isVideoMode(item.mode) && !isImageDataUrl(item.url);
   const isAud = item.mode === "audio";
   const isTts = item.mode === "tts";
   const done = item.status === "done";
   const favorite = !!item.favorite;
+  // cloudId มาได้ทั้งจากอัพโหลดสำเร็จและจากการกู้คืน (Task 5) — มีแล้ว = อยู่บน cloud ไม่ต้องมีปุ่มอัพโหลด
+  const onCloud = !!item.cloudId || item.cloudStatus === "done";
   // Extend/Extend-จากเฟรมสุดท้าย ต้องมีวิดีโอจริงให้จับเฟรม — ซ่อนทั้งคู่บน synthetic root ที่ยังไม่มีวิดีโอ (url เป็นภาพนิ่ง/ไม่มี)
   const isCinematicVideoScene = item.mode === "cinematic" && !!item.url && !isImageDataUrl(item.url);
   const [retryPanelOpen, setRetryPanelOpen] = useState(false);
@@ -663,18 +706,49 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           </span>
         )}
 
+        {cloudEnabled && done && onCloud && (
+          <span
+            className="pointer-events-none absolute bottom-2 right-2 z-1 flex items-center gap-1 rounded-full border border-on-media-dim bg-media-scrim/80 px-2 py-[2px] text-[9.5px] text-on-media-dim backdrop-blur-sm"
+            title={t("gallery.cloud.onCloud")}
+          >
+            <CloudCheck size={10} /> {t("gallery.cloud.onCloud")}
+          </span>
+        )}
+
+        {/* การ์ดที่กู้จาก Cloud ใช้ spinner กลางๆ เสมอ — ไม่มี job ให้ประเมิน % แบบวงแหวนวิดีโอ */}
         {!done && item.status === "loading" && (
-          isVid ? (
+          isVid && !item.cloudRestoring ? (
             <VideoProgress item={item} />
           ) : (
             <>
               <div className="mono-shimmer absolute inset-0 animate-shimmer bg-[length:200%_100%]" />
               <div className="absolute left-1/2 top-1/2 h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 animate-spin rounded-full border-2 border-border-strong border-t-text" />
+              {item.cloudRestoring && (
+                <div className="absolute inset-x-0 top-1/2 mt-5 text-center font-mono text-[11px] text-text-dim">{t("gallery.cloud.restoring")}</div>
+              )}
             </>
           )
         )}
 
-        {item.status === "error" && (
+        {/* โหลดจาก Cloud ไม่สำเร็จ — ปุ่มเดียวคือโหลดซ้ำ ห้ามมีปุ่ม "ลองใหม่"/เปลี่ยนโมเดล ที่จะยิง OpenRouter (เสียเงิน) */}
+        {item.status === "error" && item.cloudRestoring && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-[18px] text-center">
+            {/* ไม่ใช้ GenErrorDetail — คำแนะนำของมัน ("ลองเปลี่ยนโมเดล") เป็นของงาน generate ไม่ใช่การโหลดไฟล์ */}
+            <div className="flex items-center gap-1 text-[12px] font-semibold text-danger">
+              <CircleAlert size={12} className="shrink-0" />
+              <span>{item.errMsg}</span>
+            </div>
+            <button
+              className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
+              aria-label={t("gallery.cloud.retryDownload") + ": " + item.prompt}
+              onClick={e => { e.stopPropagation(); retryCloudRestore(item); }}
+            >
+              <RotateCcw size={11} /> {t("gallery.cloud.retryDownload")}
+            </button>
+          </div>
+        )}
+
+        {item.status === "error" && !item.cloudRestoring && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-[18px] text-center">
             <GenErrorDetail errMsg={item.errMsg} />
             <div className="flex items-center gap-1">
@@ -701,7 +775,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           </div>
         )}
 
-        {item.status === "error" && retryPanelOpen && (
+        {item.status === "error" && !item.cloudRestoring && retryPanelOpen && (
           <RetryOverridePanel item={item} onClose={() => setRetryPanelOpen(false)} />
         )}
 
@@ -777,6 +851,24 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
                 <CloudUpload size={10} /> Save to Drive
               </button>
             )}
+            {cloudEnabled && !!item.url && !onCloud && (
+              <button
+                className={
+                  "flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border py-1.5 text-[10.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
+                  (item.cloudStatus === "error"
+                    ? "border-danger/50 text-danger hover:border-danger"
+                    : "border-border text-text-dim hover:border-border-strong hover:text-text")
+                }
+                title={item.cloudStatus === "error" ? (item.cloudErrMsg || t("gallery.cloud.retry")) : t("gallery.cloud.saveHint")}
+                aria-label={(item.cloudStatus === "error" ? t("gallery.cloud.retry") : t("gallery.cloud.save")) + ": " + item.prompt}
+                disabled={item.cloudStatus === "uploading"}
+                onClick={e => { e.stopPropagation(); saveItemToCloud(item); }}
+              >
+                {item.cloudStatus === "uploading" ? <><Loader2 size={10} className="animate-spin" /> {t("gallery.cloud.uploading")}</>
+                  : item.cloudStatus === "error" ? <><CloudAlert size={10} /> {t("gallery.cloud.retry")}</>
+                  : <><CloudUpload size={10} /> {t("gallery.cloud.save")}</>}
+              </button>
+            )}
             {isCinematicVideoScene && (
               <button
                 className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border border-accent/60 py-1.5 text-[10.5px] font-semibold text-text transition-colors hover:bg-accent hover:text-accent-ink"
@@ -843,42 +935,19 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
 
 /**
  * item ถูก mutate ทีละ field ใน-place เสมอ (ดู actions.ts — runRequest ฯลฯ set item.status/url/... ตรงบน object เดิม
- * แล้วค่อย mutate() broadcast) reference ของ item จึงไม่เปลี่ยนแม้เนื้อหาเปลี่ยนจริง — ต้องเทียบทีละ field ที่ Card
- * ใช้เรนเดอร์จริง ห้ามเทียบ prevProps.item === nextProps.item เฉยๆ เพราะจะกลายเป็น false positive (บอกว่า "เหมือนเดิม"
- * ทั้งที่ status เพิ่ง loading → done) แล้ว card ก็จะค้างสถานะเก่าตลอดไป
+ * แล้วค่อย mutate() broadcast) reference ของ item จึงไม่เปลี่ยนแม้เนื้อหาเปลี่ยนจริง — และเทียบ field ของ prev.item กับ
+ * next.item ก็ไร้ผล เพราะเป็น object เดียวกัน ค่าเท่ากันเสมอ จึงเทียบ `rev` (cardRev — snapshot primitive ที่ VirtualGrid
+ * คำนวณตอน render) แทน ห้ามเทียบ prevProps.item === nextProps.item อย่างเดียว ไม่งั้นการ์ดค้างสถานะเก่าตลอดไป
  */
 function cardPropsEqual(prev: Readonly<CardProps>, next: Readonly<CardProps>): boolean {
   if (prev.index !== next.index || prev.selected !== next.selected || prev.autoExtending !== next.autoExtending) return false;
   if (prev.focused !== next.focused || prev.isTabEntry !== next.isTabEntry) return false;
+  if (prev.cloudEnabled !== next.cloudEnabled) return false;
   if (prev.onToggleSelect !== next.onToggleSelect || prev.onOpen !== next.onOpen) return false;
   if (prev.onFocusCard !== next.onFocusCard || prev.onArrowKey !== next.onArrowKey || prev.onEnterKey !== next.onEnterKey) return false;
-  const a = prev.item;
-  const b = next.item;
-  if (a === b) return true;
-  return (
-    a.id === b.id &&
-    a.status === b.status &&
-    a.url === b.url &&
-    a.prompt === b.prompt &&
-    a.model === b.model &&
-    a.modelName === b.modelName &&
-    a.ratio === b.ratio &&
-    a.mode === b.mode &&
-    a.startedAt === b.startedAt &&
-    a.jobStatus === b.jobStatus &&
-    a.errMsg === b.errMsg &&
-    a.autoSaveStatus === b.autoSaveStatus &&
-    a.autoSaveErrMsg === b.autoSaveErrMsg &&
-    a.duration === b.duration &&
-    a.audio === b.audio &&
-    // การ์ด cancelled สลับ label ปุ่ม ("ทำต่อ" vs "สร้างใหม่") และ gate ข้อความ "ไม่เสียเงินเพิ่ม" จาก jobId
-    // ส่วนข้อความสถานะเลือกจาก cancelReason — ทั้งคู่จึงต้องอยู่ใน comparator ไม่งั้นการ์ดค้าง label เดิม
-    // แล้วผู้ใช้เห็นไม่ตรงกับสิ่งที่ retry() จะทำจริง (ทางลงเอยคือจ่ายเงินซ้ำ)
-    a.jobId === b.jobId &&
-    a.cancelReason === b.cancelReason &&
-    // ไม่มีบรรทัดนี้ = กดดาวแล้วการ์ดไม่ repaint เพราะ item ถูก mutate in-place (reference เดิม) — ดู comment ด้านบน
-    !!a.favorite === !!b.favorite
-  );
+  // object ต่างกัน = คนละชิ้น (หรือถูกแทนที่) → ต้อง re-render ให้ callback ในการ์ดจับ object ใหม่
+  // object เดิม → เทียบ rev (snapshot ของทุก field ที่เรนเดอร์) เพราะ field บน object เดียวกันเทียบกันเองได้ค่าเท่ากันเสมอ
+  return prev.item === next.item && prev.rev === next.rev;
 }
 
 // React.memo กัน Card ที่ไม่เกี่ยวข้อง re-render ตอน toggle selection ของ card อื่นใบเดียว (Gallery re-render ทุกครั้งที่
@@ -1025,7 +1094,7 @@ export default function Gallery() {
   const ms = s.modes[s.mode];
   const meta = MODE_META[s.mode];
   const done = ms.images.filter(x => x.status === "done").length;
-  const loading = ms.images.filter(x => x.status === "loading").length;
+  const loading = ms.images.filter(isGenerating).length;
   const unit = s.mode === "cinematic" ? " scene" : s.mode === "video" ? " clip" : s.mode === "audio" ? " song" : s.mode === "tts" ? " clip" : " image";
 
   // เผื่อ item ที่เคยเลือกไว้ถูกลบ/ยังไม่ done — กรองเฉพาะที่ยัง valid
@@ -1090,6 +1159,10 @@ export default function Gallery() {
 
   // ms.images เรียงใหม่→เก่าอยู่แล้ว (item ใหม่ถูก unshift ขึ้นหัว) — "newest" จึงคงลำดับเดิม, "oldest" แค่กลับด้าน
   // toSorted/reverse บน copy เสมอ ห้าม mutate ms.images ตรงๆ เพราะเป็น state จริงใน store
+  // addToGallery ทำ unshift ลง ms.images ตัวเดิม (in-place) และ status/favorite ก็เปลี่ยนบน object เดิม — reference
+  // ของ ms.images ใช้เป็น dep อย่างเดียวไม่ได้ (เคยทำให้ผลงานใหม่ไม่โผล่ในกริดเลย ขึ้น "ไม่มีผลงานที่ตรงกับตัวกรองนี้")
+  // listKey ครอบทุกอย่างที่ตัวกรองข้างล่างอ่าน: ลำดับ/จำนวน (id), status, favorite (prompt ของ item ไม่เปลี่ยนหลังสร้าง)
+  const listKey = ms.images.map(x => x.id + ":" + x.status + ":" + (x.favorite ? 1 : 0)).join(",");
   const visibleItems = useMemo(() => {
     const q = query.trim().toLowerCase();
     let out = ms.images.filter(x => {
@@ -1100,7 +1173,8 @@ export default function Gallery() {
     });
     if (sortOrder === "oldest") out = [...out].reverse();
     return out;
-  }, [ms.images, query, statusFilter, favOnly, sortOrder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ms.images, listKey, query, statusFilter, favOnly, sortOrder]);
 
   const favCount = ms.images.filter(x => !!x.favorite).length;
 
@@ -1133,16 +1207,52 @@ export default function Gallery() {
   // resetModeGallery เป็นคน revoke blob URL ให้เฉพาะชิ้นที่ถูกลบจริง (ดู actions.ts) การ์ดที่ติดดาวจึงยังเล่นต่อได้
   const clearableCount = ms.images.filter(x => !x.favorite).length;
 
+  // โมดัลยืนยันการลบ (ล้างแกลเลอรี / ลบที่เลือก) — closeConfirm ต้อง stable เพราะ ConfirmModal ผูก effect กับมัน
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+  const closeConfirm = useCallback(() => setConfirmReq(null), []);
+
+  // ไม่ได้ล็อกอิน → ลบได้แค่ในเครื่อง สำเนาบน Cloud ยังอยู่และจะกลับมาตอนล็อกอิน ต้องบอกก่อนกดยืนยัน
+  const cloudDeleteWarning = (effect: CloudDeleteEffect) =>
+    effect === "delete" ? t("gallery.delete.cloudNote")
+      : effect === "kept" ? t("gallery.delete.cloudKeptNote")
+        : undefined;
+
   const clearGallery = () => {
     if (!clearableCount) return;
+    const mode = s.mode;
     const question = favCount
       ? `ลบผลงาน ${clearableCount} ชิ้นในโหมดนี้ออกจากแกลเลอรีใช่ไหมคะ?
 (${favCount} ชิ้นที่ติดดาวไว้จะถูกเก็บไว้ ส่วนที่เหลือกู้คืนไม่ได้)`
       : `ลบผลงานทั้ง ${clearableCount} ชิ้นในโหมดนี้ออกจากแกลเลอรีใช่ไหมคะ? กู้คืนไม่ได้นะคะ`;
-    if (!window.confirm(question)) return;
-    const removed = resetModeGallery(s.mode);
-    resetFilters();
-    toast(favCount ? `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ (เก็บรายการโปรดไว้ ${favCount} ชิ้น)` : `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ`);
+    const kept = favCount;
+    setConfirmReq({
+      title: t("gallery.delete.clearTitle"),
+      body: question,
+      warning: cloudDeleteWarning(modeResetCloudDeleteEffect(mode)),
+      confirmLabel: t("gallery.delete.confirm"),
+      onConfirm: () => {
+        const removed = resetModeGallery(mode);
+        resetFilters();
+        toast(kept ? `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ (เก็บรายการโปรดไว้ ${kept} ชิ้น)` : `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ`);
+      },
+    });
+  };
+
+  // ลบที่เลือก — ยืนยันทุกครั้ง (destructive และลบชิ้นที่ติดดาวด้วย) เพิ่มประโยคเตือนเมื่อจะลบสำเนาบน Cloud ด้วย
+  // นับแบบเดียวกับ deleteSelected() (ข้ามงานที่กำลัง generate) ให้ตัวเลขในโมดัลตรงกับที่จะลบจริง
+  const deleteSelectedItems = () => {
+    const count = selectedItems.filter(x => !isGenerating(x)).length;
+    if (!count) return;
+    setConfirmReq({
+      title: t("gallery.delete.selectedTitle"),
+      body: t("gallery.delete.selectedConfirm", { count }),
+      warning: cloudDeleteWarning(selectionCloudDeleteEffect()),
+      confirmLabel: t("gallery.delete.confirm"),
+      onConfirm: () => {
+        const removed = deleteSelected();
+        if (removed) toast(t("gallery.delete.selectedDone", { count: removed }));
+      },
+    });
   };
 
   return (
@@ -1183,6 +1293,22 @@ export default function Gallery() {
                   <CloudUpload size={11} /> Save to Drive
                 </button>
               )}
+              {!!s.cloudUser && (
+                <button
+                  className="flex cursor-pointer items-center gap-1 rounded-md border border-border-strong px-2.5 py-1 text-[11px] text-text transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+                  aria-label={t("gallery.cloud.saveSelectedAria", { count: selectedCount })}
+                  onClick={saveSelectedToCloud}
+                >
+                  <CloudUpload size={11} /> {t("gallery.cloud.save")}
+                </button>
+              )}
+              <button
+                className="flex cursor-pointer items-center gap-1 rounded-md border border-border-strong px-2.5 py-1 text-[11px] text-text transition-colors hover:border-danger hover:text-danger"
+                aria-label={t("gallery.delete.selectedAria", { count: selectedCount })}
+                onClick={deleteSelectedItems}
+              >
+                <Trash2 size={11} /> {t("gallery.delete.selected")}
+              </button>
               <button
                 className="flex cursor-pointer items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text"
                 aria-label="ยกเลิกการเลือกทั้งหมด"
@@ -1306,6 +1432,7 @@ export default function Gallery() {
           mode={s.mode}
           listRef={listRef}
           onAtTopChange={onAtTopChange}
+          cloudEnabled={!!s.cloudUser}
           newResultPill={
             /* ปุ่มลอยแทนการดึงจอกลับขึ้นบนเอง — ผู้ใช้เลือกเองว่าจะขึ้นไปดูตอนไหน
                ต้องวางในตัว VirtualGrid เอง ห้ามครอบ div เพิ่มรอบนอก ไม่งั้น flex chain
@@ -1336,6 +1463,7 @@ export default function Gallery() {
           </div>
         </div>
       )}
+      <ConfirmModal request={confirmReq} onClose={closeConfirm} />
     </main>
   );
 }

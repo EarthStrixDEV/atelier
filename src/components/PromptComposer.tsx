@@ -6,7 +6,7 @@ import {
 import { hasPromptBuilder, INFOGRAPHIC_STRUCTURAL_PRESETS, isVideoMode, MODE_META, PROMPT_LENGTH_WARN, RATIOS } from "../lib/constants";
 import {
   applyInfographicPreset, applyOptimizedPrompt, canRunBakeOff, cancelAll, clearOptimize, currentModel, dedupPromptKeywords, deleteUserTemplate,
-  generate, insertTemplateText, modelsForMode, openBakeOffConfirm, runOptimize, saveCurrentPromptAsTemplate, setPrompt,
+  generate, insertTemplateText, isGenerating, modelsForMode, openBakeOffConfirm, runOptimize, saveCurrentPromptAsTemplate, setPrompt,
   setPromptPlacement, templatesForMode, toggleKeyword,
 } from "../lib/actions";
 import { mutate, toast, useApp } from "../lib/store";
@@ -192,7 +192,7 @@ export default function PromptComposer({ placement }: PromptComposerProps) {
   const isDock = placement === "dock";
   const hasPrompt = !!ms.prompt.trim();
   const canGenerate = modelsForMode(s.mode).length > 0 && (hasPrompt || ms.queue.length > 0);
-  const generatingCount = ms.images.filter(x => x.status === "loading").length;
+  const generatingCount = ms.images.filter(isGenerating).length;
   // Bake-off (PHASE 14) เปลี่ยนพฤติกรรมปุ่ม Generate — เปิดโมดัลยืนยันราคาแทนยิงตรง (ดู Sidebar สำหรับ toggle/เลือกโมเดล)
   const bakeOffActive = ms.bakeOffEnabled;
   const canGenerateOrBakeOff = bakeOffActive ? canRunBakeOff() : canGenerate;

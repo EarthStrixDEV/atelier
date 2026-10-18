@@ -1,7 +1,7 @@
 import {
   ASSIST_RATE_LIMIT_BACKOFF_MS, ASSIST_RATE_LIMIT_RETRIES,
   AUDIO_EXTRA_MODELS, AUDIO_MODEL_IDS, AUDIO_MODEL_PRICES,
-  BUILTIN_TEMPLATES, CHAT_MODEL, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
+  BUILTIN_TEMPLATES, CHAT_MODEL, CLOUD_AUTOUPLOAD_KEY, CLOUD_RESTORE_CONCURRENCY, CLOUD_RESTORE_PER_MODE, CLOUD_UPLOAD_CONCURRENCY, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
   MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_CONCURRENT_REQUESTS, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage,
   NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, PREFERRED,
@@ -14,7 +14,7 @@ import {
 } from "./fsAccess";
 import { connectDrive as gdriveConnect, disconnectDrive as gdriveDisconnect, DrivePermissionError, isDriveConfigured, isDriveConnected, uploadToDrive } from "./googleDrive";
 import { registerBlobUrl, releaseBlobUrls } from "./blobUrls";
-import { deleteItem, isGalleryPersistEnabled, loadItems, onGalleryPersistDisabled, saveItem, setFavorite } from "./galleryStore";
+import { deleteItem, isGalleryPersistEnabled, loadItems, onGalleryPersistDisabled, saveItem, setCloudId, setFavorite } from "./galleryStore";
 import { beginNotifyBatch, dropFromNotifyBatch, notifyJobSettled, requestNotifyPermissionOnce } from "./notify";
 import { SYSTEM_DARK, SYSTEM_LIGHT } from "./themes";
 import {
@@ -22,7 +22,13 @@ import {
   freshSpendLedger, loadGalleryMaxId, loadPendingJobs, loadSessionSnapshotRaw, migrateHistoryList, mutate, nextHistorySeq,
   PROMPT_PLACEMENT_KEY, removePendingJob, saveAssistModelId, saveChatHistory, saveFavorites, saveHistory, saveLocale, saveSessionSnapshotRaw,
   saveSpendLedger, saveTheme, saveUserExtraModels, saveUserTemplates, state, toast, writeLocalStorage,
+  clearApiKeyStorage, saveApiKey,
 } from "./store";
+import {
+  cloudDeleteItems, cloudDeleteKey, cloudDownload, cloudGetSession, cloudListRecent, cloudLoadKey, cloudSaveKey, cloudSetFavorite, cloudSignIn, cloudSignOut, cloudUploadItem,
+  isCloudConfigured, onCloudAuthChange, type CloudItemMeta, type CloudUploadErrorCode,
+} from "./supabase";
+import { t } from "./i18n";
 import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, ResolvedThemeId, SpendConfirmRequest, SpendLedger, StoryboardChain, ThemeId, TtsVoice } from "./types";
 import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
@@ -265,6 +271,8 @@ function snapshotDiffersFromFresh(snapshot: ImportFileShape): boolean {
  * snapshotDiffersFromFresh) เป็น banner เดียวกันเสมอ ไม่ยิงซ้อนหลายอันตอน boot
  */
 export function reconcilePendingJobs() {
+  // Cloud Sync: เริ่มโหลด session + key จาก Supabase ก่อนอย่างอื่น (no-op ถ้าไม่ได้ตั้งค่า → cloudKeyLoaded resolve ทันที)
+  initCloud();
   // F2: กู้ผลงานที่เก็บไว้ใน IndexedDB กลับเข้าแกลเลอรี — เกาะจุดบูตนี้เพราะเป็นฟังก์ชันเดียวใน actions.ts
   // ที่ StudioApp เรียกให้ครั้งเดียวตอน mount อยู่แล้ว (StudioApp.tsx ไม่ได้อยู่ในขอบเขตงานนี้)
   // ยิงก่อนตัดสินใจ return ด้านล่าง เพราะ ledger ว่างไม่ได้แปลว่าไม่มีของให้กู้
@@ -282,9 +290,13 @@ export function reconcilePendingJobs() {
   // ไม่ await: การกู้ต้องไม่หน่วง resume ของ video job ที่จ่ายเงินไปแล้ว (rehydrateGallery no-op ถ้า opt-in ปิด)
   // เก็บ promise ไว้ให้ pruneOrphanFavorites() รอ — ห้าม await ตรงนี้ (จะหน่วง resume video job ที่จ่ายเงินแล้ว)
   galleryRehydrated = rehydrateGallery().catch(() => {});
+  void galleryRehydrated.then(markGalleryRehydrated); // ปล่อยคนที่รอ deferred ตั้งแต่ก่อนบูต (ดู galleryRehydrated)
   // ล้างคีย์โปรดกำพร้าตอนบูต — fire-and-forget, รอ rehydrate เองข้างใน (ดู pruneOrphanFavorites)
   void pruneOrphanFavorites();
 
+  // Cloud Sync: การ "อ่าน" ledger/flag/snapshot ยังทำแบบ sync ที่จุดเดิม — ถ้าไปอ่านหลัง cloudKeyLoaded (อาจนานหลายวินาที)
+  // ผู้ใช้ที่กด Generate ระหว่างรอจะมี entry ใหม่ของ session นี้โผล่ใน ledger แล้วถูกนับเป็นงานค้าง/resume ซ้ำ
+  // ส่วนที่ต้องรอคือการตัดสิน resume ซึ่งเช็ค state.apiKey — ถ้าตัดสินตอน key cloud ยังไม่มา job ที่จ่ายเงินแล้วจะถูกทิ้งถาวร
   const ledger = loadPendingJobs();
   const lostQueueModes = consumeQueueNonEmptyFlag().filter(m => state.modes[m].queue.length === 0);
 
@@ -299,6 +311,18 @@ export function reconcilePendingJobs() {
 
   if (!ledger.length && !lostQueueModes.length && !snapshotRestorable) return;
 
+  // ยก s.seq ให้พ้น id ของ ledger ตั้งแต่ตอนนี้ (sync) — item ใหม่ที่ผู้ใช้สร้างระหว่างรอ cloudKeyLoaded จะได้ไม่ชน id
+  // ของ job ที่กำลังจะ resume (ข้างล่างยัง bump ซ้ำอีกรอบ เหมือนเดิม — ไม่มีผลถ้าค่านี้สูงกว่าแล้ว)
+  const ledgerMaxId = ledger.reduce((mx, e) => Math.max(mx, e.id), 0);
+  if (ledgerMaxId > 0) mutate(s => { if (ledgerMaxId > s.seq) s.seq = ledgerMaxId; });
+
+  // รอ cloudKeyLoaded (ไม่มี timeout 5s) ไม่ใช่ keyReady — ถ้า timeout ชนะแล้วตัดสินตอน apiKey ยังว่าง
+  // job วิดีโอที่จ่ายเงินแล้วจะถูกลบจาก ledger ถาวร (anti-goal ใน spec)
+  void cloudKeyLoaded.then(() => resolvePendingLedger(ledger, lostQueueModes, snapshotRestorable));
+}
+
+/** ครึ่งหลังของ reconcilePendingJobs — รันหลัง cloudKeyLoaded เพื่อให้ state.apiKey จาก cloud มาถึงก่อนตัดสิน resume */
+function resolvePendingLedger(ledger: PendingJobEntry[], lostQueueModes: Mode[], snapshotRestorable: boolean) {
   let lostJobCount = 0;
   const resumable: { entry: PendingJobEntry; model: ORModel }[] = [];
 
@@ -449,6 +473,113 @@ export function applyPromptSuggestion(text: string) {
   focusPromptInput();
 }
 
+// ---------- Cloud Sync (Supabase): login + OpenRouter key ----------
+/** กัน network ตายแล้ว resume video job / ปุ่ม Generate ค้างรอ cloud ตลอดไป */
+const CLOUD_KEY_TIMEOUT_MS = 5000;
+/** เพดานกันค้างถาวรของ cloudKeyLoaded เท่านั้น (เช่น auth lock ของ supabase-js ค้าง) — ปกติ request ล้มเองก่อนถึง */
+const CLOUD_KEY_LOAD_CEILING_MS = 30000;
+
+/**
+ * มี promise สองตัวจากการโหลดครั้งเดียวกัน แยกตามจุดประสงค์ — ไม่ได้ตั้งค่าฟีเจอร์ → ทั้งคู่ resolve ทันที
+ * และ keySettled = true ตั้งแต่โหลด module = พฤติกรรมเดิมทุกอย่าง
+ * - `cloudKeyLoaded`: รอการโหลด session + key จริงจนจบ (เพดาน 30s) — ใช้ตัดสิน resume/lost ของ pending job
+ *   เพราะตัดสินผิดตอน key ยังไม่มา = ทิ้ง job ที่จ่ายเงินแล้วถาวร รอนานกว่าได้ไม่เสียหาย
+ * - `keyReady`: ตัวเดียวกันแต่ race กับ 5s — ใช้กับ requireApiKey (UI) ไม่ให้ปุ่มเงียบนานเกินไป
+ */
+export let cloudKeyLoaded: Promise<void> = Promise.resolve();
+export let keyReady: Promise<void> = Promise.resolve();
+let keySettled = !isCloudConfigured();
+let cloudInitStarted = false;
+let keyWaitPending = false;
+
+/**
+ * ดึง key จาก cloud: มี → ชนะ key ในเครื่อง (เขียนลง storage ด้วย saveApiKey ตาม remember เดิม ให้ code path
+ * อื่นที่อ่าน storage ตรงกัน); cloud ไม่มีแถวแต่เครื่องมี → seed ขึ้น cloud (ล็อกอินครั้งแรกบนเครื่องหลัก)
+ * อ่านไม่สำเร็จ (ok: false) → ไม่แตะอะไรเลย: ห้าม seed เพราะไม่รู้ว่า cloud มี key ที่ใหม่กว่าอยู่หรือเปล่า
+ */
+async function syncCloudKey(): Promise<void> {
+  const before = state.apiKey;
+  const res = await cloudLoadKey();
+  if (!res.ok) return;
+  if (res.key) {
+    // ผู้ใช้บันทึก key ใหม่ใน KeyModal ระหว่างรอ fetch (onApiKeySaved upsert ขึ้นไปแล้ว) — ผลอ่านนี้เก่ากว่า ห้ามทับ
+    if (state.apiKey !== before) return;
+    const key = res.key;
+    if (key !== state.apiKey) {
+      mutate(s => { s.apiKey = key; });
+      saveApiKey(key);
+    }
+  } else if (state.apiKey) {
+    await cloudSaveKey(state.apiKey);
+  }
+}
+
+/**
+ * ลำดับเดียวที่ใช้ทั้งตอน boot (initCloud) และหลังล็อกอิน (cloudLogin): session → cloudUser → key → gallery
+ * คืน false ถ้าไม่มี session (ไม่ทำอะไรต่อ) — Task 5 เติม restoreCloudGallery ที่จุดเดียวนี้
+ */
+async function loadCloudSessionAndKey(): Promise<boolean> {
+  const user = await cloudGetSession();
+  if (!user) return false;
+  mutate(s => { s.cloudUser = user; });
+  await syncCloudKey();
+  void restoreCloudGallery();
+  return true;
+}
+
+export function initCloud(): void {
+  if (cloudInitStarted) return;
+  cloudInitStarted = true;
+  if (!isCloudConfigured()) {
+    cloudKeyLoaded = Promise.resolve();
+    keyReady = Promise.resolve();
+    keySettled = true;
+    return;
+  }
+  // session หมดจากที่อื่น (token ถูก revoke/หมดอายุ) → แค่ล้าง cloudUser — ไม่ล้าง key (ล้างเฉพาะตอนกด Logout เอง)
+  onCloudAuthChange(user => {
+    if (user?.userId === state.cloudUser?.userId && user?.email === state.cloudUser?.email) return;
+    mutate(s => { s.cloudUser = user; });
+  });
+  const load = loadCloudSessionAndKey()
+    .then(() => {})
+    .catch(() => { /* ฟังก์ชันใน supabase.ts ไม่ throw อยู่แล้ว — กันไว้ให้ promise ไม่ reject */ });
+  cloudKeyLoaded = Promise.race([load, sleep(CLOUD_KEY_LOAD_CEILING_MS)]);
+  keyReady = Promise.race([cloudKeyLoaded, sleep(CLOUD_KEY_TIMEOUT_MS)]).then(() => { keySettled = true; });
+}
+
+export async function cloudLogin(email: string, password: string): Promise<boolean> {
+  const res = await cloudSignIn(email, password);
+  if (!res.ok) {
+    toast(res.message, "error");
+    return false;
+  }
+  await loadCloudSessionAndKey();
+  toast(t("actions.cloud.loggedIn"));
+  return true;
+}
+
+/** ออกจากระบบ: ล้าง key ทั้งใน state และ storage ทั้งสองที่ แต่ไม่แตะ remember flag (ไม่ใช้ saveApiKey("", false)) — แกลเลอรีคงไว้ */
+export async function cloudLogout(): Promise<void> {
+  await cloudSignOut();
+  clearApiKeyStorage();
+  mutate(s => { s.apiKey = ""; s.cloudUser = null; });
+  toast(t("actions.cloud.loggedOut"));
+}
+
+/** KeyModal เรียกหลังบันทึก key — upsert ขึ้น cloud ถ้าล็อกอินอยู่ (ไม่ล็อกอิน = no-op), key ว่าง = ลบ */
+export function onApiKeySaved(key: string): void {
+  if (!state.cloudUser) return;
+  if (!key) { onApiKeyCleared(); return; }
+  void cloudSaveKey(key).then(ok => { if (!ok) toast(t("actions.cloud.keySaveFailed"), "error"); });
+}
+
+/** KeyModal เรียกหลังกดลบ key — ลบแถว user_secrets ด้วยถ้าล็อกอินอยู่ (ไม่ล็อกอิน = no-op) */
+export function onApiKeyCleared(): void {
+  if (!state.cloudUser) return;
+  void cloudDeleteKey().then(ok => { if (!ok) toast(t("actions.cloud.keyDeleteFailed"), "error"); });
+}
+
 /**
  * R2 — ขอ API Key ตอนผู้ใช้ "ทำ" สิ่งที่ต้องใช้ key จริงเท่านั้น (ไม่ใช่ตอนเปิดหน้า) แล้วทำต่อให้เองหลังบันทึก key
  * จำ resume ได้ทีละอันเดียว: ผู้ใช้กดอะไรล่าสุดก่อน modal เด้ง = สิ่งที่ตั้งใจจะทำจริง
@@ -459,6 +590,27 @@ let resumeAfterKey: (() => void) | null = null;
 export function requireApiKey(resume: () => void): boolean {
   if (state.apiKey) return true;
   resumeAfterKey = resume;
+  if (!keySettled) {
+    // key อาจกำลังมาจาก cloud — ห้ามเด้ง modal ขอ key ที่ผู้ใช้เก็บไว้แล้ว รอให้ keyReady จบก่อนค่อยตัดสิน
+    // requireApiKey ถูกเรียกก่อน reconcilePendingJobs ได้ (ปุ่มกดได้ระหว่างรอ loadVideoModels) จึงต้องสั่ง
+    // initCloud() เองตรงนี้ด้วย — idempotent ถ้าเริ่มไปแล้วคือ no-op และ keyReady เป็น promise ตัวเดียวกัน
+    initCloud();
+    if (!keyWaitPending) {
+      // กดซ้ำระหว่างรอ = แค่เปลี่ยน resumeAfterKey เป็นอันล่าสุด (เหมือน modal) ไม่ผูก .then ซ้ำ → ไม่เปิด modal สองรอบ
+      keyWaitPending = true;
+      void keyReady.then(() => {
+        keyWaitPending = false;
+        if (state.apiKey) {
+          const r = resumeAfterKey;
+          resumeAfterKey = null;
+          r?.();
+        } else if (resumeAfterKey) {
+          mutate(s => { s.keyModalOpen = true; });
+        }
+      });
+    }
+    return false;
+  }
   mutate(s => { s.keyModalOpen = true; });
   return false;
 }
@@ -809,7 +961,7 @@ export function refImageMissing(): boolean {
   return modelRequiresRefImage(currentModel()?.id) && !cur().refs[0];
 }
 
-const readAsDataUrl = (file: File) =>
+const readAsDataUrl = (file: Blob) =>
   new Promise<string>((resolve, reject) => {
     const fr = new FileReader();
     fr.onload = () => resolve(String(fr.result));
@@ -1016,16 +1168,16 @@ export function reorderQueue(fromIndex: number, toIndex: number) {
  */
 export function resetModeGallery(mode: Mode): number {
   let removed = 0;
-  // id ของชิ้นที่ถูกลบจริงในรอบนี้ — เก็บไว้ลบ record ใน IndexedDB หลัง mutate() จบ (ดู forgetPersistedItems)
+  // ชิ้นที่ถูกลบจริงในรอบนี้ — เก็บไว้ลบ record ใน IndexedDB และบน cloud หลัง mutate() จบ (forgetPersistedItems/forgetCloudItems)
   // ต้องเป็น "เฉพาะชิ้นที่ลบจริง" ไม่ใช่ทั้งโหมด ไม่งั้นของที่ติดดาวจะหายจากดิสก์ทั้งที่การ์ดยังอยู่
-  const droppedIds: number[] = [];
+  const dropped: GenItem[] = [];
   mutate(s => {
     const ms = s.modes[mode];
     const kept: GenItem[] = [];
     for (const item of ms.images) {
       if (item.favorite) { kept.push(item); continue; }
       releaseBlobUrls(item.id);
-      droppedIds.push(item.id);
+      dropped.push(item);
       removed++;
     }
     ms.images = kept;
@@ -1036,8 +1188,68 @@ export function resetModeGallery(mode: Mode): number {
   });
   // fire-and-forget หลัง mutate() สำเร็จ — no-op เงียบถ้า opt-in ปิด (pattern เดียวกับ syncFavoriteToGallery)
   // ห้ามทำ resetModeGallery เป็น async: Gallery.tsx เรียกใน onClick แล้วใช้ค่า return ต่อทันที
-  forgetPersistedItems(droppedIds);
+  forgetPersistedItems(dropped.map(x => x.id));
+  forgetCloudItems(dropped);
   return removed;
+}
+
+/**
+ * ลบเฉพาะชิ้นที่เลือกไว้ในโหมดปัจจุบัน — ต่างจาก resetModeGallery ตรงที่ลบชิ้นที่ติดดาวด้วย (ผู้ใช้เลือกเองชัดๆ)
+ * ข้ามงานที่กำลัง generate อยู่ (ลบการ์ดทิ้งไม่ได้หยุด request ที่จ่ายเงินไปแล้ว) — การ์ด Cloud ที่กำลังโหลดลบได้
+ * sync เหมือน resetModeGallery: Gallery.tsx ใช้ค่า return ใน onClick ทันที
+ */
+export function deleteSelected(): number {
+  const dropped: GenItem[] = [];
+  mutate(s => {
+    const ms = s.modes[s.mode];
+    const kept: GenItem[] = [];
+    for (const item of ms.images) {
+      if (ms.selected.has(item.id) && !isGenerating(item)) {
+        releaseBlobUrls(item.id);
+        dropped.push(item);
+      } else {
+        kept.push(item);
+      }
+    }
+    if (!dropped.length) return;
+    ms.images = kept;
+    ms.selected = new Set();
+    ms.lbIndex = -1;
+  });
+  if (!dropped.length) return 0;
+  forgetPersistedItems(dropped.map(x => x.id));
+  forgetCloudItems(dropped);
+  return dropped.length;
+}
+
+/** ชิ้นนี้จะมีสำเนาบน cloud ให้ลบตาม (มีแล้ว หรือกำลังอัพโหลด) — ใช้ตัดสินว่าต้องเตือนเรื่องลบถาวรไหม */
+function hasCloudCopy(item: GenItem): boolean {
+  return !!item.cloudId || item.cloudStatus === "uploading";
+}
+
+/**
+ * ผลต่อสำเนาบน cloud ของการลบชุดหนึ่ง — ใช้เลือกข้อความเตือนในโมดัลยืนยัน
+ * "delete" = ล็อกอินอยู่ สำเนาบน cloud จะถูกลบตาม
+ * "kept"   = ไม่ได้ล็อกอิน (หรือ session หมดอายุ) แต่มีชิ้นที่มี cloudId — forgetCloudItems จะข้าม cloud
+ *            สำเนาจึงยังอยู่และจะกลับมาตอนล็อกอินครั้งหน้า ผู้ใช้ต้องรู้ก่อนกดยืนยัน
+ * "none"   = ไม่มีชิ้นไหนเกี่ยวกับ cloud
+ */
+export type CloudDeleteEffect = "none" | "delete" | "kept";
+
+function cloudDeleteEffect(items: GenItem[]): CloudDeleteEffect {
+  if (state.cloudUser) return items.some(hasCloudCopy) ? "delete" : "none";
+  return items.some(x => !!x.cloudId) ? "kept" : "none";
+}
+
+/** ที่เลือกไว้ในโหมดปัจจุบัน deleteSelected() จะมีผลกับสำเนาบน cloud อย่างไร (ข้ามงานที่กำลัง generate เหมือน deleteSelected) */
+export function selectionCloudDeleteEffect(): CloudDeleteEffect {
+  const ms = cur();
+  return cloudDeleteEffect(ms.images.filter(x => ms.selected.has(x.id) && !isGenerating(x)));
+}
+
+/** resetModeGallery(mode) จะมีผลกับสำเนาบน cloud อย่างไร — นับเฉพาะชิ้นที่ไม่ติดดาว (ชิ้นติดดาวไม่ถูกลบ) */
+export function modeResetCloudDeleteEffect(mode: Mode): CloudDeleteEffect {
+  return cloudDeleteEffect(state.modes[mode].images.filter(x => !x.favorite));
 }
 
 // ---------- generation ----------
@@ -1558,6 +1770,8 @@ async function runRequest(item: GenItem, batchId: number | null = null, signal?:
   // ตั้งใจเปิดไว้เพื่อเอาไฟล์ลงเครื่องจริง ห้ามให้ storage layer ที่เป็น cache แย่งคิว I/O ไปก่อน
   // fire-and-forget เหมือนกัน: เขียนพลาด/quota เต็ม ต้องไม่ทำให้ item ที่ done แล้วกลายเป็น error
   if (item.status === "done") persistItemToGallery(item);
+  // Cloud auto-upload (opt-in ต่อเบราว์เซอร์) — fire-and-forget, พลาดแค่โชว์บนการ์ด ไม่ toast ไม่แตะ item.status
+  if (item.status === "done" && state.cloudUser && isCloudAutoUpload()) void enqueueCloudUpload(item, false);
   // แจ้งเตือน desktop/title flicker เฉพาะงานที่ใช้เวลานาน (video/cinematic/audio/tts) — ภาพนิ่งเร็วพอไม่ต้องรบกวน
   if (isVideoMode(item.mode) || item.mode === "audio" || item.mode === "tts") notifyJobSettled(item, batchId);
 }
@@ -1653,7 +1867,7 @@ function syncFavoriteToGallery(touched: GenItem[]) {
         // false = record ถูก evict ไปแล้ว — ไม่ rollback state ดาวใน UI ยังเป็นความจริงของเซสชันนี้
         const ok = await setFavorite(key, favorite);
         if (!ok) persistKeys.delete(item.id);
-      } else if (item.status === "done") {
+      } else if (item.status === "done" && !cloudRestoredItems.has(item)) {
         const fresh = await saveItem(item);
         if (fresh) {
           persistKeys.set(item.id, fresh);
@@ -1729,7 +1943,14 @@ function forgetPersistedItems(ids: number[]) {
  * ต้องรอตัวนี้ก่อน ไม่งั้นจะ prune ตอนแกลเลอรียังว่างแล้วลบดาวทิ้งหมด (ดู pruneOrphanFavorites)
  * ตั้งเป็น resolved ไว้ก่อน: ถ้า opt-in ปิด rehydrateGallery() return ทันทีและไม่มีอะไรให้รอ
  */
-let galleryRehydrated: Promise<void> = Promise.resolve();
+let markGalleryRehydrated: () => void = () => {};
+/**
+ * เริ่มเป็น deferred ที่ยังไม่ resolve (ไม่ใช่ Promise.resolve()) — cloudLogin ที่สำเร็จก่อน reconcilePendingJobs จะยิง
+ * (ซึ่งรอ loadVideoModels อยู่) ต้องรอ rehydrate รอบบูตด้วย ไม่งั้น restoreCloudGallery dedupe กับแกลเลอรีที่ยังว่าง
+ * และสร้าง id ก่อน s.seq ถูกยกพื้น — resolve โดย reconcilePendingJobs เมื่อ rehydrate รอบแรกจบ (StudioApp เรียกเสมอ
+ * ตอน mount และ loadVideoModels ไม่ throw) ส่วน SettingsModal ที่ล็อกอินได้ก็ mount อยู่ใน StudioApp เท่านั้น
+ */
+let galleryRehydrated: Promise<void> = new Promise<void>(resolve => { markGalleryRehydrated = resolve; });
 
 export async function rehydrateGallery() {
   if (!isGalleryPersistEnabled()) return;
@@ -1775,6 +1996,9 @@ export async function rehydrateGallery() {
           bakeOffGroupId: r.bakeOffGroupId || undefined,
           favorite: r.favorite,
           ttsVoiceId: r.ttsVoiceId,
+          // เคยขึ้น Cloud แล้ว — การ์ดโชว์ "อยู่บน Cloud" และ restoreCloudGallery ใช้ค่านี้กันกู้ซ้ำ
+          cloudId: r.cloudId,
+          cloudPath: r.cloudPath, // Task 6 ลบไฟล์บน Storage ด้วยค่านี้
         });
         restoredCount++;
       }
@@ -1977,6 +2201,459 @@ export function saveSelectedToDrive() {
   if (!items.length) return;
   for (const item of items) enqueueDriveSave(() => performDriveSave(item));
   toast(`กำลังอัพโหลดขึ้น Drive ${items.length} ไฟล์ค่ะ~`);
+}
+
+// ---------- Cloud gallery upload (Supabase Storage — manual + auto) ----------
+/**
+ * คิวกว้าง CLOUD_UPLOAD_CONCURRENCY (2) — แยกจาก Request Governor (ไม่ใช้เงิน OpenRouter) และจาก Drive
+ * cloudStatus = "uploading" ถูกตั้งตั้งแต่ตอนเข้าคิว ไม่ใช่ตอนเริ่มอัพโหลดจริง เพื่อให้ guard ใน canUploadToCloud
+ * กันกดซ้ำ/auto+manual ชนกันได้ตั้งแต่ชิ้นยังรอคิว และการ์ดโชว์ spinner ทันที
+ */
+let cloudActive = 0;
+/**
+ * อัพโหลดที่กำลังวิ่งอยู่จริง — restoreCloudGallery รอชุดนี้ก่อน dedupe: cloudUploadItem insert แถวก่อนอัพไฟล์
+ * แล้วค่อยคืน id ตอนจบ ถ้า list ของ restore เห็นแถวนั้นก่อน item.cloudId ถูกตั้ง ชิ้นเดียวกันจะโผล่เป็นการ์ดใบที่สอง
+ */
+const activeCloudUploads = new Set<Promise<boolean>>();
+const cloudWaiters: (() => void)[] = [];
+
+function runCloudSlot<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = () => {
+      cloudActive++;
+      task().then(resolve, reject).finally(() => {
+        cloudActive--;
+        cloudWaiters.shift()?.();
+      });
+    };
+    if (cloudActive < CLOUD_UPLOAD_CONCURRENCY) start();
+    else cloudWaiters.push(start);
+  });
+}
+
+function canUploadToCloud(item: GenItem): boolean {
+  return !!state.cloudUser && item.status === "done" && !!item.url && !item.cloudId && item.cloudStatus !== "uploading";
+}
+
+/** หา cloudId ของ item ต้นทางใน chain — ไล่ทุกโหมดเพราะ startFromItem สร้าง root ข้ามโหมดได้ */
+function parentCloudIdOf(item: GenItem): string | null {
+  if (item.parentId == null) return null;
+  for (const ms of Object.values(state.modes)) {
+    const parent = ms.images.find(x => x.id === item.parentId);
+    if (parent) return parent.cloudId ?? null;
+  }
+  return null;
+}
+
+/** แปลง error code จาก supabase.ts เป็นข้อความตาม locale — detail เป็นข้อความดิบจาก Supabase/เบราว์เซอร์ (ไม่แปล) */
+function cloudUploadErrorText(code: CloudUploadErrorCode, detail?: string): string {
+  const base = t("actions.cloud.err." + code);
+  return detail ? base + ": " + detail : base;
+}
+
+/**
+ * อัพโหลดหนึ่งชิ้น — ไม่ throw; manual = ผู้ใช้กดเอง (toast error ได้), auto = โชว์บนการ์ดอย่างเดียว
+ * คืน false เฉพาะตอนอัพโหลดไม่สำเร็จ (ใช้นับสรุปของ batch)
+ */
+async function performCloudUpload(item: GenItem, manual: boolean): Promise<boolean> {
+  // ผู้ใช้ลบการ์ดทิ้งระหว่างรอคิว/อ่านไฟล์ — ห้ามสร้างแถวบน cloud ให้ของที่ไม่อยู่ในแกลเลอรีแล้ว (ไม่มีใครลบให้ทีหลัง)
+  // เช็คก่อนอ่านไฟล์ด้วย เพราะ blob URL ของการ์ดที่ลบแล้วถูก revoke → อ่านพลาดแล้วจะ toast error หลอก
+  const removed = () => !state.modes[item.mode].images.includes(item);
+  if (removed()) { item.cloudStatus = undefined; return true; }
+  let res: Awaited<ReturnType<typeof cloudUploadItem>>;
+  // ค่าดาวที่ส่งขึ้นไปกับแถว — ผู้ใช้กดดาวระหว่างอัพโหลดได้ (ยังไม่มี cloudId ให้ toggleFavorite ซิงก์) ดูด้านล่าง
+  const favoriteAtUpload = !!item.favorite;
+  try {
+    const blob = await urlToBlob(item.url!);
+    if (removed()) { item.cloudStatus = undefined; return true; }
+    res = await cloudUploadItem({
+      mode: item.mode,
+      prompt: item.prompt,
+      model: item.model,
+      modelName: item.modelName,
+      ratio: item.ratio,
+      duration: item.duration,
+      audio: item.audio,
+      negPrompt: item.negPrompt ?? "",
+      bakeOffGroupId: item.bakeOffGroupId ?? 0,
+      favorite: favoriteAtUpload,
+      ttsVoiceId: item.ttsVoiceId ?? null,
+      parentCloudId: parentCloudIdOf(item),
+    }, blob);
+  } catch (e) {
+    res = { ok: false, code: "read_failed", detail: errMsg(e) };
+  }
+  // การ์ดถูกลบระหว่างอ่านไฟล์ (blob URL ถูก revoke) → อ่านพลาดเพราะการลบเอง ไม่ใช่ error ที่ผู้ใช้ต้องเห็น
+  // อัพโหลดสำเร็จแล้วค่อยลบ = ยังต้องตั้ง cloudId ด้านล่าง forgetCloudItems รอ promise นี้แล้วลบแถว/ไฟล์ตามให้
+  if (!res.ok && removed()) { item.cloudStatus = undefined; return true; }
+  if (res.ok) {
+    item.cloudId = res.id;
+    item.cloudPath = res.storagePath;
+    item.cloudStatus = "done";
+    item.cloudErrMsg = "";
+    linkPersistedCloudId(item, res.id, res.storagePath);
+    if (!!item.favorite !== favoriteAtUpload && !removed()) syncFavoriteToCloud([item]);
+  } else {
+    const message = cloudUploadErrorText(res.code, res.detail);
+    item.cloudStatus = "error";
+    item.cloudErrMsg = message;
+    if (manual) toast(t("actions.cloud.uploadFailed", { message }), "error");
+  }
+  mutate();
+  return res.ok;
+}
+
+function enqueueCloudUpload(item: GenItem, manual: boolean): Promise<boolean> {
+  if (!canUploadToCloud(item)) return Promise.resolve(false);
+  item.cloudStatus = "uploading";
+  item.cloudErrMsg = "";
+  mutate();
+  return runCloudSlot(() => {
+    // นับเฉพาะตอนเริ่มอัพโหลดจริง (insert แถวได้แล้ว) — ชิ้นที่ยังรอ slot จะ insert หลัง list ของ restore เสมอ ไม่ต้องรอ
+    const run = performCloudUpload(item, manual);
+    activeCloudUploads.add(run);
+    void run.finally(() => activeCloudUploads.delete(run));
+    return run;
+  });
+}
+
+/** ปุ่ม "เก็บขึ้น Cloud" บนการ์ด/Lightbox — กดซ้ำตอน error = ลองใหม่ */
+export function saveItemToCloud(item: GenItem): void {
+  void enqueueCloudUpload(item, true);
+}
+
+/** multi-select bar — ข้ามชิ้นที่อยู่บน cloud แล้ว/กำลังอัพโหลด สรุป error เป็น toast เดียวตอนจบทั้งชุด (ไม่ toast ทีละชิ้น) */
+export function saveSelectedToCloud(): void {
+  if (!state.cloudUser) return;
+  const ms = cur();
+  const items = [...ms.selected]
+    .map(id => ms.images.find(x => x.id === id))
+    .filter((x): x is GenItem => !!x && canUploadToCloud(x));
+  if (!items.length) {
+    toast(t("actions.cloud.nothingToUpload"), "info");
+    return;
+  }
+  toast(t("actions.cloud.uploadingBatch", { count: items.length }));
+  void Promise.all(items.map(item => enqueueCloudUpload(item, false))).then(results => {
+    const failed = results.filter(ok => !ok).length;
+    if (failed) toast(t("actions.cloud.batchFailed", { failed, count: items.length }), "error");
+  });
+}
+
+/**
+ * cloudId ที่ผู้ใช้สั่งลบไปแล้วในเซสชันนี้ — runCloudRestore ข้ามแถวเหล่านี้ เผื่อ list ของ restore จบก่อนการลบ
+ * แล้วการ์ดที่เพิ่งลบโผล่กลับมา (ไฟล์ถูกลบแล้ว = จะกลายเป็นการ์ด error ที่โหลดไม่ได้)
+ */
+const deletedCloudIds = new Set<string>();
+
+/**
+ * ลบสำเนาบน cloud ของชิ้นที่ผู้ใช้ลบออกจากแกลเลอรี — bridge แยกจาก forgetPersistedItems โดยตั้งใจ
+ * (อันนั้น return ทันทีถ้า Gallery Persistence ปิด แต่สำเนาบน cloud มีได้โดยไม่ขึ้นกับ opt-in นั้น)
+ *
+ * - มี cloudId แล้ว (รวมการ์ดที่กำลังโหลดกลับจาก cloud) → ลบทันที; downloadCloudRestore เช็ค inGallery()
+ *   หลังโหลดเสร็จอยู่แล้ว การ์ดที่ลบไปจึงไม่ฟื้นกลับมา
+ * - กำลังอัพโหลด (ยังไม่มี cloudId) → รออัพโหลดที่วิ่งอยู่ (activeCloudUploads) จบก่อน แล้วลบชิ้นที่ได้ cloudId มา
+ *   ชิ้นที่ยังรอ slot ไม่ต้องรอ — performCloudUpload เห็นว่าการ์ดหายแล้วจะไม่สร้างแถวตั้งแต่แรก
+ *
+ * fire-and-forget + ไม่มี rollback: การ์ดหายไปแล้วในสายตาผู้ใช้ ลบบน cloud ไม่สำเร็จ = toast error อย่างเดียว
+ */
+function forgetCloudItems(items: GenItem[]): void {
+  if (!state.cloudUser || !items.length) return;
+  const toRef = (x: GenItem) => ({ id: x.cloudId!, storagePath: x.cloudPath ?? "" });
+  const ready = items.filter(x => x.cloudId);
+  const uploading = items.filter(x => !x.cloudId && x.cloudStatus === "uploading");
+  for (const x of ready) deletedCloudIds.add(x.cloudId!);
+  if (!ready.length && !uploading.length) return;
+  const inFlight = [...activeCloudUploads];
+  void (async () => {
+    let failed = 0;
+    if (ready.length && !(await cloudDeleteItems(ready.map(toRef)))) failed += ready.length;
+    if (uploading.length) {
+      await Promise.allSettled(inFlight);
+      const landed = uploading.filter(x => x.cloudId);
+      for (const x of landed) deletedCloudIds.add(x.cloudId!);
+      if (landed.length && !(await cloudDeleteItems(landed.map(toRef)))) failed += landed.length;
+    }
+    if (failed) toast(t("actions.cloud.deleteFailed", { count: failed }), "error");
+  })();
+}
+
+/** คิวเดียวของการตั้งดาวบน cloud — กดดาวรัวๆ แล้ว request ถึงสลับลำดับกันจะทำให้แถวบน cloud ค้างค่าผิด */
+let cloudFavoriteChain: Promise<void> = Promise.resolve();
+
+/** ซิงก์ดาวของชิ้นที่ถูกแตะ (ทุกชิ้นที่ favoriteKeyOf ตรงกัน) ขึ้นแถว cloud — no-op ถ้าไม่ได้ล็อกอิน */
+function syncFavoriteToCloud(touched: GenItem[]): void {
+  if (!state.cloudUser) return;
+  const byValue = new Map<boolean, string[]>();
+  for (const it of touched) {
+    if (!it.cloudId) continue;
+    const fav = !!it.favorite;
+    const list = byValue.get(fav) ?? [];
+    list.push(it.cloudId);
+    byValue.set(fav, list);
+  }
+  if (!byValue.size) return;
+  cloudFavoriteChain = cloudFavoriteChain.then(async () => {
+    for (const [favorite, ids] of byValue) {
+      if (!(await cloudSetFavorite(ids, favorite))) toast(t("actions.cloud.favoriteFailed"), "error");
+    }
+  }, () => {});
+}
+
+/**
+ * อัพโหลดสำเร็จทีหลังการเซฟลงเครื่อง → ผูก cloudId เข้า record ใน IndexedDB ด้วย ไม่งั้นบูตรอบหน้า record นี้ไม่มี cloudId
+ * แล้ว restoreCloudGallery จะกู้ชิ้นเดียวกันซ้ำเป็นการ์ดใบที่สอง ต่อท้าย galleryPersistChain เพื่อรอ saveItem ของ item นี้
+ * ที่อาจยังเขียนไม่เสร็จ (ถ้า saveItem มาทีหลัง มันอ่าน item.cloudId ที่ตั้งไว้แล้วเอง ไม่ต้องพึ่งตรงนี้)
+ */
+function linkPersistedCloudId(item: GenItem, cloudId: string, cloudPath: string) {
+  if (!isGalleryPersistEnabled()) return;
+  galleryPersistChain = galleryPersistChain.then(async () => {
+    const key = persistKeys.get(item.id);
+    if (!key) return;
+    const ok = await setCloudId(key, cloudId, cloudPath);
+    if (!ok) persistKeys.delete(item.id); // record ถูก evict ไปแล้ว — เหตุผลเดียวกับ syncFavoriteToGallery
+  }, () => {});
+}
+
+// ---------- Cloud gallery restore (Supabase → Gallery) ----------
+/**
+ * เวลาที่ module นี้ถูกโหลด = เริ่มเซสชัน — ใช้แยก "ของเซสชันนี้" (อยู่หัวแกลเลอรีเสมอ) ออกจาก "ของเก่า"
+ * (กู้จาก IndexedDB/Cloud) ตอนแทรกการ์ดที่กู้จาก Cloud ให้ลำดับใหม่→เก่าถูกต้อง
+ */
+const SESSION_START_MS = Date.now();
+
+/** การ์ดที่ไม่ใช่ของเซสชันนี้ — ของที่กู้มา (startedAt = เวลาเซฟ/อัพโหลดเดิม) หรือการ์ด Cloud ที่ยังโหลดไม่เสร็จ */
+function isPriorSessionItem(x: GenItem): boolean {
+  return !!x.cloudRestoring || (x.status === "done" && x.startedAt != null && x.startedAt < SESSION_START_MS);
+}
+
+/**
+ * แทรกการ์ดที่กู้จาก Cloud ตามเวลา: ไม่แซงของเซสชันนี้เด็ดขาด (ของเก่ากว่าทุกชิ้นที่เพิ่งสร้าง) และในกลุ่มของเก่า
+ * วางก่อนชิ้นแรกที่ "เก่ากว่าแท้ๆ" (< ไม่ใช่ <=) — rows มาแบบใหม่→เก่า เวลาเท่ากันจึงคงลำดับเดิมของ cloud
+ */
+function insertRestoredItem(images: GenItem[], item: GenItem) {
+  const at = item.startedAt ?? 0;
+  const idx = images.findIndex(x => isPriorSessionItem(x) && (x.startedAt ?? 0) < at);
+  if (idx < 0) images.push(item);
+  else images.splice(idx, 0, item);
+}
+
+/**
+ * การ์ดที่กู้จาก Cloud สำเร็จแล้ว — ห้ามลง IndexedDB (ทั้งตอนโหลดเสร็จและตอนกดดาวใน syncFavoriteToGallery)
+ * เพราะ saveItem จะ evict ผลงานในเครื่องที่ยังไม่เคยอัพโหลด WeakSet: การ์ดที่ถูกลบหลุดไปเองไม่ต้องล้าง
+ */
+const cloudRestoredItems = new WeakSet<GenItem>();
+
+/** MIME จากแถว cloud_items ต่อ item — fallback เมื่อ Blob ที่ดาวน์โหลดมาไม่มี type (ใช้ตอน retry ด้วย) */
+const cloudRestoreMime = new Map<number, string>();
+
+const MEDIA_MIME_PREFIX = ["image/", "video/", "audio/"];
+const isMediaMime = (m: string) => MEDIA_MIME_PREFIX.some(p => m.startsWith(p));
+
+/** คิวดาวน์โหลดของการกู้ — แยกจากคิวอัพโหลด (runCloudSlot) ไม่ให้กู้หลายสิบชิ้นตอนบูตบล็อกปุ่ม "เก็บขึ้น Cloud" ของผู้ใช้ */
+let restoreActive = 0;
+const restoreWaiters: (() => void)[] = [];
+
+function runRestoreSlot(task: () => Promise<void>): Promise<void> {
+  return new Promise<void>(resolve => {
+    const start = () => {
+      restoreActive++;
+      task().catch(() => {}).finally(() => {
+        restoreActive--;
+        restoreWaiters.shift()?.();
+        resolve();
+      });
+    };
+    if (restoreActive < CLOUD_RESTORE_CONCURRENCY) start();
+    else restoreWaiters.push(start);
+  });
+}
+
+/**
+ * โหลดไฟล์ของการ์ดที่กู้จาก Cloud หนึ่งใบ — ไม่ throw
+ * สำเร็จ → url + status "done" — ไม่เซฟลง IndexedDB (ดู cloudRestoredItems) บูตหน้ากู้จาก cloud ใหม่
+ * ไม่ส่งเข้า Auto Save/Drive/อัพโหลด: ไม่ใช่ผลงานใหม่ และ canUploadToCloud ข้ามชิ้นที่มี cloudId อยู่แล้ว
+ * พลาด → status "error" + ข้อความ การ์ดยังอยู่ (แถวบน cloud ไม่แตะ) กด "ลองโหลดใหม่" ได้
+ */
+async function downloadCloudRestore(item: GenItem): Promise<void> {
+  const inGallery = () => {
+    const there = state.modes[item.mode].images.includes(item);
+    if (!there) cloudRestoreMime.delete(item.id); // การ์ดถูกลบไปแล้ว — ไม่มี retry อีก ทิ้ง mime ที่จำไว้
+    return there;
+  };
+  if (!inGallery() || !item.cloudPath) return;
+  const raw = await cloudDownload(item.cloudPath);
+  if (!inGallery()) return; // ผู้ใช้ล้างแกลเลอรีระหว่างรอ — ไม่สร้าง URL ให้ของที่ไม่อยู่แล้ว
+
+  let url: string | null = null;
+  if (raw) {
+    const rawType = (raw.type || "").split(";")[0].trim().toLowerCase();
+    const mime = isMediaMime(rawType) ? rawType : (cloudRestoreMime.get(item.id) ?? "");
+    if (isMediaMime(mime)) {
+      const blob = rawType === mime ? raw : new Blob([raw], { type: mime });
+      try {
+        // ภาพนิ่งในโหมดวิดีโอ (synthetic root ของ cinematic) ต้องเป็น data URL — การ์ด/ExtendTool แยกภาพนิ่งออกจากวิดีโอ
+        // ด้วย isImageDataUrl ถ้าเป็น blob: URL จะถูกเรนเดอร์เป็น <video> ที่เล่นไม่ได้
+        if (isVideoMode(item.mode) && mime.startsWith("image/")) {
+          url = await readAsDataUrl(blob);
+          if (!inGallery()) return;
+        } else {
+          url = URL.createObjectURL(blob);
+          registerBlobUrl(item.id, url);
+        }
+      } catch {
+        url = null;
+      }
+    }
+  }
+
+  if (url) {
+    const finalUrl = url;
+    mutate(() => {
+      item.url = finalUrl;
+      item.status = "done";
+      item.errMsg = "";
+      delete item.cloudRestoring;
+    });
+    cloudRestoreMime.delete(item.id);
+    // ไม่เซฟลง IndexedDB โดยเจตนา: saveItem รัน eviction — กู้ 30 ชิ้นต่อโหมดจะไล่ลบผลงานในเครื่องที่ยังไม่เคย
+    // อัพโหลด (เสียข้อมูลถาวร) บ้านของชิ้นนี้คือ cloud และมันจะถูกกู้จาก cloud ใหม่ทุกครั้งที่บูตอยู่แล้ว
+    cloudRestoredItems.add(item);
+  } else {
+    mutate(() => {
+      item.status = "error";
+      item.errMsg = t("actions.cloud.err.download_failed");
+    });
+  }
+}
+
+/** ปุ่ม "ลองโหลดใหม่" บนการ์ดที่กู้จาก Cloud ไม่สำเร็จ (retry/retryWithOverride ก็ส่งมาที่นี่) */
+export function retryCloudRestore(item: GenItem): void {
+  if (!item.cloudRestoring || item.status === "loading") return;
+  mutate(() => {
+    item.status = "loading";
+    item.errMsg = "";
+  });
+  void runRestoreSlot(() => downloadCloudRestore(item));
+}
+
+/** นับเฉพาะงาน generate จริง — การ์ด Cloud ที่กำลังโหลดเป็น "loading" ด้วยแต่ยกเลิกไม่ได้และไม่ได้ใช้เงิน */
+export function isGenerating(item: GenItem): boolean {
+  return item.status === "loading" && !item.cloudRestoring;
+}
+
+let cloudRestoreRun: Promise<void> | null = null;
+
+/**
+ * กู้แกลเลอรีจาก Cloud — เรียกจาก loadCloudSessionAndKey() จุดเดียว (บูตที่มี session + หลังล็อกอิน)
+ * เรียกซ้อนระหว่างที่รอบก่อนยังไม่จบ → คืน promise เดิม ไม่ list ซ้ำ (ไม่งั้น dedupe ด้วย cloudId จะแข่งกันเอง)
+ */
+export function restoreCloudGallery(): Promise<void> {
+  if (!cloudRestoreRun) {
+    cloudRestoreRun = runCloudRestore()
+      .catch(() => { /* ฟังก์ชันใน supabase.ts ไม่ throw อยู่แล้ว — กันไว้ */ })
+      .finally(() => { cloudRestoreRun = null; });
+  }
+  return cloudRestoreRun;
+}
+
+/**
+ * ORDER: ต้องรอ galleryRehydrated ก่อน เพราะ dedupe อาศัย cloudId ของ record ที่กู้จาก IndexedDB
+ * DEDUPE: ข้ามแถวที่ id ตรงกับ cloudId ของการ์ดใดๆ ในทุกโหมด (จาก IndexedDB, อัพโหลดในเซสชันนี้, หรือกู้รอบก่อน)
+ * SEQ: แถวบน cloud ไม่มี id ของเซสชัน — ได้ id ใหม่จาก ++s.seq (s.seq ถูกยกพื้นพ้น id ที่กู้จากเครื่องแล้วตอนบูต)
+ * PLACEHOLDER: การ์ดขึ้นทันทีเป็น "loading" + cloudRestoring แล้วโหลดไฟล์เบื้องหลังทีละ CLOUD_RESTORE_CONCURRENCY ชิ้น
+ * (โหมดที่เปิดอยู่ก่อน) — บูตไม่ต้องรอวิดีโอใหญ่ๆ
+ */
+async function runCloudRestore(): Promise<void> {
+  await galleryRehydrated;
+  const user = state.cloudUser;
+  if (!user) return;
+  const modes = Object.keys(state.modes) as Mode[];
+  const lists = await Promise.all(modes.map(m => cloudListRecent(m, CLOUD_RESTORE_PER_MODE)));
+  // logout/เปลี่ยนบัญชีระหว่างรอ — ผลนี้เป็นของบัญชีเดิม ห้ามยัดเข้าแกลเลอรี
+  if (state.cloudUser?.userId !== user.userId) return;
+  // อัพโหลดที่วิ่งอยู่ตอน list จบ อาจมีแถวอยู่ในผล list แล้วแต่ item.cloudId ยังไม่ถูกตั้ง — รอให้จบก่อนสร้าง known set
+  // snapshot ครั้งเดียว: อัพโหลดที่เริ่มหลังจากนี้ insert หลัง list แน่นอน ไม่มีทางอยู่ในผล
+  if (activeCloudUploads.size) {
+    await Promise.allSettled([...activeCloudUploads]);
+    if (state.cloudUser?.userId !== user.userId) return;
+  }
+
+  const restored: { item: GenItem; meta: CloudItemMeta }[] = [];
+  mutate(s => {
+    const known = new Set<string>();
+    for (const ms of Object.values(s.modes)) for (const x of ms.images) if (x.cloudId) known.add(x.cloudId);
+    for (const id of deletedCloudIds) known.add(id); // ผู้ใช้ลบไประหว่างที่ list ยังไม่จบ — ห้ามฟื้นการ์ด
+
+    lists.forEach((rows, i) => {
+      const mode = modes[i];
+      for (const meta of rows) {
+        if (meta.mode !== mode || known.has(meta.id)) continue;
+        known.add(meta.id);
+        const created = Date.parse(meta.createdAt);
+        const item: GenItem = {
+          id: ++s.seq,
+          status: "loading",
+          url: null,
+          prompt: meta.prompt,
+          model: meta.model,
+          modelName: meta.modelName || meta.model,
+          ratio: meta.ratio,
+          duration: meta.duration,
+          audio: meta.audio,
+          jobStatus: "",
+          jobId: null,
+          startedAt: Number.isFinite(created) ? created : 0,
+          errMsg: "",
+          mode,
+          refs: [], // ref ไม่เคยขึ้น cloud (allowlist เดียวกับ PersistedGenItem)
+          parentId: null, // ผูกด้านล่างหลังแทรกครบทุกโหมด
+          negPrompt: meta.negPrompt,
+          bakeOffGroupId: meta.bakeOffGroupId || undefined,
+          favorite: meta.favorite,
+          ttsVoiceId: meta.ttsVoiceId ?? undefined,
+          cloudId: meta.id,
+          cloudPath: meta.storagePath,
+          cloudStatus: "done",
+          cloudRestoring: true,
+        };
+        cloudRestoreMime.set(item.id, meta.mime);
+        insertRestoredItem(s.modes[mode].images, item);
+        restored.push({ item, meta });
+      }
+    });
+
+    // parentCloudId → parentId: parent อาจอยู่คนละโหมด (startFromItem) หรือเป็นของที่กู้จากเครื่องอยู่แล้ว
+    if (restored.some(r => r.meta.parentCloudId)) {
+      const idByCloudId = new Map<string, number>();
+      for (const ms of Object.values(s.modes)) for (const x of ms.images) if (x.cloudId) idByCloudId.set(x.cloudId, x.id);
+      for (const { item, meta } of restored) {
+        if (meta.parentCloudId) item.parentId = idByCloudId.get(meta.parentCloudId) ?? null;
+      }
+    }
+  });
+
+  if (!restored.length) return;
+  toast(t("actions.cloud.restored", { count: restored.length }), "info");
+  const active = restored.filter(r => r.item.mode === state.mode);
+  const rest = restored.filter(r => r.item.mode !== state.mode);
+  for (const { item } of [...active, ...rest]) void runRestoreSlot(() => downloadCloudRestore(item));
+}
+
+export function isCloudAutoUpload(): boolean {
+  try {
+    return localStorage.getItem(CLOUD_AUTOUPLOAD_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setCloudAutoUpload(on: boolean): void {
+  if (on) writeLocalStorage(CLOUD_AUTOUPLOAD_KEY, "1");
+  else {
+    try { localStorage.removeItem(CLOUD_AUTOUPLOAD_KEY); } catch { /* localStorage ถูกปิด — ค่าเดิมคือปิดอยู่แล้ว */ }
+  }
+  mutate(); // isCloudAutoUpload อ่านจาก localStorage ไม่ได้อยู่ใน AppState — broadcast ให้สวิตช์ใน Settings repaint
 }
 
 /**
@@ -2270,6 +2947,8 @@ async function requestViaChat(item: GenItem, signal: AbortSignal): Promise<strin
 }
 
 export function retry(item: GenItem) {
+  // การ์ดที่กู้จาก Cloud ไม่ใช่งาน generate — "ลองใหม่" = โหลดไฟล์จาก Cloud ซ้ำ ห้ามยิง OpenRouter (เสียเงิน)
+  if (item.cloudRestoring) { retryCloudRestore(item); return; }
   // T24/#6: เส้นแบ่ง "ยิงใหม่" vs "resume" อยู่ที่ jobId ตัวเดียว
   //  - มี jobId → requestVideo จะ poll งานเดิมต่อ ไม่ submit ใหม่ ไม่จ่ายเพิ่ม → **ห้าม** นับซ้ำ
   //    (นี่คือ label "ทำต่อ (ไม่เสียเงินเพิ่ม)" ที่การ์ดโชว์อยู่ — ดู cardPropsEqual ใน Gallery.tsx)
@@ -2291,6 +2970,7 @@ export function retry(item: GenItem) {
  * จึงแค่เปลี่ยนฟิลด์ก่อนเรียกซ้ำ ก็ได้ path ที่ถูกต้องสำหรับโมเดลใหม่โดยอัตโนมัติ
  */
 export function retryWithOverride(item: GenItem, modelId: string, ratio: string) {
+  if (item.cloudRestoring) { retryCloudRestore(item); return; }
   const model = modelsForMode(item.mode).find(m => m.id === modelId);
   if (!model) { toast("ไม่พบโมเดลนี้ในโหมดของภาพนี้แล้วค่ะ", "error"); return; }
   if (isVideoMode(item.mode) && modelRequiresRefImage(model.id) && !item.refs[0]) {
@@ -2741,6 +3421,7 @@ export function toggleFavorite(id: number) {
   }
   // fire-and-forget หลัง mutate() สำเร็จ — ห้ามเปลี่ยน toggleFavorite เป็น async (Gallery เรียกใน onClick)
   syncFavoriteToGallery(touched);
+  syncFavoriteToCloud(touched);
 }
 
 // ---------- lightbox ----------
