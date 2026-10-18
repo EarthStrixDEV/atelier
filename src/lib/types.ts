@@ -147,6 +147,12 @@ export interface GenItem {
   cloudStatus?: "uploading" | "done" | "error";
   /** ข้อความ error ล่าสุดของการอัพโหลดขึ้น Cloud */
   cloudErrMsg?: string;
+  /**
+   * true = การ์ดนี้กู้มาจาก Cloud และไฟล์ยังโหลดไม่เสร็จ (status "loading") หรือโหลดไม่สำเร็จ (status "error")
+   * การ์ดโชว์ spinner กลางๆ / ปุ่ม "ลองโหลดใหม่" แทนวงแหวนวิดีโอ/ปุ่มสร้างใหม่ — retry ห้ามยิง OpenRouter (เสียเงิน)
+   * ลบทิ้งเมื่อโหลดเสร็จ ไม่ลงดิสก์ (saveItem เซฟเฉพาะ done และ allowlist ไม่มีฟิลด์นี้)
+   */
+  cloudRestoring?: boolean;
 }
 
 /* ============================================================================

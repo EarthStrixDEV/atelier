@@ -195,6 +195,61 @@ function toRow(m: Omit<CloudItemMeta, "createdAt">) {
   };
 }
 
+/** แถวดิบจาก PostgREST → CloudItemMeta — bigint (bytes/bake_off_group_id) อาจมาเป็น string จึงแปลงด้วย Number */
+function fromRow(r: Record<string, unknown>): CloudItemMeta {
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  return {
+    id: str(r.id),
+    mode: r.mode as Mode,
+    storagePath: str(r.storage_path),
+    mime: str(r.mime),
+    bytes: Number(r.bytes) || 0,
+    prompt: str(r.prompt),
+    model: str(r.model),
+    modelName: str(r.model_name),
+    ratio: str(r.ratio),
+    duration: Number(r.duration) || 0,
+    audio: !!r.audio,
+    negPrompt: str(r.neg_prompt),
+    bakeOffGroupId: Number(r.bake_off_group_id) || 0,
+    favorite: !!r.favorite,
+    ttsVoiceId: typeof r.tts_voice_id === "string" ? r.tts_voice_id : null,
+    parentCloudId: typeof r.parent_cloud_id === "string" ? r.parent_cloud_id : null,
+    createdAt: str(r.created_at),
+  };
+}
+
+/** แถวล่าสุดของโหมดหนึ่ง เรียงใหม่→เก่า (RLS กรองเป็นของผู้ใช้ปัจจุบันแล้ว) — อ่านไม่สำเร็จ/ไม่ได้ตั้งค่า = [] */
+export async function cloudListRecent(mode: Mode, limit: number): Promise<CloudItemMeta[]> {
+  const sb = getClient();
+  if (!sb) return [];
+  try {
+    const { data, error } = await sb
+      .from("cloud_items")
+      .select("*")
+      .eq("mode", mode)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return (data as Record<string, unknown>[]).map(fromRow).filter(m => m.id && m.storagePath);
+  } catch {
+    return [];
+  }
+}
+
+/** ดาวน์โหลดไฟล์หนึ่งชิ้นจาก bucket "media" — ไม่มีไฟล์/ไม่มีสิทธิ์/เครือข่ายล้ม = null (ไม่ throw) */
+export async function cloudDownload(storagePath: string): Promise<Blob | null> {
+  const sb = getClient();
+  if (!sb) return null;
+  try {
+    const { data, error } = await sb.storage.from(MEDIA_BUCKET).download(storagePath);
+    if (error || !data) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 /** นามสกุลไฟล์จาก MIME — ใช้แค่ตั้งชื่อ object ใน storage (contentType จริงส่งแยกอยู่แล้ว) */
 function extForMime(mime: string): string {
   const sub = mime.split(";")[0].split("/")[1]?.trim().toLowerCase() ?? "";

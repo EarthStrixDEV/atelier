@@ -11,7 +11,7 @@ import {
 import {
   addRefImages, addToQueue, bakeOffCostBreakdown, canRunBakeOff, clearRefImages,
   combinedHistory, computeItemCost, computeQueueJobCost, currentModel, generate, hasFailedAutoSaves, loadModels,
-  loadVideoModels, loadVoicesForModel, modelsForMode, negPromptSupported, openBakeOffConfirm, refSupportLevel, refsSupported,
+  isGenerating, loadVideoModels, loadVoicesForModel, modelsForMode, negPromptSupported, openBakeOffConfirm, refSupportLevel, refsSupported,
   removeFromHistory, removeFromQueue, removeRefImage, reorderQueue, retryFailedAutoSaves, selectModel,
   selectVoice, setNegPrompt, sortHistoryForDisplay, toggleAllHistoryOpen, toggleBakeOff, toggleBakeOffModel,
   toggleKeyword, togglePinHistory, usePromptFromCombinedHistory,
@@ -171,7 +171,7 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
   const needsRefImage = isVideo && modelRequiresRefImage(model?.id) && !ms.refs[0];
   const needsVoice = isTts && !ms.voiceId;
   const canGenerate = list.length > 0 && (hasPrompt || ms.queue.length > 0) && !needsRefImage && !needsVoice;
-  const generatingCount = ms.images.filter(x => x.status === "loading").length;
+  const generatingCount = ms.images.filter(isGenerating).length;
   // Bake-off (PHASE 14) เปลี่ยนพฤติกรรมปุ่ม Generate หลัก — ยิงผ่าน openBakeOffConfirm (โมดัลยืนยันราคา) แทน generate() ตรงๆ
   const bakeOffActive = ms.bakeOffEnabled;
   const canGenerateOrBakeOff = bakeOffActive ? canRunBakeOff() : canGenerate;

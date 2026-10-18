@@ -103,6 +103,12 @@ export interface PersistedGenItem {
   /** voice ที่เลือกตอนสร้าง (โหมด tts เท่านั้น) — optional เพราะโหมดอื่น/record เก่า (v1) ไม่มีค่านี้ */
   ttsVoiceId?: string;
   /**
+   * id แถวใน cloud_items ถ้าชิ้นนี้อยู่บน Cloud แล้ว (อัพโหลดสำเร็จ หรือกู้มาจาก Cloud) — optional เพราะ record v1/v2
+   * ไม่มีค่านี้ และชิ้นที่ไม่เคยขึ้น cloud ก็ไม่มี ใช้กันซ้ำตอนกู้จาก Cloud (restoreCloudGallery ใน actions.ts)
+   * เป็นแค่ id อ้างอิง ไม่ใช่ข้อมูลลับ — RLS ฝั่ง Supabase คุมสิทธิ์อยู่แล้ว
+   */
+  cloudId?: string;
+  /**
    * เวอร์ชันของ *รูปร่าง record* ตัวนี้ (ไม่ใช่ DB_VERSION ของ IndexedDB) — ปัจจุบัน = PERSISTED_ITEM_VERSION
    *
    * ทำไมต้องมีทั้งที่ IndexedDB มี version ของตัวเองอยู่แล้ว: DB_VERSION คุมเฉพาะ "โครงสร้าง store/index"
@@ -128,7 +134,7 @@ export interface PersistedGenItem {
  * เวอร์ชันปัจจุบันของรูปร่าง PersistedGenItem — bump เมื่อ "ความหมายหรือชุดฟิลด์" ของ record เปลี่ยน
  * (เพิ่มฟิลด์ที่มี default ได้ก็ยัง bump เพื่อให้ migrateRecord() แยก record เก่า/ใหม่ออกจากกันได้ชัด)
  */
-export const PERSISTED_ITEM_VERSION = 2;
+export const PERSISTED_ITEM_VERSION = 3;
 
 /**
  * ปรับ record ที่อ่านขึ้นมาให้เข้ารูปร่างเวอร์ชันปัจจุบัน — คืน null ถ้าใช้ไม่ได้ (ให้ caller ข้ามชิ้นนั้นไป)
@@ -142,6 +148,8 @@ function migrateRecord(rec: PersistedGenItem): PersistedGenItem | null {
   if (v > PERSISTED_ITEM_VERSION) return null; // ผู้ใช้ downgrade แอป — ข้ามไว้ ห้ามลบของเขาทิ้ง
   if (v === 0) { rec = { ...rec, favorite: !!rec.favorite, version: 1 }; v = 1; }
   if (v === 1) { rec = { ...rec, ttsVoiceId: rec.ttsVoiceId, version: 2 }; v = 2; }
+  // v2→v3: เพิ่ม cloudId (optional) — record เก่าไม่เคยขึ้น cloud ผ่านช่องทางที่บันทึกไว้ จึงเป็น undefined ได้ตรงๆ
+  if (v === 2) { rec = { ...rec, cloudId: rec.cloudId, version: 3 }; v = 3; }
   return rec;
 }
 
@@ -342,6 +350,7 @@ export async function saveItem(item: GenItem): Promise<string | null> {
     // ของงานที่กดดาวไว้ตั้งแต่ยัง loading) ถ้าเขียน false ทับ eviction จะตัดของที่ปักหมุดทิ้ง
     favorite: !!item.favorite,
     ttsVoiceId: item.ttsVoiceId,
+    cloudId: item.cloudId,
     version: PERSISTED_ITEM_VERSION,
     // หมายเหตุ: refs / jobId / errMsg / autoSaveStatus / autoSaveErrMsg ไม่ถูกคัดลอกมาโดยเจตนา (ดูหัวไฟล์)
   };
@@ -381,6 +390,26 @@ export async function setFavorite(key: string, favorite: boolean): Promise<boole
     const rec = await reqDone<PersistedGenItem | undefined>(store.get(key));
     if (!rec) return false;
     rec.favorite = favorite;
+    store.put(rec);
+    await txDone(tx);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * ผูก cloudId ให้ record ที่เซฟไว้แล้ว (อัพโหลดขึ้น Cloud สำเร็จทีหลังการเซฟลงเครื่อง) — pattern เดียวกับ setFavorite
+ * ไม่ต้องเขียน blob ใหม่ คืน false ถ้าไม่พบ record (ถูก evict ไปแล้ว) หรือเขียนไม่สำเร็จ
+ */
+export async function setCloudId(key: string, cloudId: string): Promise<boolean> {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_ITEMS, "readwrite");
+    const store = tx.objectStore(STORE_ITEMS);
+    const rec = await reqDone<PersistedGenItem | undefined>(store.get(key));
+    if (!rec) return false;
+    rec.cloudId = cloudId;
     store.put(rec);
     await txDone(tx);
     return true;

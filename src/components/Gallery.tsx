@@ -9,7 +9,7 @@ import { EXAMPLE_PROMPTS, MODE_META, RATIOS, isVideoMode } from "../lib/constant
 import {
   applyPromptSuggestion, autoExtendFromLastFrame, canCompareItem, focusPromptInput, canRefineItem, canStartFrom, cinematicChains, clearSelection,
   copyPromptFromItem, downloadSelected, isAutoExtending, isChainableItem, isDriveSaveConfigured, modelsForMode, openCompare,
-  openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryWithOverride, saveItemToDrive,
+  isGenerating, openExtendTool, openLightbox, refineItem, regenerateFromItem, resetModeGallery, retry, retryCloudRestore, retryWithOverride, saveItemToDrive,
   saveItemToCloud, saveSelectedToCloud, saveSelectedToDrive, setLightboxScope, startFromItem, toggleFavorite, toggleSelect, useAsVideoFirstFrame,
 } from "../lib/actions";
 import { state, toast, useApp } from "../lib/store";
@@ -54,7 +54,7 @@ function cardRev(it: GenItem): string {
     it.jobStatus, it.jobId ?? "", it.errMsg, it.duration, it.audio ? 1 : 0, it.cancelReason ?? "",
     it.favorite ? 1 : 0, it.bakeOffGroupId ?? "", it.parentId ?? "",
     it.autoSaveStatus ?? "", it.autoSaveErrMsg ?? "", it.driveSaveStatus ?? "", it.driveSaveErrMsg ?? "",
-    it.cloudStatus ?? "", it.cloudErrMsg ?? "", it.cloudId ?? "",
+    it.cloudStatus ?? "", it.cloudErrMsg ?? "", it.cloudId ?? "", it.cloudRestoring ? 1 : 0,
   ].join("\u0001");
 }
 
@@ -713,18 +713,40 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           </span>
         )}
 
+        {/* การ์ดที่กู้จาก Cloud ใช้ spinner กลางๆ เสมอ — ไม่มี job ให้ประเมิน % แบบวงแหวนวิดีโอ */}
         {!done && item.status === "loading" && (
-          isVid ? (
+          isVid && !item.cloudRestoring ? (
             <VideoProgress item={item} />
           ) : (
             <>
               <div className="mono-shimmer absolute inset-0 animate-shimmer bg-[length:200%_100%]" />
               <div className="absolute left-1/2 top-1/2 h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 animate-spin rounded-full border-2 border-border-strong border-t-text" />
+              {item.cloudRestoring && (
+                <div className="absolute inset-x-0 top-1/2 mt-5 text-center font-mono text-[11px] text-text-dim">{t("gallery.cloud.restoring")}</div>
+              )}
             </>
           )
         )}
 
-        {item.status === "error" && (
+        {/* โหลดจาก Cloud ไม่สำเร็จ — ปุ่มเดียวคือโหลดซ้ำ ห้ามมีปุ่ม "ลองใหม่"/เปลี่ยนโมเดล ที่จะยิง OpenRouter (เสียเงิน) */}
+        {item.status === "error" && item.cloudRestoring && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-[18px] text-center">
+            {/* ไม่ใช้ GenErrorDetail — คำแนะนำของมัน ("ลองเปลี่ยนโมเดล") เป็นของงาน generate ไม่ใช่การโหลดไฟล์ */}
+            <div className="flex items-center gap-1 text-[12px] font-semibold text-danger">
+              <CircleAlert size={12} className="shrink-0" />
+              <span>{item.errMsg}</span>
+            </div>
+            <button
+              className="flex cursor-pointer items-center gap-1 rounded-[7px] border border-border-strong px-4 py-1.5 text-[11.5px] text-text transition-colors hover:border-text"
+              aria-label={t("gallery.cloud.retryDownload") + ": " + item.prompt}
+              onClick={e => { e.stopPropagation(); retryCloudRestore(item); }}
+            >
+              <RotateCcw size={11} /> {t("gallery.cloud.retryDownload")}
+            </button>
+          </div>
+        )}
+
+        {item.status === "error" && !item.cloudRestoring && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-[18px] text-center">
             <GenErrorDetail errMsg={item.errMsg} />
             <div className="flex items-center gap-1">
@@ -751,7 +773,7 @@ function CardImpl({ item, index, selected, autoExtending, onToggleSelect, onOpen
           </div>
         )}
 
-        {item.status === "error" && retryPanelOpen && (
+        {item.status === "error" && !item.cloudRestoring && retryPanelOpen && (
           <RetryOverridePanel item={item} onClose={() => setRetryPanelOpen(false)} />
         )}
 
@@ -1070,7 +1092,7 @@ export default function Gallery() {
   const ms = s.modes[s.mode];
   const meta = MODE_META[s.mode];
   const done = ms.images.filter(x => x.status === "done").length;
-  const loading = ms.images.filter(x => x.status === "loading").length;
+  const loading = ms.images.filter(isGenerating).length;
   const unit = s.mode === "cinematic" ? " scene" : s.mode === "video" ? " clip" : s.mode === "audio" ? " song" : s.mode === "tts" ? " clip" : " image";
 
   // เผื่อ item ที่เคยเลือกไว้ถูกลบ/ยังไม่ done — กรองเฉพาะที่ยัง valid

@@ -40,6 +40,8 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "actions.cloud.nothingToUpload": "ที่เลือกไว้อยู่บน Cloud แล้ว หรือกำลังอัพโหลดอยู่ค่ะ",
     "actions.cloud.uploadingBatch": "กำลังเก็บขึ้น Cloud {{count}} ไฟล์ค่ะ~",
     "actions.cloud.batchFailed": "เก็บขึ้น Cloud ไม่สำเร็จ {{failed}} จาก {{count}} ไฟล์ — กดลองใหม่ที่การ์ดได้เลยค่ะ",
+    "actions.cloud.restored": "กู้ผลงานจาก Cloud กลับมาแล้ว {{count}} ชิ้นค่ะ",
+    "actions.cloud.err.download_failed": "โหลดไฟล์จาก Cloud ไม่สำเร็จ",
 
     // ---------- Gallery / Lightbox: Cloud ----------
     "gallery.cloud.save": "เก็บขึ้น Cloud",
@@ -48,6 +50,8 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.cloud.onCloud": "อยู่บน Cloud",
     "gallery.cloud.retry": "ลองอัพโหลดใหม่",
     "gallery.cloud.saveSelectedAria": "เก็บที่เลือกไว้ขึ้น Cloud ({{count}} รายการ)",
+    "gallery.cloud.restoring": "กำลังโหลดจาก Cloud…",
+    "gallery.cloud.retryDownload": "ลองโหลดใหม่",
 
     // ---------- SettingsModal: Cloud upload ----------
     "settings.cloud.autoUpload": "อัพโหลดขึ้น Cloud อัตโนมัติ",
@@ -88,6 +92,8 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "actions.cloud.nothingToUpload": "The selected items are already on Cloud or uploading",
     "actions.cloud.uploadingBatch": "Saving {{count}} files to Cloud…",
     "actions.cloud.batchFailed": "{{failed}} of {{count}} files couldn't be saved to Cloud — retry from the card",
+    "actions.cloud.restored": "Restored {{count}} items from Cloud",
+    "actions.cloud.err.download_failed": "Couldn't download the file from Cloud",
 
     // ---------- Gallery / Lightbox: Cloud ----------
     "gallery.cloud.save": "Save to Cloud",
@@ -96,6 +102,8 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.cloud.onCloud": "On Cloud",
     "gallery.cloud.retry": "Retry upload",
     "gallery.cloud.saveSelectedAria": "Save selected to Cloud ({{count}} items)",
+    "gallery.cloud.restoring": "Loading from Cloud…",
+    "gallery.cloud.retryDownload": "Retry download",
 
     // ---------- SettingsModal: Cloud upload ----------
     "settings.cloud.autoUpload": "Auto-upload to Cloud",
