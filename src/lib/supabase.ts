@@ -92,16 +92,20 @@ export function onCloudAuthChange(fn: (user: CloudUser | null) => void): void {
   });
 }
 
-export async function cloudLoadKey(): Promise<string | null> {
+/**
+ * แยก "ไม่มีแถว" (ok + key null) ออกจาก "อ่านไม่สำเร็จ" (ok: false) — ผู้เรียกจะ seed key ในเครื่องขึ้น cloud
+ * เฉพาะเคสแรกเท่านั้น ถ้ารวมสองเคสเป็น null เดียว network สะดุดครั้งเดียวจะเขียน key เก่าทับ key บน cloud ได้
+ */
+export async function cloudLoadKey(): Promise<{ ok: true; key: string | null } | { ok: false }> {
   const sb = getClient();
-  if (!sb) return null;
+  if (!sb) return { ok: false };
   try {
     // RLS กรองให้เหลือแถวของ user ปัจจุบันอยู่แล้ว — maybeSingle เพราะผู้ใช้ใหม่ยังไม่มีแถว
     const { data, error } = await sb.from("user_secrets").select("openrouter_key").maybeSingle();
-    if (error || !data?.openrouter_key) return null;
-    return data.openrouter_key as string;
+    if (error) return { ok: false };
+    return { ok: true, key: (data?.openrouter_key as string | undefined) || null };
   } catch {
-    return null;
+    return { ok: false };
   }
 }
 

@@ -488,11 +488,17 @@ async function restoreCloudGallery(): Promise<void> {}
 
 /**
  * ดึง key จาก cloud: มี → ชนะ key ในเครื่อง (เขียนลง storage ด้วย saveApiKey ตาม remember เดิม ให้ code path
- * อื่นที่อ่าน storage ตรงกัน); cloud ไม่มีแต่เครื่องมี → seed ขึ้น cloud (ล็อกอินครั้งแรกบนเครื่องหลัก)
+ * อื่นที่อ่าน storage ตรงกัน); cloud ไม่มีแถวแต่เครื่องมี → seed ขึ้น cloud (ล็อกอินครั้งแรกบนเครื่องหลัก)
+ * อ่านไม่สำเร็จ (ok: false) → ไม่แตะอะไรเลย: ห้าม seed เพราะไม่รู้ว่า cloud มี key ที่ใหม่กว่าอยู่หรือเปล่า
  */
 async function syncCloudKey(): Promise<void> {
-  const key = await cloudLoadKey();
-  if (key) {
+  const before = state.apiKey;
+  const res = await cloudLoadKey();
+  if (!res.ok) return;
+  if (res.key) {
+    // ผู้ใช้บันทึก key ใหม่ใน KeyModal ระหว่างรอ fetch (onApiKeySaved upsert ขึ้นไปแล้ว) — ผลอ่านนี้เก่ากว่า ห้ามทับ
+    if (state.apiKey !== before) return;
+    const key = res.key;
     if (key !== state.apiKey) {
       mutate(s => { s.apiKey = key; });
       saveApiKey(key);
@@ -532,9 +538,11 @@ export async function cloudLogin(email: string, password: string): Promise<boole
     return false;
   }
   const user = await cloudGetSession();
-  if (user) mutate(s => { s.cloudUser = user; });
-  await syncCloudKey();
-  void restoreCloudGallery();
+  if (user) {
+    mutate(s => { s.cloudUser = user; });
+    await syncCloudKey();
+    void restoreCloudGallery();
+  }
   toast(t("actions.cloud.loggedIn"));
   return true;
 }
