@@ -270,7 +270,7 @@ function snapshotDiffersFromFresh(snapshot: ImportFileShape): boolean {
  * snapshotDiffersFromFresh) เป็น banner เดียวกันเสมอ ไม่ยิงซ้อนหลายอันตอน boot
  */
 export function reconcilePendingJobs() {
-  // Cloud Sync: เริ่มโหลด session + key จาก Supabase ก่อนอย่างอื่น (no-op ถ้าไม่ได้ตั้งค่า → keyReady resolve ทันที)
+  // Cloud Sync: เริ่มโหลด session + key จาก Supabase ก่อนอย่างอื่น (no-op ถ้าไม่ได้ตั้งค่า → cloudKeyLoaded resolve ทันที)
   initCloud();
   // F2: กู้ผลงานที่เก็บไว้ใน IndexedDB กลับเข้าแกลเลอรี — เกาะจุดบูตนี้เพราะเป็นฟังก์ชันเดียวใน actions.ts
   // ที่ StudioApp เรียกให้ครั้งเดียวตอน mount อยู่แล้ว (StudioApp.tsx ไม่ได้อยู่ในขอบเขตงานนี้)
@@ -292,7 +292,7 @@ export function reconcilePendingJobs() {
   // ล้างคีย์โปรดกำพร้าตอนบูต — fire-and-forget, รอ rehydrate เองข้างใน (ดู pruneOrphanFavorites)
   void pruneOrphanFavorites();
 
-  // Cloud Sync: การ "อ่าน" ledger/flag/snapshot ยังทำแบบ sync ที่จุดเดิม — ถ้าไปอ่านหลัง keyReady (สูงสุด ~5s)
+  // Cloud Sync: การ "อ่าน" ledger/flag/snapshot ยังทำแบบ sync ที่จุดเดิม — ถ้าไปอ่านหลัง cloudKeyLoaded (อาจนานหลายวินาที)
   // ผู้ใช้ที่กด Generate ระหว่างรอจะมี entry ใหม่ของ session นี้โผล่ใน ledger แล้วถูกนับเป็นงานค้าง/resume ซ้ำ
   // ส่วนที่ต้องรอคือการตัดสิน resume ซึ่งเช็ค state.apiKey — ถ้าตัดสินตอน key cloud ยังไม่มา job ที่จ่ายเงินแล้วจะถูกทิ้งถาวร
   const ledger = loadPendingJobs();
@@ -309,15 +309,17 @@ export function reconcilePendingJobs() {
 
   if (!ledger.length && !lostQueueModes.length && !snapshotRestorable) return;
 
-  // ยก s.seq ให้พ้น id ของ ledger ตั้งแต่ตอนนี้ (sync) — item ใหม่ที่ผู้ใช้สร้างระหว่างรอ keyReady จะได้ไม่ชน id
+  // ยก s.seq ให้พ้น id ของ ledger ตั้งแต่ตอนนี้ (sync) — item ใหม่ที่ผู้ใช้สร้างระหว่างรอ cloudKeyLoaded จะได้ไม่ชน id
   // ของ job ที่กำลังจะ resume (ข้างล่างยัง bump ซ้ำอีกรอบ เหมือนเดิม — ไม่มีผลถ้าค่านี้สูงกว่าแล้ว)
   const ledgerMaxId = ledger.reduce((mx, e) => Math.max(mx, e.id), 0);
   if (ledgerMaxId > 0) mutate(s => { if (ledgerMaxId > s.seq) s.seq = ledgerMaxId; });
 
-  void keyReady.then(() => resolvePendingLedger(ledger, lostQueueModes, snapshotRestorable));
+  // รอ cloudKeyLoaded (ไม่มี timeout 5s) ไม่ใช่ keyReady — ถ้า timeout ชนะแล้วตัดสินตอน apiKey ยังว่าง
+  // job วิดีโอที่จ่ายเงินแล้วจะถูกลบจาก ledger ถาวร (anti-goal ใน spec)
+  void cloudKeyLoaded.then(() => resolvePendingLedger(ledger, lostQueueModes, snapshotRestorable));
 }
 
-/** ครึ่งหลังของ reconcilePendingJobs — รันหลัง keyReady เพื่อให้ state.apiKey จาก cloud มาถึงก่อนตัดสิน resume */
+/** ครึ่งหลังของ reconcilePendingJobs — รันหลัง cloudKeyLoaded เพื่อให้ state.apiKey จาก cloud มาถึงก่อนตัดสิน resume */
 function resolvePendingLedger(ledger: PendingJobEntry[], lostQueueModes: Mode[], snapshotRestorable: boolean) {
   let lostJobCount = 0;
   const resumable: { entry: PendingJobEntry; model: ORModel }[] = [];
@@ -472,12 +474,17 @@ export function applyPromptSuggestion(text: string) {
 // ---------- Cloud Sync (Supabase): login + OpenRouter key ----------
 /** กัน network ตายแล้ว resume video job / ปุ่ม Generate ค้างรอ cloud ตลอดไป */
 const CLOUD_KEY_TIMEOUT_MS = 5000;
+/** เพดานกันค้างถาวรของ cloudKeyLoaded เท่านั้น (เช่น auth lock ของ supabase-js ค้าง) — ปกติ request ล้มเองก่อนถึง */
+const CLOUD_KEY_LOAD_CEILING_MS = 30000;
 
 /**
- * "key พร้อมแล้ว" — resolve เมื่อโหลด session + key จาก cloud เสร็จ (หรือล้ม/timeout) ตัวเดียวของทั้งแอป
- * reconcilePendingJobs (ส่วนตัดสิน resume) และ requireApiKey รอตัวนี้ก่อนตัดสินว่า "ไม่มี key"
- * ไม่ได้ตั้งค่าฟีเจอร์ → resolve ทันทีและ keySettled = true ตั้งแต่โหลด module = พฤติกรรมเดิมทุกอย่าง
+ * มี promise สองตัวจากการโหลดครั้งเดียวกัน แยกตามจุดประสงค์ — ไม่ได้ตั้งค่าฟีเจอร์ → ทั้งคู่ resolve ทันที
+ * และ keySettled = true ตั้งแต่โหลด module = พฤติกรรมเดิมทุกอย่าง
+ * - `cloudKeyLoaded`: รอการโหลด session + key จริงจนจบ (เพดาน 30s) — ใช้ตัดสิน resume/lost ของ pending job
+ *   เพราะตัดสินผิดตอน key ยังไม่มา = ทิ้ง job ที่จ่ายเงินแล้วถาวร รอนานกว่าได้ไม่เสียหาย
+ * - `keyReady`: ตัวเดียวกันแต่ race กับ 5s — ใช้กับ requireApiKey (UI) ไม่ให้ปุ่มเงียบนานเกินไป
  */
+export let cloudKeyLoaded: Promise<void> = Promise.resolve();
 export let keyReady: Promise<void> = Promise.resolve();
 let keySettled = !isCloudConfigured();
 let cloudInitStarted = false;
@@ -508,10 +515,24 @@ async function syncCloudKey(): Promise<void> {
   }
 }
 
+/**
+ * ลำดับเดียวที่ใช้ทั้งตอน boot (initCloud) และหลังล็อกอิน (cloudLogin): session → cloudUser → key → gallery
+ * คืน false ถ้าไม่มี session (ไม่ทำอะไรต่อ) — Task 5 เติม restoreCloudGallery ที่จุดเดียวนี้
+ */
+async function loadCloudSessionAndKey(): Promise<boolean> {
+  const user = await cloudGetSession();
+  if (!user) return false;
+  mutate(s => { s.cloudUser = user; });
+  await syncCloudKey();
+  void restoreCloudGallery();
+  return true;
+}
+
 export function initCloud(): void {
   if (cloudInitStarted) return;
   cloudInitStarted = true;
   if (!isCloudConfigured()) {
+    cloudKeyLoaded = Promise.resolve();
     keyReady = Promise.resolve();
     keySettled = true;
     return;
@@ -521,14 +542,11 @@ export function initCloud(): void {
     if (user?.userId === state.cloudUser?.userId && user?.email === state.cloudUser?.email) return;
     mutate(s => { s.cloudUser = user; });
   });
-  const load = (async () => {
-    const user = await cloudGetSession();
-    if (!user) return;
-    mutate(s => { s.cloudUser = user; });
-    await syncCloudKey();
-    void restoreCloudGallery();
-  })().catch(() => { /* ฟังก์ชันใน supabase.ts ไม่ throw อยู่แล้ว — กันไว้ให้ keyReady ไม่ reject */ });
-  keyReady = Promise.race([load, sleep(CLOUD_KEY_TIMEOUT_MS)]).then(() => { keySettled = true; });
+  const load = loadCloudSessionAndKey()
+    .then(() => {})
+    .catch(() => { /* ฟังก์ชันใน supabase.ts ไม่ throw อยู่แล้ว — กันไว้ให้ promise ไม่ reject */ });
+  cloudKeyLoaded = Promise.race([load, sleep(CLOUD_KEY_LOAD_CEILING_MS)]);
+  keyReady = Promise.race([cloudKeyLoaded, sleep(CLOUD_KEY_TIMEOUT_MS)]).then(() => { keySettled = true; });
 }
 
 export async function cloudLogin(email: string, password: string): Promise<boolean> {
@@ -537,12 +555,7 @@ export async function cloudLogin(email: string, password: string): Promise<boole
     toast(res.message, "error");
     return false;
   }
-  const user = await cloudGetSession();
-  if (user) {
-    mutate(s => { s.cloudUser = user; });
-    await syncCloudKey();
-    void restoreCloudGallery();
-  }
+  await loadCloudSessionAndKey();
   toast(t("actions.cloud.loggedIn"));
   return true;
 }
