@@ -301,18 +301,17 @@ function CloudSettings() {
             <span className="min-w-0 truncate text-[11.5px] text-text-dim">
               {t("settings.cloud.loggedInAs")} <span className="font-semibold text-text" title={s.cloudUser.email}>{s.cloudUser.email}</span>
             </span>
-            <div className="flex shrink-0 items-center gap-1">
-              <InfoHint align="end" label={t("settings.cloud.logoutHint")} />
-              <button
-                type="button"
-                disabled={pending}
-                onClick={logout}
-                className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <LogOut size={11} /> {t("settings.cloud.logout")}
-              </button>
-            </div>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={logout}
+              className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <LogOut size={11} /> {t("settings.cloud.logout")}
+            </button>
           </div>
+          {/* ผลของการกด Logout (key ถูกลบจากเครื่องนี้) — คำเตือนตามผลของปุ่มข้างบน ต้องโชว์ inline เสมอ ห้ามซ่อนหลัง ⓘ */}
+          <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">{t("settings.cloud.logoutHint")}</p>
           <div className="mt-2 flex items-start justify-between gap-3 border-t border-border pt-2">
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="text-[11.5px] text-text-dim">{t("settings.cloud.autoUpload")}</span>
