@@ -1,4 +1,38 @@
+import { PROVIDER_LABELS } from "./constants";
 import type { GenItem, ImgFormat, ORModel } from "./types";
+
+const modelLabel = (m: ORModel) => m.name || m.id;
+
+/** เรียงโมเดลตามลิสต์ regex ความเก่ง (index น้อย = ก่อน) — ไม่ match = ท้ายสุด, เสมอกันเรียงตามชื่อ คืน array ใหม่ */
+export function sortByRank(list: ORModel[], rank: RegExp[]): ORModel[] {
+  const rankOf = (m: ORModel) => {
+    const i = rank.findIndex(re => re.test(m.id) || re.test(m.name || ""));
+    return i === -1 ? rank.length : i;
+  };
+  return [...list].sort((a, b) => rankOf(a) - rankOf(b) || modelLabel(a).localeCompare(modelLabel(b)));
+}
+
+/** ชื่อ provider ของโมเดล: PROVIDER_LABELS ตาม prefix ของ id → ส่วนก่อน ": " ในชื่อ → prefix ของ id ดิบ */
+export function providerOf(m: ORModel): string {
+  const prefix = m.id.split("/")[0];
+  if (PROVIDER_LABELS[prefix]) return PROVIDER_LABELS[prefix];
+  const sep = m.name?.indexOf(": ") ?? -1;
+  return sep > 0 ? m.name!.slice(0, sep) : prefix;
+}
+
+/**
+ * จัดกลุ่มลิสต์ที่เรียงแล้วตาม provider — กลุ่มเรียงตามตำแหน่งที่ provider โผล่ครั้งแรก (= โมเดลเก่งสุดของกลุ่ม)
+ * โมเดลในกลุ่มคงลำดับเดิม ไม่มีกลุ่มว่าง
+ */
+export function groupByProvider(list: ORModel[]): { provider: string; models: ORModel[] }[] {
+  const groups = new Map<string, ORModel[]>();
+  for (const m of list) {
+    const p = providerOf(m);
+    const g = groups.get(p);
+    if (g) g.push(m); else groups.set(p, [m]);
+  }
+  return [...groups].map(([provider, models]) => ({ provider, models }));
+}
 
 export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 

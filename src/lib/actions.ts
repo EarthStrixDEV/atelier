@@ -4,7 +4,7 @@ import {
   BUILTIN_TEMPLATES, CHAT_MODEL, CLOUD_AUTOUPLOAD_KEY, CLOUD_RESTORE_CONCURRENCY, CLOUD_RESTORE_PER_MODE, CLOUD_UPLOAD_CONCURRENCY, DURATIONS, EXTRA_MODELS, GRILL_MODEL,
   MAX_BAKE_OFF_MODELS, MAX_CHAT_HISTORY, MAX_CONCURRENT_REQUESTS, MAX_GRILL_QUESTIONS, MAX_HISTORY, MAX_QUEUE,
   MAX_REFS_PER_KIND, MAX_REF_BYTES, MAX_USER_TEMPLATES, MIN_GRILL_QUESTIONS, MODE_MODEL_FILTER, modelRequiresRefImage,
-  NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, PREFERRED,
+  NANO_BANANA_ALLOWED_IDS, NANO_BANANA_ID_PATTERN, OPTIMIZER_MODEL, IMAGE_MODEL_RANK, VIDEO_MODEL_RANK, DEFAULT_IMAGE_MODEL_ID, DEFAULT_VIDEO_MODEL_ID,
   RATIOS, REF_KINDS, TTS_EXTRA_MODELS, TTS_FALLBACK_VOICES, TTS_MODEL_IDS, VIDEO_MODEL_IDS,
   VIDEO_POLL_MS, VIDEO_POLL_MS_HIDDEN, VIDEO_POLL_MS_MAX, VIDEO_RESOLUTION, videoTimeoutMsForModel, isNegativePromptMode, isVideoMode, modeLabel,
 } from "./constants";
@@ -30,7 +30,7 @@ import {
 } from "./supabase";
 import { t } from "./i18n";
 import type { AppState, CancelReason, ChatMsg, ExplainedItem, GenItem, GrillPrompt, HistoryEntry, ImportDiffPerMode, ImportPreview, InfographicPreset, Locale, Mode, ORModel, PendingJobEntry, PromptPlacement, PromptTemplate, QueueJob, RefImage, RefKind, RefSupportLevel, ResolvedThemeId, SpendConfirmRequest, SpendLedger, StoryboardChain, ThemeId, TtsVoice } from "./types";
-import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
+import { captureVideoFrame, convertDataUrl, dataUrlByteSize, dedupCommaPhrases, hasKeyword, isImageDataUrl, randomFileName, sleep, sortByRank, togglePromptKeyword, triggerDownload, videoPricePerSec } from "./utils";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "unknown error";
 
@@ -100,7 +100,11 @@ export function currentModel(): ORModel | null {
 function ensureModelSelection() {
   const list = modelsForMode(state.mode);
   const ms = cur();
-  if (!list.some(m => m.id === ms.modelId)) ms.modelId = list[0]?.id ?? null;
+  if (list.some(m => m.id === ms.modelId)) return;
+  // ลิสต์เรียงตามความเก่ง ตัวแรกจึงเป็นรุ่นแพงสุด — ใช้โมเดลเริ่มต้นที่ตรึงไว้ก่อน (audio/tts ไม่มี ใช้ตัวแรกตามเดิม)
+  const preferred = isVideoMode(state.mode) ? DEFAULT_VIDEO_MODEL_ID
+    : state.mode === "audio" || state.mode === "tts" ? null : DEFAULT_IMAGE_MODEL_ID;
+  ms.modelId = (preferred && list.some(m => m.id === preferred) ? preferred : list[0]?.id) ?? null;
 }
 
 export async function loadModels() {
@@ -143,14 +147,8 @@ export async function loadModels() {
         list.push(em);
       }
     }
-    const rank = (m: ORModel) => {
-      for (let i = 0; i < PREFERRED.length; i++) {
-        if (PREFERRED[i].test(m.id) || PREFERRED[i].test(m.name || "")) return i;
-      }
-      return PREFERRED.length;
-    };
-    list.sort((a, b) => rank(a) - rank(b) || (a.name || a.id).localeCompare(b.name || b.id));
-    mutate(s => { s.models = list; s.audioModels = audioList; s.speechModels = speechList; ensureModelSelection(); applyVideoCapabilities(); });
+    const ranked = sortByRank(list, IMAGE_MODEL_RANK);
+    mutate(s => { s.models = ranked; s.audioModels = audioList; s.speechModels = speechList; ensureModelSelection(); applyVideoCapabilities(); });
     if (import.meta.env.DEV) checkModelIdDrift(list.map(m => m.id), fetched.map(m => m.id));
   } catch (e) {
     mutate(s => { s.modelsFailed = true; });
@@ -227,8 +225,8 @@ export async function loadVideoModels() {
     const res = await fetch("https://openrouter.ai/api/v1/videos/models");
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    const list: ORModel[] = ((data.data || []) as ORModel[]).filter(m => VIDEO_MODEL_IDS.includes(m.id));
-    list.sort((a, b) => VIDEO_MODEL_IDS.indexOf(a.id) - VIDEO_MODEL_IDS.indexOf(b.id));
+    // VIDEO_MODEL_IDS เป็น allowlist อย่างเดียว — ลำดับใน select มาจาก VIDEO_MODEL_RANK
+    const list = sortByRank(((data.data || []) as ORModel[]).filter(m => VIDEO_MODEL_IDS.includes(m.id)), VIDEO_MODEL_RANK);
     mutate(s => { s.videoModels = list; ensureModelSelection(); applyVideoCapabilities(); });
   } catch (e) {
     mutate(s => { s.videoModelsFailed = true; });

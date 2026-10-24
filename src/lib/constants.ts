@@ -178,8 +178,45 @@ export const TTS_FALLBACK_VOICES: TtsVoice[] = [
   "Puck", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Sulafat", "Umbriel", "Vindemiatrix", "Zephyr", "Zubenelgenubi",
 ].map(id => ({ id }));
 
-// โมเดลที่พี่เอิร์ธอยากได้ ให้ลอยขึ้นบนสุดของ dropdown ถ้ามีบน OpenRouter
-export const PREFERRED = [/nano.banana/i, /grok.*imagine.*quality/i, /grok.*imagine/i, /gpt.*image/i];
+/**
+ * ลำดับ "ความเก่ง" ของโมเดลใน select (index น้อย = เก่งกว่า) — ดูแลด้วยมือ เพราะ OpenRouter ไม่มีคะแนนให้
+ * match กับ id หรือ name, regex แรกที่ match ชนะ (จึงวางรุ่นเจาะจงก่อนรุ่นกว้าง เช่น 2.5 ก่อน 2)
+ * โมเดลที่ไม่ match ไปอยู่ท้ายกลุ่ม provider ของตัวเอง — มีโมเดลใหม่ต้องมาเติมที่นี่
+ * ลำดับกลุ่ม provider ใน select = ลำดับของโมเดลที่เก่งที่สุดในกลุ่มนั้น (ดู groupByProvider)
+ */
+export const IMAGE_MODEL_RANK = [
+  /gemini-3-pro-image|nano.banana.pro/i,
+  /gpt-image-2\.5/i,
+  /nano.banana.2\.1/i,
+  /gemini-3\.1-flash-image|nano.banana.2\b/i,
+  /gpt-image-2\b/i,
+  /grok.*imagine.*quality/i,
+  /grok.*imagine/i,
+  /seedream.*pro/i,
+  /seedream/i,
+  /mai-image-2\.6/i,
+  /mai-image/i,
+  /qwen.*image/i,
+  /krea/i,
+  /muse/i,
+  /openrouter\/auto|auto.router/i,
+];
+export const VIDEO_MODEL_RANK = [
+  /veo-3\.1-fast/i, /veo-3\.1-lite/i, /kling/i, /runway|gen-4\.5/i, /seedance/i,
+  /grok-imagine-video-1\.5/i, /grok-imagine-video/i, /wan-2\.7/i, /wan-2\.6/i, /flux-3-video/i,
+];
+
+/** ชื่อกลุ่ม provider ใน select — key = prefix ของ model id ก่อน "/" (ไม่มีใน map → ดู providerOf) */
+export const PROVIDER_LABELS: Record<string, string> = {
+  google: "Google", "x-ai": "xAI", openai: "OpenAI", openrouter: "OpenRouter",
+  "bytedance-seed": "ByteDance Seed", bytedance: "ByteDance", krea: "Krea", meta: "Meta", "meta-llama": "Meta",
+  microsoft: "Microsoft", qwen: "Qwen", "black-forest-labs": "Black Forest Labs", kwaivgi: "Kling",
+  runway: "Runway", alibaba: "Alibaba",
+};
+
+// โมเดลเริ่มต้นตรึงไว้แยกจากลำดับความเก่ง — ไม่งั้นผู้ใช้ใหม่ได้ตัวแรกของลิสต์ (รุ่นแพงสุด) โดยไม่รู้ตัว
+export const DEFAULT_IMAGE_MODEL_ID = "google/gemini-3.1-flash-image";
+export const DEFAULT_VIDEO_MODEL_ID = "x-ai/grok-imagine-video";
 
 /**
  * ตระกูล Nano Banana (Google Gemini image-gen) ที่อนุญาตให้โผล่ในโหมด General —
