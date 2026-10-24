@@ -26,7 +26,9 @@ export default function Tooltip({
   const fitIntoView = () => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.style.marginLeft = "";
+    // ใช้ transform (ไม่ใช่ margin-left): align "end" ยึดด้วย right-0 (left:auto) margin ซ้ายเลยไม่ขยับกล่อง
+    // และ transform ซ้อนกับ property `translate` ที่ -translate-x-1/2 ของ align "center" ใช้อยู่ได้โดยไม่ทับกัน
+    el.style.transform = "";
     const r = el.getBoundingClientRect();
     let lo = 8, hi = window.innerWidth - 8;
     for (let p = el.parentElement; p; p = p.parentElement) {
@@ -40,7 +42,7 @@ export default function Tooltip({
     let dx = 0;
     if (r.right > hi) dx = hi - r.right;
     if (r.left + dx < lo) dx = lo - r.left;
-    el.style.marginLeft = dx ? dx + "px" : "";
+    el.style.transform = dx ? `translateX(${dx}px)` : "";
   };
   return (
     <div className="group/tt relative" onMouseEnter={fit ? fitIntoView : undefined} onFocus={fit ? fitIntoView : undefined}>

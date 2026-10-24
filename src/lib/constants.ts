@@ -458,7 +458,7 @@ export const MODE_META: Record<Mode, { placeholder: string; empty: string; title
     empty: "ยังไม่มีวิดีโอ — ใส่ prompt แล้วกด Generate ได้เลยค่ะ",
     title: "Video Gallery",
     countLabel: "Clips",
-    hint: "วิดีโอ 720p ยาว 8–10 วิ — ใช้เวลาสร้างราวๆ 1–3 นาทีต่อคลิป ราคาประเมินอยู่ใต้ชื่อโมเดล — Enter เพื่อสั่ง gen ได้เลย",
+    hint: "วิดีโอ 720p ยาว 8–10 วิ — ใช้เวลาสร้างราวๆ 1–3 นาทีต่อคลิป ราคาประเมินดูได้ที่ ⓘ ข้าง Model — Enter เพื่อสั่ง gen ได้เลย",
   },
   cinematic: {
     placeholder: "อธิบาย scene ที่ต้องการ… เช่น a lone astronaut walks across a red desert at dusk, cinematic wide shot — สร้างเสร็จแล้วกด Extend บนคลิปเพื่อต่อเนื้อเรื่อง",
