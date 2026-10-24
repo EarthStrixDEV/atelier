@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { MODES } from "./constants";
 import { generate, openBakeOffConfirm, switchMode } from "./actions";
 import { cur, mutate, state, useApp } from "./store";
+import { isConfirmOpen } from "./alerts";
 
 /**
  * true ถ้า target ปัจจุบันเป็นช่อง input ที่ผู้ใช้กำลังพิมพ์อยู่ (input/textarea/contentEditable)
@@ -27,6 +28,8 @@ export function useKeyboardShortcuts() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // dialog ยืนยัน (SweetAlert2) เปิดอยู่ — ตัดทุกปุ่มลัดตั้งแต่ต้น (Ctrl+Enter ยิงได้แม้อยู่ใน input) กันสลับโหมด/generate ใต้ dialog ลบ
+      if (isConfirmOpen()) return;
       // แผงที่มี input ของตัวเองอยู่แล้ว (KeyModal, Chat, Grill) — ปิดปุ่มลัด global ทั้งหมดกัน conflict
       if (state.keyModalOpen || state.chatOpen || state.grillOpen) return;
 

@@ -49,6 +49,7 @@ src/
 │   ├── googleDrive.ts        # Google Drive OAuth (GIS) + upload
 │   ├── shortcuts.ts          # global keyboard shortcut handling
 │   ├── shareCard.ts          # share-card image generation
+│   ├── alerts.ts             # SweetAlert2 wrapper — `confirmAction()` for every simple confirm
 │   ├── notify.ts             # Notification API wrapper
 │   ├── catalogData.ts        # hand-curated WORKFLOW_RECOMMENDATIONS + MODEL_QUALITY_TAGS for /models
 │   └── utils.ts              # keyword regex toggling, convertDataUrl, randomFileName, video helpers
@@ -63,7 +64,6 @@ src/
 │   ├── ExtendTool.tsx        # pick a frame from a video to extend from
 │   ├── CompareModal.tsx      # 2 images = swipe compare, 3–4 = side-by-side grid
 │   ├── SettingsModal.tsx     # assist model, custom model JSON, storage breakdown, gallery-persist toggle
-│   ├── ConfirmModal.tsx      # generic destructive-action confirm (delete all / delete selected, incl. cloud copies)
 │   ├── SpendGuardModal.tsx   # confirms a batch that would exceed/already exceeds the spend cap
 │   ├── KeyModal.tsx / Lightbox.tsx / Toast.tsx / ShortcutsModal.tsx
 │   ├── BakeOffConfirmModal.tsx / ImportPreviewModal.tsx / RestoreBanner.tsx
@@ -116,7 +116,7 @@ Opt-in via login; independent of Gallery Persistence. `src/lib/supabase.ts` is t
 - **`cloudKeyLoaded` vs `keyReady`** — `cloudKeyLoaded` is the untimed load (30 s safety ceiling only) and gates pending-job resume/drop, so a slow login can't make jobs look lost. `keyReady` is the same promise raced against 5 s and gates `requireApiKey` so UI buttons don't stay silent.
 - **Upload** — manual per card / selection, plus auto-upload (`atelier_cloud_autoupload`, off by default). Queue width is `CLOUD_UPLOAD_CONCURRENCY`, separate from the Request Governor (no OpenRouter spend).
 - **Restore** — after `galleryRehydrated`, the latest `CLOUD_RESTORE_PER_MODE` (30) items per mode are listed; items already present are skipped by `cloudId`. Each gets an immediate `loading` placeholder card with `cloudRestoring` set, files download in the background (`CLOUD_RESTORE_CONCURRENCY`), failures offer retry.
-- **Delete** — "delete all" keeps favorites; "delete selected" deletes favorites too. Both go through `ConfirmModal` and also delete the cloud copies (Storage object + row). Favorite toggles sync to `cloud_items`.
+- **Delete** — "delete all" keeps favorites; "delete selected" deletes favorites too. Both go through `confirmAction()` and also delete the cloud copies (Storage object + row). Favorite toggles sync to `cloud_items`.
 - **Allowlist** — `cloud_items` columns are a hand-kept allowlist (`CloudItemMeta`), same idea as `PersistedGenItem`: no refs/apiKey/jobId/error text. New `GenItem.cloud*` fields are in-memory only; the only ones that reach IndexedDB are `cloudId` and `cloudPath` (`PERSISTED_ITEM_VERSION` 3).
 
 ### Generation routing (actions.ts)
@@ -186,6 +186,10 @@ Run one prompt across several models at once to compare. Selected in the Sidebar
 - **Export/Import** — JSON of per-mode metadata only (`prompt`, `ratio`, `count`, `duration`, `audio`, `queue`, `history`), never images. `ImportPreviewModal` diffs the file first and offers Merge (additive) or Replace (overwrites). Old legacy exports still import.
 
 ## Conventions
+
+### Confirmations
+
+Yes/no confirms go through `confirmAction()` in `lib/alerts.ts` (SweetAlert2; focuses Cancel, resolves `true` only on confirm). Content-heavy modals (BakeOff/SpendGuard/ImportPreview) stay React modals. Never call `Swal.fire` directly elsewhere, and never use Swal for toasts — it shows one popup at a time and would close an open confirm. `shortcuts.ts` checks `isConfirmOpen()` so global shortcuts don't fire under a dialog.
 
 ### Toasts
 

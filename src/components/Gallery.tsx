@@ -18,7 +18,7 @@ import type { GenItem, Mode } from "../lib/types";
 import { classifyGenError, isImageDataUrl, ratioCSS, videoProgressPct, videoStatusText } from "../lib/utils";
 import { t } from "../lib/i18n";
 import PromptComposer from "./PromptComposer";
-import ConfirmModal, { type ConfirmRequest } from "./ConfirmModal";
+import { confirmAction } from "../lib/alerts";
 
 const RING_C = 176; // เส้นรอบวง r=28 (2π×28 ≈ 175.9)
 
@@ -1207,17 +1207,13 @@ export default function Gallery() {
   // resetModeGallery เป็นคน revoke blob URL ให้เฉพาะชิ้นที่ถูกลบจริง (ดู actions.ts) การ์ดที่ติดดาวจึงยังเล่นต่อได้
   const clearableCount = ms.images.filter(x => !x.favorite).length;
 
-  // โมดัลยืนยันการลบ (ล้างแกลเลอรี / ลบที่เลือก) — closeConfirm ต้อง stable เพราะ ConfirmModal ผูก effect กับมัน
-  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
-  const closeConfirm = useCallback(() => setConfirmReq(null), []);
-
   // ไม่ได้ล็อกอิน → ลบได้แค่ในเครื่อง สำเนาบน Cloud ยังอยู่และจะกลับมาตอนล็อกอิน ต้องบอกก่อนกดยืนยัน
   const cloudDeleteWarning = (effect: CloudDeleteEffect) =>
     effect === "delete" ? t("gallery.delete.cloudNote")
       : effect === "kept" ? t("gallery.delete.cloudKeptNote")
         : undefined;
 
-  const clearGallery = () => {
+  const clearGallery = async () => {
     if (!clearableCount) return;
     const mode = s.mode;
     const question = favCount
@@ -1225,34 +1221,32 @@ export default function Gallery() {
 (${favCount} ชิ้นที่ติดดาวไว้จะถูกเก็บไว้ ส่วนที่เหลือกู้คืนไม่ได้)`
       : `ลบผลงานทั้ง ${clearableCount} ชิ้นในโหมดนี้ออกจากแกลเลอรีใช่ไหมคะ? กู้คืนไม่ได้นะคะ`;
     const kept = favCount;
-    setConfirmReq({
+    if (await confirmAction({
       title: t("gallery.delete.clearTitle"),
       body: question,
       warning: cloudDeleteWarning(modeResetCloudDeleteEffect(mode)),
       confirmLabel: t("gallery.delete.confirm"),
-      onConfirm: () => {
-        const removed = resetModeGallery(mode);
-        resetFilters();
-        toast(kept ? `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ (เก็บรายการโปรดไว้ ${kept} ชิ้น)` : `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ`);
-      },
-    });
+    })) {
+      const removed = resetModeGallery(mode);
+      resetFilters();
+      toast(kept ? `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ (เก็บรายการโปรดไว้ ${kept} ชิ้น)` : `ล้างแกลเลอรีแล้ว ${removed} ชิ้นค่ะ`);
+    }
   };
 
   // ลบที่เลือก — ยืนยันทุกครั้ง (destructive และลบชิ้นที่ติดดาวด้วย) เพิ่มประโยคเตือนเมื่อจะลบสำเนาบน Cloud ด้วย
   // นับแบบเดียวกับ deleteSelected() (ข้ามงานที่กำลัง generate) ให้ตัวเลขในโมดัลตรงกับที่จะลบจริง
-  const deleteSelectedItems = () => {
+  const deleteSelectedItems = async () => {
     const count = selectedItems.filter(x => !isGenerating(x)).length;
     if (!count) return;
-    setConfirmReq({
+    if (await confirmAction({
       title: t("gallery.delete.selectedTitle"),
       body: t("gallery.delete.selectedConfirm", { count }),
       warning: cloudDeleteWarning(selectionCloudDeleteEffect()),
       confirmLabel: t("gallery.delete.confirm"),
-      onConfirm: () => {
-        const removed = deleteSelected();
-        if (removed) toast(t("gallery.delete.selectedDone", { count: removed }));
-      },
-    });
+    })) {
+      const removed = deleteSelected();
+      if (removed) toast(t("gallery.delete.selectedDone", { count: removed }));
+    }
   };
 
   return (
@@ -1463,7 +1457,6 @@ export default function Gallery() {
           </div>
         </div>
       )}
-      <ConfirmModal request={confirmReq} onClose={closeConfirm} />
     </main>
   );
 }

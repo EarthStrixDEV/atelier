@@ -331,3 +331,46 @@ details.kw-group[open] > summary::after { content: "–"; }
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/*
+ * SweetAlert2 (lib/alerts.ts) — CSS ฐานของ Swal เป็น unlayered จึงชนะ Tailwind utilities (@layer utilities)
+ * ต้อง override แบบ unlayered + specificity สูงกว่า เพื่อให้ dialog ใช้สีธีมครบ 7 ธีม (ห้าม hardcode สี)
+ */
+.swal2-container.swal2-backdrop-show,
+.swal2-container.swal2-noanimation {
+  background: var(--color-overlay);
+}
+.swal2-container .swal2-popup {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 14px;
+  width: 440px;
+  max-width: calc(100vw - 40px);
+  padding: 24px;
+}
+.swal2-container .swal2-title {
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 0 0 4px;
+  text-align: left;
+}
+.swal2-container .swal2-html-container {
+  color: var(--color-text-dim);
+  margin: 4px 0 16px;
+  padding: 0;
+  font-size: 12.5px;
+}
+.swal2-container .swal2-actions { margin: 0; padding: 0; }
+.swal2-container .swal2-actions .swal2-confirm,
+.swal2-container .swal2-actions .swal2-cancel {
+  margin: 0;
+  box-shadow: none;
+  border: 0;
+}
+.swal2-container .swal2-actions .swal2-confirm { color: var(--color-accent-ink); }
+.swal2-container .swal2-actions .swal2-confirm.bg-danger { background: var(--color-danger); }
+.swal2-container .swal2-actions .swal2-confirm.bg-accent { background: var(--color-accent); }
+.swal2-container .swal2-actions .swal2-cancel { background: transparent; color: var(--color-text-faint); }
+.swal2-container .swal2-actions .swal2-cancel:hover { color: var(--color-text); }
