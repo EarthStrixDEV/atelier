@@ -96,15 +96,22 @@ export function currentModel(): ORModel | null {
   return modelsForMode(state.mode).find(m => m.id === cur().modelId) || null;
 }
 
-/** ถ้า modelId ของโหมดปัจจุบันไม่อยู่ใน list (โหลดใหม่/สลับโหมด) ให้ default เป็นตัวแรก */
+/**
+ * โมเดลเริ่มต้นของโหมด — ลิสต์เรียงตามความเก่ง ตัวแรกจึงเป็นรุ่นแพงสุด ห้ามใช้ list[0] ตรงๆ
+ * ใช้ค่าที่ตรึงไว้ก่อน (audio/tts ไม่มีค่าตรึง ใช้ตัวแรกตามเดิม) — ทุกที่ที่ต้องเดาโมเดลให้ผู้ใช้ต้องผ่านตัวนี้
+ */
+function defaultModelFor(mode: Mode): ORModel | null {
+  const list = modelsForMode(mode);
+  const pinned = isVideoMode(mode) ? DEFAULT_VIDEO_MODEL_ID
+    : mode === "audio" || mode === "tts" ? null : DEFAULT_IMAGE_MODEL_ID;
+  return (pinned && list.find(m => m.id === pinned)) || list[0] || null;
+}
+
+/** ถ้า modelId ของโหมดปัจจุบันไม่อยู่ใน list (โหลดใหม่/สลับโหมด) ให้ใช้โมเดลเริ่มต้นของโหมด */
 function ensureModelSelection() {
-  const list = modelsForMode(state.mode);
   const ms = cur();
-  if (list.some(m => m.id === ms.modelId)) return;
-  // ลิสต์เรียงตามความเก่ง ตัวแรกจึงเป็นรุ่นแพงสุด — ใช้โมเดลเริ่มต้นที่ตรึงไว้ก่อน (audio/tts ไม่มี ใช้ตัวแรกตามเดิม)
-  const preferred = isVideoMode(state.mode) ? DEFAULT_VIDEO_MODEL_ID
-    : state.mode === "audio" || state.mode === "tts" ? null : DEFAULT_IMAGE_MODEL_ID;
-  ms.modelId = (preferred && list.some(m => m.id === preferred) ? preferred : list[0]?.id) ?? null;
+  if (modelsForMode(state.mode).some(m => m.id === ms.modelId)) return;
+  ms.modelId = defaultModelFor(state.mode)?.id ?? null;
 }
 
 export async function loadModels() {
@@ -1082,11 +1089,10 @@ export async function startFromItem(item: GenItem, targetMode: "video" | "cinema
     s.mode = targetMode;
     s.optimize = { status: "idle", result: null, error: "" };
     const ts = s.modes[targetMode];
-    // โมเดลของ item ต้นทางอาจใช้ไม่ได้ในโหมดปลายทาง (เช่นมาจาก Home) — fallback ไปโมเดลที่เลือกอยู่ในโหมดปลายทาง หรือตัวแรกในลิสต์
+    // โมเดลของ item ต้นทางอาจใช้ไม่ได้ในโหมดปลายทาง (เช่นมาจาก Home) — fallback ไปโมเดลที่เลือกอยู่ในโหมดปลายทาง หรือโมเดลเริ่มต้น
     const targetModel = modelsForMode(targetMode).find(m => m.id === item.model)
       ?? modelsForMode(targetMode).find(m => m.id === ts.modelId)
-      ?? modelsForMode(targetMode)[0]
-      ?? null;
+      ?? defaultModelFor(targetMode);
     const rootItem: GenItem = {
       id: ++s.seq,
       status: "done",
