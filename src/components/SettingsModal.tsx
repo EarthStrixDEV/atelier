@@ -7,6 +7,7 @@ import { GALLERY_MAX_ITEMS_PER_MODE, GALLERY_MAX_TOTAL_BYTES } from "../lib/cons
 import { clearAllPersistedItems, getGalleryUsage, isGalleryPersistEnabled, setGalleryPersistEnabled } from "../lib/galleryStore";
 import { cloudUsage, isCloudConfigured } from "../lib/supabase";
 import { t } from "../lib/i18n";
+import { confirmAction } from "../lib/alerts";
 
 /** โชว์ขนาดเป็นหน่วยที่อ่านง่าย — GB สำหรับพื้นที่บน Cloud ที่ไม่มีเพดาน */
 function fmtBytes(n: number): string {
@@ -111,10 +112,13 @@ function GalleryPersistSettings() {
     if (busy) return;
     const next = !enabled;
     if (!next && (usage?.count ?? 0) > 0) {
-      const ok = window.confirm(
-        `ปิดแล้วผลงานที่เก็บไว้ ${usage!.count} ชิ้น (${fmtBytes(usage!.bytes)}) จะถูกลบออกจากเครื่องทันที กู้คืนไม่ได้นะคะ — ยืนยันไหมคะ?`
-      );
-      if (!ok) return;
+      const ok = await confirmAction({
+        title: t("settings.GalleryPersist.disableTitle"),
+        body: `ปิดแล้วผลงานที่เก็บไว้ ${usage!.count} ชิ้น (${fmtBytes(usage!.bytes)}) จะถูกลบออกจากเครื่องทันที กู้คืนไม่ได้นะคะ — ยืนยันไหมคะ?`,
+        confirmLabel: t("settings.GalleryPersist.disableConfirm"),
+      });
+      // ผู้ใช้ปิด Settings ระหว่างที่ dialog เปิดอยู่ได้ — component unmount แล้วห้ามแตะ state ต่อ
+      if (!ok || !aliveRef.current) return;
     }
     setBusy(true);
     try {
@@ -135,10 +139,12 @@ function GalleryPersistSettings() {
 
   const clearAll = async () => {
     if (busy || !usage?.count) return;
-    const ok = window.confirm(
-      `ลบผลงานที่เก็บไว้ในเครื่องทั้ง ${usage.count} ชิ้น (${fmtBytes(usage.bytes)}) ใช่ไหมคะ? กู้คืนไม่ได้ แต่การเก็บจะยังเปิดอยู่ค่ะ`
-    );
-    if (!ok) return;
+    const ok = await confirmAction({
+      title: t("settings.GalleryPersist.clearTitle"),
+      body: `ลบผลงานที่เก็บไว้ในเครื่องทั้ง ${usage.count} ชิ้น (${fmtBytes(usage.bytes)}) ใช่ไหมคะ? กู้คืนไม่ได้ แต่การเก็บจะยังเปิดอยู่ค่ะ`,
+      confirmLabel: t("settings.GalleryPersist.clearConfirm"),
+    });
+    if (!ok || !aliveRef.current) return;
     setBusy(true);
     try {
       await clearAllPersistedItems();

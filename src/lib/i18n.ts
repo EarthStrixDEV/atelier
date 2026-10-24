@@ -67,6 +67,19 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.delete.confirm": "ลบ",
     "gallery.delete.cancel": "ยกเลิก",
 
+    // ---------- confirm dialog: Settings + Header (ย้ายจาก window.confirm / two-step button) ----------
+    "settings.GalleryPersist.disableTitle": "ปิดการเก็บผลงานลงเครื่อง",
+    "settings.GalleryPersist.disableConfirm": "ปิดและลบ",
+    "settings.GalleryPersist.clearTitle": "ลบผลงานที่เก็บไว้ในเครื่อง",
+    "settings.GalleryPersist.clearConfirm": "ลบทั้งหมด",
+    "header.SpendGuard.resetTitle": "ล้างยอดสะสม",
+    "header.SpendGuard.resetBody": "ล้างยอดค่าใช้จ่ายสะสมให้เป็น $0 แล้วเริ่มนับใหม่ใช่ไหมคะ? เพดานที่ตั้งไว้และผลงานใน gallery ไม่ได้รับผลกระทบค่ะ",
+    "header.SpendGuard.resetConfirm": "ล้างยอด",
+    "header.RunningJobs.cancelAllTitle": "ยกเลิกงานทั้งหมด",
+    "header.RunningJobs.cancelAllBody": "ยกเลิกทุกโหมด — กำลังสร้าง {{running}} งาน รอคิว {{waiting}} งาน",
+    "header.RunningJobs.cancelAllWaitingNote": "งานที่ยังรอคิวยังไม่ถูกยิง ยกเลิกตอนนี้ไม่เสียเงิน",
+    "header.RunningJobs.cancelAllConfirm": "ยกเลิกทั้งหมด",
+
     // ---------- SettingsModal: Cloud upload ----------
     "settings.cloud.autoUpload": "อัพโหลดขึ้น Cloud อัตโนมัติ",
     "settings.cloud.autoUploadHint": "ผลงานที่สร้างเสร็จต่อจากนี้จะถูกเก็บขึ้น Cloud ให้เอง — ตั้งค่าแยกต่อเบราว์เซอร์",
@@ -132,6 +145,19 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "gallery.delete.cloudKeptNote": "You are not signed in to Cloud — Cloud copies will NOT be deleted and will come back when you sign in again. Sign in first to delete them from Cloud too.",
     "gallery.delete.confirm": "Delete",
     "gallery.delete.cancel": "Cancel",
+
+    // ---------- confirm dialog: Settings + Header ----------
+    "settings.GalleryPersist.disableTitle": "Turn off saving to this device",
+    "settings.GalleryPersist.disableConfirm": "Turn off and delete",
+    "settings.GalleryPersist.clearTitle": "Delete saved works on this device",
+    "settings.GalleryPersist.clearConfirm": "Delete all",
+    "header.SpendGuard.resetTitle": "Reset cumulative spend",
+    "header.SpendGuard.resetBody": "Reset the cumulative spend to $0 and start counting again? Your cap and gallery are not affected.",
+    "header.SpendGuard.resetConfirm": "Reset",
+    "header.RunningJobs.cancelAllTitle": "Cancel all jobs",
+    "header.RunningJobs.cancelAllBody": "Cancels jobs in every mode — {{running}} running, {{waiting}} waiting",
+    "header.RunningJobs.cancelAllWaitingNote": "Waiting jobs haven't been sent yet, so cancelling them costs nothing.",
+    "header.RunningJobs.cancelAllConfirm": "Cancel all",
 
     // ---------- SettingsModal: Cloud upload ----------
     "settings.cloud.autoUpload": "Auto-upload to Cloud",

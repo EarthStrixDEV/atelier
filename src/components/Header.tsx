@@ -21,6 +21,8 @@ import {
   reconnectSavedAutoSaveDir, resetSpendLedger, setSpendCap, switchMode, toggleAutoSaveEnabled,
 } from "../lib/actions";
 import { loadExportLog, mutate, toast, useApp } from "../lib/store";
+import { confirmAction } from "../lib/alerts";
+import { t } from "../lib/i18n";
 import { ThemePickerPanel } from "./ThemePicker";
 import Tooltip from "./Tooltip";
 
@@ -189,23 +191,15 @@ function SpendGuardControl() {
   useApp(); // subscribe — ledger อยู่นอก snapshot ของ useApp() ต้องพึ่ง version counter ตัวเดียวกันให้ re-render
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  const [confirmingReset, setConfirmingReset] = useState(false);
   const ledger = getSpendLedger();
 
   // เปิด popover เมื่อไหร่ ให้ draft สะท้อนเพดานจริงที่ตั้งไว้ — `capUsd === undefined` = ไม่ได้ตั้ง จึงเป็นช่องว่าง
   // เช็ค `=== undefined` ตรงๆ ห้ามใช้ truthiness เพราะ `0` = "ถามทุกครั้ง" จะถูกกลืนเป็น "ไม่ได้ตั้ง" ทันที
   useEffect(() => {
-    if (!open) { setConfirmingReset(false); return; }
+    if (!open) return;
     const cap = getSpendLedger()?.capUsd;
     setDraft(cap === undefined ? "" : String(cap));
   }, [open]);
-
-  // กดยืนยันล้างยอดค้างไว้แล้วไม่กดต่อ — คืนปุ่มกลับสภาพเดิม (pattern เดียวกับ RunningJobsControl)
-  useEffect(() => {
-    if (!confirmingReset) return;
-    const id = window.setTimeout(() => setConfirmingReset(false), 4000);
-    return () => window.clearTimeout(id);
-  }, [confirmingReset]);
 
   const total = ledger?.totalUsd ?? 0;
   const unknown = ledger?.unknownCostCount ?? 0;
@@ -221,10 +215,14 @@ function SpendGuardControl() {
     setOpen(false);
   };
 
-  const doReset = () => {
-    if (!confirmingReset) { setConfirmingReset(true); return; }
-    setConfirmingReset(false);
-    resetSpendLedger();
+  const doReset = async () => {
+    // ปิด popover ก่อนเปิด dialog — ไม่งั้น click-outside ของ popover จะชนกับ backdrop ของ Swal
+    setOpen(false);
+    if (await confirmAction({
+      title: t("header.SpendGuard.resetTitle"),
+      body: t("header.SpendGuard.resetBody"),
+      confirmLabel: t("header.SpendGuard.resetConfirm"),
+    })) resetSpendLedger();
   };
 
   return (
@@ -293,17 +291,12 @@ function SpendGuardControl() {
 
             <div className="mt-3 border-t border-border pt-2.5">
               <button
-                className={
-                  "flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md py-1.5 text-[11.5px] font-semibold transition-colors "
-                  + (confirmingReset
-                    ? "bg-danger text-accent-ink"
-                    : "border border-border text-text-dim hover:border-danger hover:text-danger")
-                }
+                className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
                 title="ล้างยอดสะสมให้เป็น 0 แล้วเริ่มนับใหม่ เพดานที่ตั้งไว้คงเดิม"
                 onClick={doReset}
               >
                 <RotateCcw size={11} />
-                {confirmingReset ? "กดอีกครั้งเพื่อยืนยันล้างยอด" : "ล้างยอดสะสม เริ่มนับใหม่"}
+                ล้างยอดสะสม เริ่มนับใหม่
               </button>
               <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
                 ล้างแค่ตัวเลข ไม่กระทบผลงานใน gallery และเพดานที่ตั้งไว้ยังอยู่ค่ะ
@@ -367,14 +360,13 @@ function DrivePanel({ onDone }: { onDone: () => void }) {
  * มีงานค้างอยู่จริงเท่านั้น — ว่างเมื่อไหร่ interval ถูก clear ทิ้ง ไม่มี timer วิ่งเปล่าตลอดอายุแอป
  *
  * ยืนยันก่อนยกเลิก: "ยกเลิกทั้งหมด" ทีเดียวหลายชิ้นและกู้คืนไม่ได้ (งานที่ยิงไปแล้วเสียเงินไปแล้ว) —
- * ใช้ two-step ในปุ่มเดิม (กดครั้งแรกเปลี่ยนเป็น "ยืนยันยกเลิก?") แทน window.confirm/modal เพราะเบากว่า
- * และผู้ใช้กดพลาดแล้วแค่ปล่อยให้หมดเวลา 4 วินาทีก็คืนสภาพเดิมเอง ส่วนการยกเลิก "ทีละชิ้น" ในการ์ด
+ * ผ่าน confirmAction() (dialog กลาง) แทน two-step ในปุ่ม เพราะ dialog บอกจำนวนงานที่จะโดนยกเลิกได้
+ * และไม่มี timer ให้ปุ่ม "ยืนยันยกเลิก?" ค้างแล้วกดโดนทีหลัง ส่วนการยกเลิก "ทีละชิ้น" ในการ์ด
  * ไม่ต้องยืนยัน (ผลกระทบชิ้นเดียว เห็นตัวงานอยู่ตรงหน้า และมีปุ่มสร้างใหม่ให้กดกลับได้ทันที)
  */
 function RunningJobsControl() {
   const s = useApp();
   const [stats, setStats] = useState(() => getSchedulerStats());
-  const [confirming, setConfirming] = useState(false);
 
   // นับจาก state (ทุกโหมด) เพื่อ "ตัดสินใจว่าจะโชว์ไหม" — governor นับได้เฉพาะงานที่ผ่านมันอยู่ตอนนี้
   const loadingCount = Object.values(s.modes).reduce(
@@ -388,26 +380,24 @@ function RunningJobsControl() {
     return () => window.clearInterval(id);
   }, [loadingCount]);
 
-  // กดยืนยันค้างไว้แล้วไม่กดต่อ — คืนปุ่มกลับสภาพเดิม กัน "ยืนยันยกเลิก?" ค้างจนกดโดนทีหลังโดยไม่ตั้งใจ
-  useEffect(() => {
-    if (!confirming) return;
-    const id = window.setTimeout(() => setConfirming(false), 4000);
-    return () => window.clearTimeout(id);
-  }, [confirming]);
-
-  useEffect(() => { if (loadingCount === 0) setConfirming(false); }, [loadingCount]);
-
   if (loadingCount === 0) return null;
 
   const running = Math.min(stats.active, loadingCount);
   const waiting = stats.waiting;
 
-  const doCancelAll = () => {
-    if (!confirming) { setConfirming(true); return; }
-    setConfirming(false);
+  const doCancelAll = async () => {
+    // จำนวนใน body คือ ณ ตอนเปิด dialog — งานอาจจบระหว่างรอ (component อาจ unmount) cancelAll จะคืน 0
+    // แล้ว toast "ไม่มีงานที่ยกเลิกได้" ซึ่งถูกต้อง จึงไม่เรียก setStats หลัง await (interval อัปเดตเอง)
+    const ok = await confirmAction({
+      title: t("header.RunningJobs.cancelAllTitle"),
+      body: t("header.RunningJobs.cancelAllBody", { running, waiting })
+        + (waiting > 0 ? "\n" + t("header.RunningJobs.cancelAllWaitingNote") : ""),
+      confirmLabel: t("header.RunningJobs.cancelAllConfirm"),
+      danger: true,
+    });
+    if (!ok) return;
     // ยกเลิกทุกโหมด ไม่ใช่แค่โหมดปัจจุบัน — ตัวเลขที่โชว์ก็นับรวมทุกโหมด ปุ่มต้องทำตามที่เห็น
     const n = cancelAll("user-all");
-    setStats(getSchedulerStats());
     toast(n > 0 ? `ยกเลิกแล้ว ${n} งานค่ะ` : "ไม่มีงานที่ยกเลิกได้ตอนนี้ค่ะ");
   };
 
@@ -423,19 +413,14 @@ function RunningJobsControl() {
         {waiting > 0 && <span className="font-normal text-text-faint">· รอคิว {waiting}</span>}
       </span>
       <button
-        className={
-          "cursor-pointer rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors " +
-          (confirming
-            ? "bg-danger text-accent-ink"
-            : "border border-border text-text-dim hover:border-danger hover:text-danger")
-        }
+        className="cursor-pointer rounded-full border border-border px-2.5 py-0.5 text-[11px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
         title={waiting > 0
           ? `ยกเลิกทุกงานที่ค้างอยู่ — ${waiting} งานที่ยังรอคิวยังไม่ถูกยิงเลย ยกเลิกตอนนี้ไม่เสียเงิน`
           : "ยกเลิกทุกงานที่กำลังสร้างอยู่"}
-        aria-label={confirming ? "กดอีกครั้งเพื่อยืนยันยกเลิกงานทั้งหมด" : "ยกเลิกงานทั้งหมดที่กำลังสร้างอยู่"}
+        aria-label="ยกเลิกงานทั้งหมดที่กำลังสร้างอยู่"
         onClick={doCancelAll}
       >
-        {confirming ? "ยืนยันยกเลิก?" : <span className="flex items-center gap-1"><X size={11} /> ยกเลิกทั้งหมด</span>}
+        <span className="flex items-center gap-1"><X size={11} /> ยกเลิกทั้งหมด</span>
       </button>
     </div>
   );
