@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, KeyRound, Settings, ShieldAlert, Trash2, X } from "lucide-react";
 import { hasPendingKeyResume, onApiKeyCleared, onApiKeySaved, settleKeyModal } from "../lib/actions";
 import { loadRememberApiKey, mutate, saveApiKey, state, toast, useApp } from "../lib/store";
+import InfoHint from "./InfoHint";
 
 export default function KeyModal() {
   const s = useApp();
@@ -78,7 +79,17 @@ export default function KeyModal() {
       onClick={e => { if (e.target === e.currentTarget) close(); }}
     >
       <div role="dialog" aria-modal="true" aria-label="ตั้งค่า OpenRouter API Key" className="w-[min(440px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-7">
-        <h3 className="mb-1.5 flex items-center gap-1.5 text-base font-bold"><KeyRound size={16} /> OpenRouter API Key</h3>
+        <div className="mb-1.5 flex items-center gap-1.5">
+          <h3 className="flex items-center gap-1.5 text-base font-bold"><KeyRound size={16} /> OpenRouter API Key</h3>
+          {/* คำอธิบายการเก็บ key ย้ายมาหลัง ⓘ ข้างหัวข้อ (คำเตือน remember สีแดงด้านล่างยังโชว์ inline)
+              พูดเป็นเงื่อนไข ("ถ้ากดบันทึก") ไม่ใช่ยืนยันสถานะ เพราะ remember เป็น local state ของ checkbox
+              ที่ยังไม่ได้ persist — ถ้าเขียนว่า "เก็บไว้แล้ว" ผู้ใช้ที่ติ๊กแล้วกดยกเลิกจะเข้าใจผิดว่า key ถูกเซฟ */}
+          <InfoHint
+            label={remember
+              ? "Key ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — กดบันทึกแล้วจะถูกเก็บไว้ในเครื่องนี้จนกว่าจะกดลบ ปิดแท็บแล้วเปิดใหม่ก็ยังใช้ได้ค่ะ"
+              : "Key เก็บไว้ใน session ของแท็บนี้เท่านั้น ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — Refresh ได้สบาย แต่ปิดแท็บแล้วต้องใส่ใหม่ค่ะ ระบบจะเตือนก่อนปิดแท็บถ้ายังมี key อยู่"}
+          />
+        </div>
         <p className="mb-[18px] text-[13px] leading-relaxed text-text-dim">
           {resumePending && <>ต้องใช้ key ก่อนค่ะ — กดบันทึกแล้วจะทำงานที่กดไว้ต่อให้ทันที prompt เดิมไม่หาย<br /></>}
           สร้าง key ได้ที่ <a className="text-text underline" href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>
@@ -139,14 +150,6 @@ export default function KeyModal() {
             <Check size={14} /> {resumePending ? "บันทึกแล้วทำต่อ" : "บันทึก"}
           </button>
         </div>
-        {/* พูดเป็นเงื่อนไข ("ถ้ากดบันทึก") ไม่ใช่ยืนยันสถานะ เพราะ remember เป็น local state ของ checkbox
-            ที่ยังไม่ได้ persist — ถ้าเขียนว่า "เก็บไว้แล้ว" ผู้ใช้ที่ติ๊กแล้วกดยกเลิกจะเข้าใจผิดว่า key ถูกเซฟ */}
-        <p className="mt-3.5 text-[13px] leading-relaxed text-text-dim">
-          {remember
-            ? "Key ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — กดบันทึกแล้วจะถูกเก็บไว้ในเครื่องนี้จนกว่าจะกดลบ ปิดแท็บแล้วเปิดใหม่ก็ยังใช้ได้ค่ะ"
-            : "Key เก็บไว้ใน session ของแท็บนี้เท่านั้น ไม่ถูกส่งไปที่อื่นนอกจาก OpenRouter — Refresh ได้สบาย แต่ปิดแท็บแล้วต้องใส่ใหม่ค่ะ ระบบจะเตือนก่อนปิดแท็บถ้ายังมี key อยู่"}
-        </p>
-
         <div className="mt-4 border-t border-border pt-3.5">
           <button
             className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border-strong py-2 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-text hover:text-text"

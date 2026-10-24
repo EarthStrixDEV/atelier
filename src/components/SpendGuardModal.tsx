@@ -3,6 +3,7 @@ import { AlertTriangle, CircleDollarSign, HelpCircle, ShieldAlert, X } from "luc
 import { cancelSpend, confirmSpend } from "../lib/actions";
 import { useApp } from "../lib/store";
 import type { SpendConfirmRequest } from "../lib/types";
+import InfoHint from "./InfoHint";
 
 /** ยอดเงินประเมิน — ทศนิยม 4 ตำแหน่งเท่า BakeOffConfirmModal/usage bar เดิม ราคาต่อชิ้นมักต่ำกว่า 1 cent */
 function usd(n: number): string {
@@ -115,15 +116,19 @@ export default function SpendGuardModal() {
         </div>
 
         <div className="mb-2 flex items-center justify-between gap-2 rounded-[10px] border border-border-strong bg-surface-2 px-3.5 py-3">
-          <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-text"><CircleDollarSign size={13} /> รวมหลังยิง batch นี้</span>
+          <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-text">
+            <CircleDollarSign size={13} /> รวมหลังยิง batch นี้
+            <InfoHint label="ทุกยอดเป็นยอดประเมินจาก pricing ของโมเดล ไม่ใช่บิลจริงจาก OpenRouter นะคะ" />
+          </span>
           <span className={"shrink-0 font-mono text-[13px] font-semibold " + (overBy > 0 ? "text-danger" : "text-text")}>
             ~{usd(projected)}{overBy > 0 ? " (เกิน " + usd(overBy) + ")" : ""}
           </span>
         </div>
-        <p className="mb-4 text-[13px] leading-relaxed text-text-dim">
-          ทุกยอดเป็น <strong className="font-semibold">ยอดประเมิน</strong> จาก pricing ของโมเดล ไม่ใช่บิลจริงจาก OpenRouter นะคะ
-          {req.batchUnknownCount > 0 ? ` — และยังมีอีก ${req.batchUnknownCount} ชิ้นที่คำนวณราคาไม่ได้ ยอดจริงจะสูงกว่านี้` : ""}
-        </p>
+        {/* ส่วน static (ยอดประเมิน ไม่ใช่บิลจริง) ย้ายไป ⓘ ข้างแถวยอดรวม — ส่วน "คำนวณราคาไม่ได้" เป็นคำเตือนตามสถานการณ์
+            ต้องโชว์ inline เสมอเมื่อมีชิ้นไม่ทราบราคา (ตัดแค่ " — " ที่เคยเชื่อมกับประโยคก่อนหน้าออก) */}
+        {req.batchUnknownCount > 0
+          ? <p className="mb-4 text-[13px] leading-relaxed text-text-dim">และยังมีอีก {req.batchUnknownCount} ชิ้นที่คำนวณราคาไม่ได้ ยอดจริงจะสูงกว่านี้</p>
+          : <div className="mb-2" />}
 
         <div className="flex flex-col gap-2">
           <button

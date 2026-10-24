@@ -8,6 +8,7 @@ import { clearAllPersistedItems, getGalleryUsage, isGalleryPersistEnabled, setGa
 import { cloudUsage, isCloudConfigured } from "../lib/supabase";
 import { t } from "../lib/i18n";
 import { confirmAction } from "../lib/alerts";
+import InfoHint from "./InfoHint";
 
 /** โชว์ขนาดเป็นหน่วยที่อ่านง่าย — GB สำหรับพื้นที่บน Cloud ที่ไม่มีเพดาน */
 function fmtBytes(n: number): string {
@@ -164,9 +165,19 @@ function GalleryPersistSettings() {
     <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <span className="flex items-center gap-1.5 text-[12px] text-text-dim">
-            <Database size={13} /> เก็บผลงานไว้ในเครื่อง
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 text-[12px] text-text-dim">
+              <Database size={13} /> เก็บผลงานไว้ในเครื่อง
+            </span>
+            <InfoHint
+              label={
+                "ปกติภาพ/วิดีโอที่ generate อยู่ในหน่วยความจำเท่านั้น ปิดแท็บแล้วหายหมด (session snapshot เก็บแค่ prompt/ค่าตั้ง ไม่ได้เก็บไฟล์) "
+                + "เปิดอันนี้แล้วไฟล์จริงจะถูกเขียนลงเครื่องถาวรผ่าน IndexedDB "
+                + `และโหลดกลับมาให้เองตอนเปิดแอปครั้งหน้า — เก็บได้สูงสุด ${GALLERY_MAX_ITEMS_PER_MODE} ชิ้นต่อโหมด รวมไม่เกิน ${fmtBytes(GALLERY_MAX_TOTAL_BYTES)} (เกินแล้วลบของเก่าสุดที่ไม่ติดดาวออกให้)`
+                + "\nรูป reference ที่อัปโหลดเองและ API Key ไม่ถูกเก็บลงเครื่องไม่ว่ากรณีไหน"
+              }
+            />
+          </div>
         </div>
         <button
           type="button"
@@ -189,14 +200,9 @@ function GalleryPersistSettings() {
         </button>
       </div>
 
+      {/* คำเตือน data-loss ตอนปิด คงไว้ inline (storage warning) — ส่วนอธิบายการทำงานและเรื่อง ref/API Key ย้ายไปหลัง ⓘ ข้างหัวข้อ */}
       <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
-        ปกติภาพ/วิดีโอที่ generate อยู่ในหน่วยความจำเท่านั้น ปิดแท็บแล้วหายหมด (session snapshot เก็บแค่ prompt/ค่าตั้ง ไม่ได้เก็บไฟล์)
-        เปิดอันนี้แล้วไฟล์จริงจะถูก<strong className="font-semibold text-text-dim">เขียนลงเครื่องถาวร</strong>ผ่าน IndexedDB
-        และโหลดกลับมาให้เองตอนเปิดแอปครั้งหน้า — เก็บได้สูงสุด {GALLERY_MAX_ITEMS_PER_MODE} ชิ้นต่อโหมด รวมไม่เกิน {fmtBytes(GALLERY_MAX_TOTAL_BYTES)} (เกินแล้วลบของเก่าสุดที่ไม่ติดดาวออกให้)
-      </p>
-      <p className="mt-1 text-[10.5px] leading-relaxed text-text-faint">
         <strong className="font-semibold text-danger">ปิดเมื่อไหร่ ข้อมูลที่เก็บไว้ถูกลบทันที</strong> — ไม่ใช่แค่หยุดเขียนเพิ่มค่ะ
-        รูป reference ที่อัปโหลดเองและ API Key ไม่ถูกเก็บลงเครื่องไม่ว่ากรณีไหน
       </p>
 
       <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
@@ -282,29 +288,35 @@ function CloudSettings() {
 
   return (
     <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-      <span className="flex items-center gap-1.5 text-[12px] text-text-dim">
-        <Cloud size={13} /> {t("settings.cloud.title")}
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5 text-[12px] text-text-dim">
+          <Cloud size={13} /> {t("settings.cloud.title")}
+        </span>
+        {/* คำอธิบายก่อนล็อกอินเท่านั้น — หลังล็อกอินหัวข้อไม่ต้องมี ⓘ นี้ (hint ของ logout/auto-upload อยู่ข้างแถวของมันเอง) */}
+        {!s.cloudUser && <InfoHint label={t("settings.cloud.desc")} />}
+      </div>
       {s.cloudUser ? (
         <>
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="min-w-0 truncate text-[11.5px] text-text-dim">
               {t("settings.cloud.loggedInAs")} <span className="font-semibold text-text" title={s.cloudUser.email}>{s.cloudUser.email}</span>
             </span>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={logout}
-              className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <LogOut size={11} /> {t("settings.cloud.logout")}
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <InfoHint align="end" label={t("settings.cloud.logoutHint")} />
+              <button
+                type="button"
+                disabled={pending}
+                onClick={logout}
+                className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <LogOut size={11} /> {t("settings.cloud.logout")}
+              </button>
+            </div>
           </div>
-          <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">{t("settings.cloud.logoutHint")}</p>
           <div className="mt-2 flex items-start justify-between gap-3 border-t border-border pt-2">
-            <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
               <span className="text-[11.5px] text-text-dim">{t("settings.cloud.autoUpload")}</span>
-              <p className="mt-0.5 text-[10.5px] leading-relaxed text-text-faint">{t("settings.cloud.autoUploadHint")}</p>
+              <InfoHint label={t("settings.cloud.autoUploadHint")} />
             </div>
             <button
               type="button"
@@ -337,7 +349,6 @@ function CloudSettings() {
         </>
       ) : (
         <form className="mt-2 flex flex-col gap-1.5" onSubmit={login}>
-          <p className="text-[10.5px] leading-relaxed text-text-faint">{t("settings.cloud.desc")}</p>
           <input
             type="email"
             autoComplete="username"
@@ -433,9 +444,13 @@ function ExtraModelsEditor() {
   return (
     <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
       <div className="flex items-center justify-between gap-2">
-        <label htmlFor="extra-models-json" className="flex items-center gap-1.5 text-[12px] text-text-dim">
-          <ListPlus size={13} /> เพิ่มโมเดลเอง (JSON)
-        </label>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <label htmlFor="extra-models-json" className="flex items-center gap-1.5 text-[12px] text-text-dim">
+            <ListPlus size={13} /> เพิ่มโมเดลเอง (JSON)
+          </label>
+          {/* ⓘ อยู่นอก <label> — ไม่ซ้อนปุ่มใน label (คลิก ⓘ จะไม่ไปโฟกัส textarea) */}
+          <InfoHint label={'รูปแบบเดียวกับ EXTRA_MODELS ในโค้ด — array ของ {"id", "name", "pricing", "architecture"} จะถูก merge เข้ารายชื่อโมเดลเดิมโดยไม่ให้ id ซ้ำค่ะ'} />
+        </div>
         {/* ให้ตัวอย่างที่แก้ต่อได้เลย — textarea เปล่ากับ placeholder ที่หายตอนโฟกัส
             ทำให้คนที่ไม่ถนัด JSON ไม่รู้จะเริ่มยังไง */}
         <button
@@ -452,9 +467,6 @@ function ExtraModelsEditor() {
           แทรกตัวอย่าง
         </button>
       </div>
-      <p className="mt-1 text-[10.5px] leading-relaxed text-text-faint">
-        รูปแบบเดียวกับ EXTRA_MODELS ในโค้ด — array ของ {"{"}"id", "name", "pricing", "architecture"{"}"}  จะถูก merge เข้ารายชื่อโมเดลเดิมโดยไม่ให้ id ซ้ำค่ะ
-      </p>
       <textarea
         id="extra-models-json"
         value={text}
@@ -538,9 +550,12 @@ export default function SettingsModal() {
           {isCloudConfigured() && <CloudSettings />}
 
           <div className="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
-            <label htmlFor="assist-model-select" className="flex items-center gap-1.5 text-[12px] text-text-dim">
-              <Bot size={13} /> โมเดลผู้ช่วย AI (Optimizer / Chat / Grill me)
-            </label>
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="assist-model-select" className="flex items-center gap-1.5 text-[12px] text-text-dim">
+                <Bot size={13} /> โมเดลผู้ช่วย AI (Optimizer / Chat / Grill me)
+              </label>
+              <InfoHint label="ถ้าโมเดลนี้ถูกถอด/rate limit ระบบจะ fallback ไปโมเดลเริ่มต้นให้อัตโนมัติ (แจ้งเตือนครั้งแรกที่เกิดค่ะ)" />
+            </div>
             <select
               id="assist-model-select"
               value={s.assistModelId ?? ""}
@@ -552,9 +567,6 @@ export default function SettingsModal() {
                 <option key={m.id} value={m.id}>{m.name || m.id}</option>
               ))}
             </select>
-            <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-faint">
-              ถ้าโมเดลนี้ถูกถอด/rate limit ระบบจะ fallback ไปโมเดลเริ่มต้นให้อัตโนมัติ (แจ้งเตือนครั้งแรกที่เกิดค่ะ)
-            </p>
           </div>
 
           <ExtraModelsEditor />

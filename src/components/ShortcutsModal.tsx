@@ -1,6 +1,7 @@
 import { Keyboard, X } from "lucide-react";
 import { MODES, modeLabel } from "../lib/constants";
 import { mutate, useApp } from "../lib/store";
+import InfoHint from "./InfoHint";
 
 const ROW_CLASS = "flex items-center justify-between gap-4 py-2";
 const KEY_CLASS = "rounded-md border border-border-strong bg-surface-2 px-2 py-1 font-mono text-[11px] text-text";
@@ -17,15 +18,15 @@ export default function ShortcutsModal() {
       onClick={e => { if (e.target === e.currentTarget) close(); }}
     >
       <div className="w-[min(420px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-7">
-        <div className="mb-1.5 flex items-center justify-between">
-          <h3 className="flex items-center gap-1.5 text-base font-bold"><Keyboard size={16} /> ปุ่มลัดคีย์บอร์ด</h3>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <h3 className="flex items-center gap-1.5 text-base font-bold"><Keyboard size={16} /> ปุ่มลัดคีย์บอร์ด</h3>
+            <InfoHint label="ปุ่มลัดจะไม่ทำงานระหว่างพิมพ์อยู่ในช่อง input/textarea (ยกเว้น Ctrl+Enter) และปิดทั้งหมดขณะเปิด API Key / Chat / Grill me ค่ะ" />
+          </div>
           <button className="cursor-pointer text-text-faint hover:text-text" onClick={close} title="ปิด">
             <X size={16} />
           </button>
         </div>
-        <p className="mb-4 text-[12px] leading-relaxed text-text-dim">
-          ปุ่มลัดจะไม่ทำงานระหว่างพิมพ์อยู่ในช่อง input/textarea (ยกเว้น Ctrl+Enter) และปิดทั้งหมดขณะเปิด API Key / Chat / Grill me ค่ะ
-        </p>
         <div className="divide-y divide-border">
           <div className={ROW_CLASS}>
             <span className="text-[12.5px] text-text-dim">สั่ง Generate</span>

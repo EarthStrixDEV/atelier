@@ -25,6 +25,7 @@ import { confirmAction } from "../lib/alerts";
 import { t } from "../lib/i18n";
 import { ThemePickerPanel } from "./ThemePicker";
 import Tooltip from "./Tooltip";
+import InfoHint from "./InfoHint";
 
 /** โชว์เวลาแบบสั้นๆ อ่านง่าย — ไม่ต้องเป๊ะระดับวินาที แค่พอให้แยกออกว่า export ไหนเป็นไหน */
 function fmtExportedAt(at: number): string {
@@ -155,17 +156,18 @@ function AutoSavePanel({ onDone }: { onDone: () => void }) {
         </>
       ) : (
         <>
-          <div className="text-[12px] leading-relaxed text-text-dim">
-            เลือก directory ไว้ล่วงหน้า — ผลลัพธ์ที่สร้างเสร็จจะถูกเซฟลงไฟล์อัตโนมัติค่ะ (รองรับเฉพาะ Chrome/Edge)
+          {/* ปุ่มเชื่อมต่อต้องกดได้ จึงอยู่ inline — ย้ายเฉพาะคำอธิบายไปไว้หลัง ⓘ ข้างปุ่ม */}
+          <div className="flex items-center gap-1.5">
+            <button
+              className="flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={s.autoSaveConnecting}
+              aria-label="เลือก directory สำหรับ Auto Save"
+              onClick={connectAutoSaveDir}
+            >
+              <FolderInput size={12} /> เลือก Directory
+            </button>
+            <InfoHint align="end" label="เลือก directory ไว้ล่วงหน้า — ผลลัพธ์ที่สร้างเสร็จจะถูกเซฟลงไฟล์อัตโนมัติค่ะ (รองรับเฉพาะ Chrome/Edge)" />
           </div>
-          <button
-            className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={s.autoSaveConnecting}
-            aria-label="เลือก directory สำหรับ Auto Save"
-            onClick={connectAutoSaveDir}
-          >
-            <FolderInput size={12} /> เลือก Directory
-          </button>
         </>
       )}
     </div>
@@ -259,12 +261,16 @@ function SpendGuardControl() {
                 {startedAt ? "ยอดสะสมตั้งแต่ " + fmtSince(startedAt) : "ยังไม่เริ่มนับ"} · ทุกโหมดรวมกัน
                 {unknown > 0 && <span className="text-danger"> · +{unknown} ชิ้นไม่ทราบราคา</span>}
               </div>
-              <div className="mt-1 text-[10.5px] leading-relaxed text-text-faint">
-                เป็น<strong className="font-semibold">ยอดประเมิน</strong>จาก pricing ของโมเดล ไม่ใช่บิลจริงจาก OpenRouter ค่ะ
-              </div>
             </div>
 
-            <label htmlFor="spend-cap-input" className="text-[11px] text-text-dim">เพดานค่าใช้จ่าย (USD) — เว้นว่างคือปิดการเตือน</label>
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="spend-cap-input" className="min-w-0 text-[11px] text-text-dim">เพดานค่าใช้จ่าย (USD) — เว้นว่างคือปิดการเตือน</label>
+              {/* ⓘ อยู่นอก <label> (ไม่ซ้อนปุ่มใน label) — รวมคำอธิบายยอดประเมิน + ความหมายของเพดาน 0 ไว้ที่เดียว */}
+              <InfoHint
+                align="end"
+                label={"เป็นยอดประเมินจาก pricing ของโมเดล ไม่ใช่บิลจริงจาก OpenRouter ค่ะ\nตั้ง 0 = ถามยืนยันทุกครั้งที่มีค่าใช้จ่าย · เกินเพดานแล้วจะมีโมดัลขึ้นมาถามก่อนยิงค่ะ"}
+              />
+            </div>
             <div className="mt-1.5 flex gap-1.5">
               <input
                 id="spend-cap-input"
@@ -285,22 +291,17 @@ function SpendGuardControl() {
                 บันทึก
               </button>
             </div>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
-              ตั้ง <span className="font-mono">0</span> = ถามยืนยันทุกครั้งที่มีค่าใช้จ่าย · เกินเพดานแล้วจะมีโมดัลขึ้นมาถามก่อนยิงค่ะ
-            </p>
 
-            <div className="mt-3 border-t border-border pt-2.5">
+            <div className="mt-3 flex items-center gap-1.5 border-t border-border pt-2.5">
               <button
-                className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
+                className="flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
                 title="ล้างยอดสะสมให้เป็น 0 แล้วเริ่มนับใหม่ เพดานที่ตั้งไว้คงเดิม"
                 onClick={doReset}
               >
                 <RotateCcw size={11} />
                 ล้างยอดสะสม เริ่มนับใหม่
               </button>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
-                ล้างแค่ตัวเลข ไม่กระทบผลงานใน gallery และเพดานที่ตั้งไว้ยังอยู่ค่ะ
-              </p>
+              <InfoHint align="end" label="ล้างแค่ตัวเลข ไม่กระทบผลงานใน gallery และเพดานที่ตั้งไว้ยังอยู่ค่ะ" />
             </div>
           </div>
         </>
@@ -319,31 +320,34 @@ function DrivePanel({ onDone }: { onDone: () => void }) {
     <div>
       {s.driveConnected ? (
         <>
-          <div className="text-[12px] leading-relaxed text-text-dim">
-            เชื่อมต่อ Google Drive แล้วค่ะ — ผลลัพธ์ที่กด "Save to Drive" จะถูกอัพโหลดขึ้นโฟลเดอร์ "Atelier Output"
+          {/* สถานะ "เชื่อมต่อแล้ว" ยังเห็นได้จากแถว Google Drive ในเมนูหลัก + ปุ่มยกเลิกด้านล่าง — ย้ายเฉพาะคำอธิบายไปหลัง ⓘ */}
+          <div className="flex items-center gap-1.5">
+            <button
+              className="flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
+              aria-label="ยกเลิกการเชื่อมต่อ Google Drive"
+              onClick={() => { disconnectDrive(); onDone(); }}
+            >
+              <CloudOff size={12} /> ยกเลิกการเชื่อมต่อ
+            </button>
+            <InfoHint align="end" label={'เชื่อมต่อ Google Drive แล้วค่ะ — ผลลัพธ์ที่กด "Save to Drive" จะถูกอัพโหลดขึ้นโฟลเดอร์ "Atelier Output"'} />
           </div>
-          <button
-            className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-[11.5px] font-semibold text-text-dim transition-colors hover:border-danger hover:text-danger"
-            aria-label="ยกเลิกการเชื่อมต่อ Google Drive"
-            onClick={() => { disconnectDrive(); onDone(); }}
-          >
-            <CloudOff size={12} /> ยกเลิกการเชื่อมต่อ
-          </button>
         </>
       ) : (
         <>
-          <div className="text-[12px] leading-relaxed text-text-dim">
-            เชื่อมต่อ Google Drive เพื่อเซฟผลลัพธ์ขึ้นโฟลเดอร์ "Atelier Output" ได้จากปุ่ม Save to Drive บนแต่ละการ์ด
-            (ต้องเชื่อมต่อใหม่ทุกครั้งที่เปิดแอป)
+          <div className="flex items-center gap-1.5">
+            <button
+              className="flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={s.driveConnecting}
+              aria-label="เชื่อมต่อ Google Drive"
+              onClick={connectDrive}
+            >
+              <Cloud size={12} /> {s.driveConnecting ? "กำลังเชื่อมต่อ…" : "เชื่อมต่อ Google Drive"}
+            </button>
+            <InfoHint
+              align="end"
+              label={'เชื่อมต่อ Google Drive เพื่อเซฟผลลัพธ์ขึ้นโฟลเดอร์ "Atelier Output" ได้จากปุ่ม Save to Drive บนแต่ละการ์ด (ต้องเชื่อมต่อใหม่ทุกครั้งที่เปิดแอป)'}
+            />
           </div>
-          <button
-            className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11.5px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={s.driveConnecting}
-            aria-label="เชื่อมต่อ Google Drive"
-            onClick={connectDrive}
-          >
-            <Cloud size={12} /> {s.driveConnecting ? "กำลังเชื่อมต่อ…" : "เชื่อมต่อ Google Drive"}
-          </button>
         </>
       )}
     </div>

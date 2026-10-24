@@ -3,6 +3,7 @@ import { cancelImport, commitImportMerge, commitImportReplace } from "../lib/act
 import { modeLabel } from "../lib/constants";
 import { useApp } from "../lib/store";
 import type { Mode } from "../lib/types";
+import InfoHint from "./InfoHint";
 
 const MODE_ICONS: Record<Mode, typeof Image> = {
   home: Image,
@@ -33,7 +34,10 @@ export default function ImportPreviewModal() {
     >
       <div className="w-[min(520px,calc(100vw-40px))] rounded-[14px] border border-border-strong bg-surface p-6">
         <div className="mb-1 flex items-start justify-between gap-3">
-          <h3 className="flex items-center gap-1.5 text-base font-bold"><FileWarning size={16} /> ยืนยันการ Import</h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="flex items-center gap-1.5 text-base font-bold"><FileWarning size={16} /> ยืนยันการ Import</h3>
+            <InfoHint label={`ไฟล์นี้เป็น session format เวอร์ชัน ${preview.fileVersion} — เลือกวิธี import ได้ค่ะ`} />
+          </div>
           <button
             className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-border text-text-dim transition-colors hover:border-border-strong hover:text-text"
             title="ยกเลิก"
@@ -42,11 +46,7 @@ export default function ImportPreviewModal() {
             <X size={15} />
           </button>
         </div>
-        <p className="mb-4 text-[12.5px] leading-relaxed text-text-dim">
-          ไฟล์นี้เป็น session format เวอร์ชัน {preview.fileVersion} — เลือกวิธี import ได้ค่ะ
-        </p>
-
-        <div className="mb-4 max-h-[240px] overflow-y-auto rounded-[10px] border border-border">
+        <div className="mb-4 mt-3 max-h-[240px] overflow-y-auto rounded-[10px] border border-border">
           {rows.length === 0 ? (
             <div className="px-3.5 py-3 text-[12.5px] text-text-faint">ไฟล์นี้ไม่มีอะไรต่างจากข้อมูลปัจจุบันเลยค่ะ</div>
           ) : (
