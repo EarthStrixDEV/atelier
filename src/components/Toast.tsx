@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertCircle, CheckCircle2, Info } from "lucide-react";
+import { TOAST_ROOT_ID } from "../lib/alerts";
 import { useApp } from "../lib/store";
 import type { ToastVariant } from "../lib/types";
 
@@ -10,8 +12,24 @@ const VARIANT_META: Record<ToastVariant, { Icon: typeof Info; iconClass: string;
   info: { Icon: Info, iconClass: "text-text-dim", borderClass: "border-l-border-strong" },
 };
 
+/**
+ * หา/สร้าง <div id="toast-root"> บน <body> — หา id ก่อนเสมอเพื่อให้เรียกซ้ำได้ (StrictMode รัน initializer สองรอบ)
+ * ไม่ลบทิ้งตอน unmount: mount อื่นอาจยังใช้อยู่ และ node ว่างๆ ไม่มีผลเสีย
+ * ต้องเป็นลูกตรงของ <body> เพราะ confirmAction ปลด aria-hidden ที่ Swal ใส่ให้ลูกของ body ด้วย id นี้
+ */
+function getToastRoot(): HTMLElement {
+  let root = document.getElementById(TOAST_ROOT_ID);
+  if (!root) {
+    root = document.createElement("div");
+    root.id = TOAST_ROOT_ID;
+    document.body.appendChild(root);
+  }
+  return root;
+}
+
 export default function Toast() {
   const s = useApp();
+  const [root] = useState(getToastRoot);
   const [visible, setVisible] = useState(false);
   // เก็บ msg/variant ที่ "กำลังโชว์" แยกจาก store — เคลียร์เป็นค่าว่างหลัง transition ซ่อนจบ
   // กัน screen reader ค้างอ่านข้อความเก่าซ้ำตอน toast ถูกซ่อนด้วย translate (element ยังอยู่ใน DOM ตลอดเพื่อให้ live region ทำงาน)
@@ -34,18 +52,20 @@ export default function Toast() {
 
   const { Icon, iconClass, borderClass } = VARIANT_META[display.variant];
 
-  return (
+  // portal + z-[1100] สูงกว่า container ของ Swal (1060) — toast ต้องเห็น/ถูกประกาศได้ตอน dialog ยืนยันเปิดอยู่
+  return createPortal(
     <div
       role="status"
       aria-live={display.variant === "error" ? "assertive" : "polite"}
       className={
-        "fixed bottom-6 left-1/2 z-300 flex max-w-[80vw] -translate-x-1/2 items-center gap-2 rounded-[10px] border border-border-strong border-l-4 bg-surface-2 px-5 py-[11px] text-[13px] text-text transition-transform duration-250 " +
+        "fixed bottom-6 left-1/2 z-[1100] flex max-w-[80vw] -translate-x-1/2 items-center gap-2 rounded-[14px] border border-border-strong border-l-4 bg-surface px-5 py-[11px] text-[13px] shadow-[0_8px_24px_rgba(0,0,0,.14)] text-text transition-transform duration-250 " +
         borderClass + " " +
         (visible ? "translate-y-0" : "translate-y-[80px]")
       }
     >
       <Icon size={15} className={iconClass + " shrink-0"} aria-hidden="true" />
       <span>{display.msg}</span>
-    </div>
+    </div>,
+    root,
   );
 }

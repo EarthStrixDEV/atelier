@@ -193,7 +193,7 @@ Yes/no confirms go through `confirmAction()` in `lib/alerts.ts` (SweetAlert2; fo
 
 ### Toasts
 
-`toast(msg)` defaults to the `success` variant; pass `toast(msg, "error")` for anything where the user's action was **rejected or failed** — that's the line, not "did the system crash". `"info"` exists for neutral status. Error toasts announce with `aria-live="assertive"`, the rest `polite`.
+`toast(msg)` defaults to the `success` variant; pass `toast(msg, "error")` for anything where the user's action was **rejected or failed** — that's the line, not "did the system crash". `"info"` exists for neutral status. Error toasts announce with `aria-live="assertive"`, the rest `polite`. `Toast.tsx` portals to `#toast-root` on `<body>` and sits above SweetAlert2 (`z-[1100]` vs Swal's 1060) so it stays visible/announced while a confirm dialog is open (`confirmAction` removes the `aria-hidden` Swal puts on that node).
 
 ### Styling & focus
 
