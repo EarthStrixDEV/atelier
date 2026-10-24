@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown, ArrowUp, Clapperboard, Clock, CircleDollarSign, Cpu, GripVertical, Hash, Image, ImageOff, ImagePlus,
-  Keyboard, Layers, Layers3, ListOrdered, ListTree, Mic, Music, PenLine, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, SlidersHorizontal, Sparkles,
+  ArrowDown, ArrowUp, Clapperboard, Clock, CircleDollarSign, Cpu, GripVertical, Hash, Image, ImagePlus,
+  Layers,Layers3, ListOrdered, ListTree, Mic, Music, PenLine, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, SlidersHorizontal, Sparkles,
   TriangleAlert, Trash2, Video, Volume2, X,
 } from "lucide-react";
 import {
@@ -21,6 +21,7 @@ import { mutate, useApp } from "../lib/store";
 import { hasKeyword, videoPricePerSec } from "../lib/utils";
 import PromptComposer from "./PromptComposer";
 import RefCropPreview from "./RefCropPreview";
+import InfoHint from "./InfoHint";
 
 const HISTORY_MODE_ICONS: Record<Mode, typeof Image> = {
   home: Image,
@@ -38,6 +39,8 @@ const SIDEBAR_MAX = 560;
 const SIDEBAR_W_KEY = "atelier_sidebar_w";
 
 const fieldLabel = "block text-[11px] font-semibold uppercase tracking-[1.2px] text-text-dim mb-[9px]";
+// label ที่มี InfoHint อยู่ข้างๆ — margin ย้ายไปอยู่ที่แถวที่ห่อ label + ⓘ แทน (class ยังอยู่ใน fieldLabel ข้างบน Tailwind จึงสแกนเจอ)
+const fieldLabelBare = fieldLabel.replace(" mb-[9px]", "");
 
 // <option> รับได้แค่ text ล้วน — ใช้สัญลักษณ์นำหน้าชื่อโมเดลแทนไอคอนจริง แล้วอธิบายความหมายด้วย legend ที่มีไอคอนจริงด้านล่าง select
 const REF_BADGE_PREFIX: Record<"none" | "optional" | "required", string> = {
@@ -223,21 +226,31 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
   const presetGroup = !kwQuery ? KEYWORDS_BY_MODE[s.mode][0] : undefined;
   const restGroups = presetGroup ? filteredGroups.slice(1) : filteredGroups;
 
-  let modelMeta = "";
+  // ราคาโมเดลที่เลือกอยู่ — id ดิบของโมเดลไม่แสดงแล้ว (ชื่อใน select พอ) ส่วนราคาไปอยู่ใน ⓘ ข้าง label Model
+  let modelPrice = "";
   if (model) {
     if (isVideo) {
       const pps = videoPricePerSec(model, ms.audio);
-      modelMeta = model.id + (pps != null ? "  ·  ~$" + (pps * ms.duration).toFixed(2) + " / คลิป " + ms.duration + " วิ" : "");
+      if (pps != null) modelPrice = "~$" + (pps * ms.duration).toFixed(2) + " / คลิป " + ms.duration + " วิ";
     } else if (isAudio) {
       const p = AUDIO_MODEL_PRICES[model.id];
-      modelMeta = model.id + (p != null ? "  ·  ~$" + p.toFixed(2) + " / เพลง" : "");
-    } else {
-      const p = model.pricing?.image && parseFloat(model.pricing.image) > 0
-        ? "$" + (parseFloat(model.pricing.image) * 1000).toFixed(3).replace(/\.?0+$/, "") + " / 1k img"
-        : null;
-      modelMeta = model.id + (p ? "  ·  " + p : "");
+      if (p != null) modelPrice = "~$" + p.toFixed(2) + " / เพลง";
+    } else if (model.pricing?.image && parseFloat(model.pricing.image) > 0) {
+      modelPrice = "$" + (parseFloat(model.pricing.image) * 1000).toFixed(3).replace(/\.?0+$/, "") + " / 1k img";
     }
   }
+
+  // ⓘ เดียวข้าง label Model รวมสามอย่างที่เคยแปะค้าง: คำอธิบายรายชื่อโมเดลประจำโหมด, ราคา, และ legend ● ◐ ✕ ของ ref
+  // (แยกเป็นหลายไอคอนติดกันจะแยกไม่ออกว่าอันไหนคืออะไร) — ขั้นย่อหน้าด้วย "\n\n" ให้ Tooltip ตัดบรรทัด (whitespace-pre-line)
+  const modelHintParts = [meta.hint];
+  if (modelPrice) modelHintParts.push(modelPrice);
+  if (sourceLoaded && list.length > 0) {
+    modelHintParts.push(
+      "สัญลักษณ์นำหน้าชื่อโมเดลในลิสต์ด้านบน — บอกว่าโมเดลนั้นรองรับภาพอ้างอิง (Attach Reference) แค่ไหน\n"
+      + "● จำเป็นต้องมี ref\n◐ แนบ ref ได้ (ไม่บังคับ)\n✕ แนบ ref ไม่ได้",
+    );
+  }
+  const modelHint = modelHintParts.join("\n\n");
 
   // สถิติสำเร็จ/ล้มเหลวของโมเดลที่เลือกอยู่ ใน session นี้ — เตือนถ้า fail rate เกิน 30% (ขั้นต่ำ 5 ครั้ง กันสุ่มน้อยแล้วตกใจ)
   const stat = model ? s.modelStats[model.id] : undefined;
@@ -508,15 +521,20 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
           )}
         </div>
 
-          <p className="text-[13px] leading-relaxed text-text-dim">{meta.hint}</p>
         </>}
         {activeTab === "negative" && <>
         {/* Negative prompt (PHASE 14) — เฉพาะโหมดภาพ และซ่อนทิ้งถ้าโมเดลที่เลือกอยู่ routed ผ่าน image-only API (ไม่มี text slot ให้แนบเพิ่ม) */}
         {isNegativePromptMode(s.mode) && (
           <div>
-            <label htmlFor="neg-prompt" className={fieldLabel + " flex items-center gap-1.5"}>
-              <ShieldOff size={12} /> Negative Prompt <span className="normal-case tracking-normal text-text-faint">(ไม่บังคับ)</span>
-            </label>
+            {/* ⓘ อยู่นอก <label htmlFor> เพื่อไม่ให้ชื่อ accessible ของ textarea พ่วง "ข้อมูลเพิ่มเติม" */}
+            <div className="mb-[9px] flex items-center gap-1.5">
+              <label htmlFor="neg-prompt" className={fieldLabelBare + " flex items-center gap-1.5"}>
+                <ShieldOff size={12} /> Negative Prompt <span className="normal-case tracking-normal text-text-faint">(ไม่บังคับ)</span>
+              </label>
+              {negPromptSupported() && (
+                <InfoHint label="เป็นแค่คำแนะนำ best-effort ให้โมเดลหลีกเลี่ยง ไม่ใช่การันตีว่าจะไม่ปรากฏในภาพนะคะ" />
+              )}
+            </div>
             {negPromptSupported() ? (
               <>
                 <textarea
@@ -526,9 +544,6 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
                   onChange={e => setNegPrompt(e.target.value)}
                   className="min-h-[64px] w-full resize-y rounded-card border border-border bg-surface px-3.5 py-2.5 text-[13px] leading-relaxed text-text outline-none transition-colors placeholder:text-text-dim focus:border-accent"
                 />
-                <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
-                  เป็นแค่คำแนะนำ best-effort ให้โมเดลหลีกเลี่ยง ไม่ใช่การันตีว่าจะไม่ปรากฏในภาพนะคะ
-                </p>
               </>
             ) : (
               <p className="text-[13px] leading-relaxed text-text-dim">
@@ -544,6 +559,7 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
         {!isAudio && !isTts && <div>
           <label className={fieldLabel + " flex items-center gap-1.5"}>
             <ImagePlus size={12} /> Attach Reference
+            {isVideo && <InfoHint label="ภาพนี้จะเป็นเฟรมแรกสำหรับ Image-to-Video · สูงสุด 4MB" />}
             {ms.refs.length > 0 && (
               <button
                 className="ml-auto flex cursor-pointer items-center gap-1 font-semibold normal-case tracking-normal text-text-faint hover:text-danger"
@@ -581,9 +597,7 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
               ) : (
                 <label className="flex cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-transparent px-4 py-7 text-center transition-colors hover:border-border-strong hover:bg-surface-2">
                   <span className="grid h-10 w-10 place-items-center rounded-full border border-border-strong bg-surface-2 text-text-dim"><ImagePlus size={17} /></span>
-                  <span className="text-xs font-semibold text-text">{needsRefImage ? "แนบภาพเริ่มต้น (จำเป็น)" : "แนบภาพเริ่มต้น"}</span>
-                  <span className="max-w-[260px] text-[13px] leading-relaxed text-text-dim">ภาพนี้จะเป็นเฟรมแรกสำหรับ Image-to-Video · สูงสุด 4MB</span>
-                  <input
+                  <span className="text-xs font-semibold text-text">{needsRefImage ? "แนบภาพเริ่มต้น (จำเป็น)" : "แนบภาพเริ่มต้น"}</span>                  <input
                     type="file"
                     accept="image/*"
                     className="hidden"
@@ -685,7 +699,11 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
         {activeTab === "settings" && <>
         {/* Model */}
         <div>
-          <label htmlFor="model" className={fieldLabel + " flex items-center gap-1.5"}><Cpu size={12} /> Model</label>
+          {/* ⓘ อยู่นอก <label htmlFor="model"> — ถ้าซ้อนข้างใน ชื่อ accessible ของ select จะพ่วง "ข้อมูลเพิ่มเติม" */}
+          <div className="mb-[9px] flex items-center gap-1.5">
+            <label htmlFor="model" className={fieldLabelBare + " flex items-center gap-1.5"}><Cpu size={12} /> Model</label>
+            <InfoHint label={modelHint} />
+          </div>
           <div className="relative after:pointer-events-none after:absolute after:right-3.5 after:top-1/2 after:h-[7px] after:w-[7px] after:-translate-y-[70%] after:rotate-45 after:border-b-[1.5px] after:border-r-[1.5px] after:border-text-dim">
             <select
               id="model"
@@ -714,14 +732,6 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
               )}
             </select>
           </div>
-          {sourceLoaded && list.length > 0 && (
-            <div className="mt-[7px] flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-normal text-text-dim" title="สัญลักษณ์นำหน้าชื่อโมเดลในลิสต์ด้านบน — บอกว่าโมเดลนั้นรองรับภาพอ้างอิง (Attach Reference) แค่ไหน">
-              <span className="flex items-center gap-1"><ImagePlus size={10} /> ● จำเป็นต้องมี ref</span>
-              <span className="flex items-center gap-1"><ImagePlus size={10} /> ◐ แนบ ref ได้ (ไม่บังคับ)</span>
-              <span className="flex items-center gap-1"><ImageOff size={10} /> ✕ แนบ ref ไม่ได้</span>
-            </div>
-          )}
-          {modelMeta && <div className="mt-[7px] font-mono text-[11px] leading-normal text-text-faint">{modelMeta}</div>}
           {statAttempts > 0 && (
             <div className={"mt-[5px] flex items-center gap-1 text-[11px] leading-normal " + (statWarn ? "text-danger" : "text-text-faint")}>
               {statWarn && <TriangleAlert size={11} className="shrink-0" />}
@@ -733,22 +743,27 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
           {/* Bake-off — เทียบหลายโมเดลพร้อมกัน (PHASE 14) — เฉพาะโหมดภาพ, ยิงอิสระ N ก้อนทันที ไม่ผ่านคิว ไม่โดน MAX_QUEUE จำกัด */}
           {isNegativePromptMode(s.mode) && sourceLoaded && list.length > 1 && (
             <div className="mt-3 rounded-lg border border-border bg-surface p-2.5">
-              <label className="flex cursor-pointer select-none items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-[11.5px] font-semibold text-text">
-                  <Layers3 size={13} /> Bake-off — เทียบหลายโมเดล
+              {/* ⓘ อยู่นอก <label> ของ checkbox — ปุ่มซ้อนใน label เป็น interactive ซ้อน interactive (screen reader อ่านชื่อ checkbox เพี้ยน)
+                  จึงแยก label ผูกกับ checkbox ด้วย htmlFor แทน */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <label htmlFor="bakeoff-toggle" className="flex cursor-pointer select-none items-center gap-1.5 text-[11.5px] font-semibold text-text">
+                    <Layers3 size={13} /> Bake-off — เทียบหลายโมเดล
+                  </label>
+                  <InfoHint
+                    label={`เลือกโมเดลได้สูงสุด ${MAX_BAKE_OFF_MODELS} ตัว — กด Generate จะยิงทุกโมเดลที่เลือกพร้อมกันด้วย prompt เดียวกัน (แยกจากปุ่มเลือกโมเดลด้านบน)`}
+                  />
                 </span>
                 <input
+                  id="bakeoff-toggle"
                   type="checkbox"
                   className="cursor-pointer accent-accent"
                   checked={ms.bakeOffEnabled}
                   onChange={toggleBakeOff}
                 />
-              </label>
+              </div>
               {ms.bakeOffEnabled && (
                 <>
-                  <p className="mt-1.5 text-[13px] leading-relaxed text-text-dim">
-                    เลือกโมเดลได้สูงสุด {MAX_BAKE_OFF_MODELS} ตัว — กด Generate จะยิงทุกโมเดลที่เลือกพร้อมกันด้วย prompt เดียวกัน (แยกจากปุ่มเลือกโมเดลด้านบน)
-                  </p>
                   {/* ค้นหาโมเดล — ลิสต์ยาวหลายสิบตัวใน max-h-[180px] เลื่อนหาเองไม่ไหว
                       ใช้แพทเทิร์นเดียวกับช่องค้นหา keyword ด้านบน */}
                   <div className="relative mt-2">
@@ -907,7 +922,10 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
         {/* Audio (video) */}
         {isVideo && (
           <div>
-            <label className={fieldLabel + " flex items-center gap-1.5"}><Volume2 size={12} /> Audio</label>
+            <label className={fieldLabel + " flex items-center gap-1.5"}>
+              <Volume2 size={12} /> Audio
+              {audioOk && audioCostNote && <InfoHint label={audioCostNote} />}
+            </label>
             <label className="flex cursor-pointer select-none items-center gap-[9px] text-[12.5px] text-text-dim">
               <input
                 type="checkbox"
@@ -919,9 +937,6 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
               />
               <span className={audioOk ? "" : "opacity-40"}>เปิดเสียงในวิดีโอ (เฉพาะโมเดลที่รองรับ)</span>
             </label>
-            {audioOk && audioCostNote && (
-              <div className="mt-1.5 font-mono text-[10.5px] leading-normal text-text-faint">{audioCostNote}</div>
-            )}
           </div>
         )}
 
@@ -1099,23 +1114,6 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
       >
         <Plus size={13} /> เพิ่มเข้าคิว (สูงสุด {MAX_QUEUE})
       </button>
-
-      {/* บอกให้รู้ว่ามีคีย์ลัด — เดิมซ่อนอยู่หลัง Shift+? อย่างเดียว ซึ่งไม่มีทางเดาได้ถ้าไม่เคยรู้มาก่อน */}
-      <div className="flex items-center justify-between gap-2 text-[11px] text-text-faint">
-        <span className="flex items-center gap-1">
-          <kbd className="rounded border border-border-strong px-1 py-px font-mono text-[10px]">Ctrl</kbd>
-          <span>+</span>
-          <kbd className="rounded border border-border-strong px-1 py-px font-mono text-[10px]">Enter</kbd>
-          <span>เพื่อ Generate</span>
-        </span>
-        <button
-          className="flex shrink-0 cursor-pointer items-center gap-1 underline decoration-dotted transition-colors hover:text-text"
-          aria-label="ดูคีย์ลัดทั้งหมด"
-          onClick={() => mutate(st => { st.shortcutsModalOpen = true; })}
-        >
-          <Keyboard size={11} /> คีย์ลัดทั้งหมด
-        </button>
-      </div>
 
       </div>
     </aside>

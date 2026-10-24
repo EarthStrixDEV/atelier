@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft, ChevronRight, Clapperboard, Cloud, CloudOff, Download, FolderCheck, FolderInput, FolderX, History, Image,
-  KeyRound, Layers, Loader2, MoreHorizontal, Mic, Music, Palette, PanelLeftClose, PanelLeftOpen, RotateCcw, Send, Settings,
+  Keyboard, KeyRound, Layers, Loader2, MoreHorizontal, Mic, Music, Palette, PanelLeftClose, PanelLeftOpen, RotateCcw, Send, Settings,
   Upload, Video, Wallet, X,
 } from "lucide-react";
 import { MODES, modeLabel } from "../lib/constants";
@@ -558,6 +558,14 @@ function MoreMenu() {
                 >
                   <Settings size={14} className="shrink-0 text-text-dim" /> ตั้งค่า
                 </button>
+                {/* ลิงก์ "คีย์ลัดทั้งหมด" ท้าย Sidebar ถูกตัดออก — เมนูนี้เป็นทางเปิด ShortcutsModal ด้วยเมาส์ทางเดียว (นอกจาก Shift+?) */}
+                <button
+                  role="menuitem"
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12.5px] font-semibold text-text transition-colors hover:bg-surface-2"
+                  onClick={() => { close(); mutate(st => { st.shortcutsModalOpen = true; }); }}
+                >
+                  <Keyboard size={14} className="shrink-0 text-text-dim" /> {t("header.MoreMenu.shortcuts")}
+                </button>
               </>
             ) : (
               <>
@@ -630,9 +638,7 @@ export default function Header() {
           className="h-[42px] w-[42px] shrink-0 object-contain max-[899px]:h-8 max-[899px]:w-8"
           style={{ filter: "invert(var(--logo-invert))" }}
         />
-        <h1 className="truncate text-[15px] font-semibold tracking-[0.2px]">
-          Atelier <span className="ml-0.5 text-[11px] font-normal uppercase tracking-[1.5px] text-text-dim max-[1180px]:hidden">AI media studio</span>
-        </h1>
+        <h1 className="truncate text-[15px] font-semibold tracking-[0.2px]">Atelier</h1>
       </div>
 
       {/* จอแคบ: แท็บโหมดลงแถวที่สองเต็มความกว้าง แล้วเลื่อนแนวนอนในตัวเอง — ทั้งหน้าไม่มี horizontal scroll */}

@@ -68,6 +68,7 @@ src/
 │   ├── KeyModal.tsx / Lightbox.tsx / Toast.tsx / ShortcutsModal.tsx
 │   ├── BakeOffConfirmModal.tsx / ImportPreviewModal.tsx / RestoreBanner.tsx
 │   ├── ExplainedChip.tsx / RefCropPreview.tsx
+│   ├── InfoHint.tsx          # ⓘ button + Tooltip — use instead of always-visible help paragraphs
 │   └── catalog/              # used only by pages/ModelCatalog.tsx
 │       ├── ModelGridShowroom.tsx      # card-grid view, plain CSS grid (not react-window)
 │       ├── ModelComparisonTable.tsx   # table view, domain-specific columns
@@ -190,6 +191,10 @@ Run one prompt across several models at once to compare. Selected in the Sidebar
 ### Confirmations
 
 Yes/no confirms go through `confirmAction()` in `lib/alerts.ts` (SweetAlert2; focuses Cancel, resolves `true` only on confirm). Content-heavy modals (BakeOff/SpendGuard/ImportPreview) stay React modals. Never call `Swal.fire` directly elsewhere, and never use Swal for toasts — it shows one popup at a time and would close an open confirm. `shortcuts.ts` checks `isConfirmOpen()` so global shortcuts don't fire under a dialog.
+
+### Help text
+
+Static explanatory text (what a section is, price notes, legends) goes behind `InfoHint` (ⓘ + `Tooltip`, hover/focus) instead of an always-visible paragraph; situational warnings that change what the user should do (missing required ref, high fail rate, unknown price, image-only notes standing in for hidden inputs) still show inline. The tooltip is `pointer-events-none`, so anything clickable must stay inline.
 
 ### Toasts
 

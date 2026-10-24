@@ -87,6 +87,10 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "settings.cloud.usageFailed": "อ่านพื้นที่บน Cloud ไม่สำเร็จค่ะ",
     "settings.cloud.usageEmpty": "ยังไม่มีผลงานบน Cloud ค่ะ",
     "settings.cloud.usageLabel": "บน Cloud",
+
+    // ---------- InfoHint + MoreMenu ----------
+    "shared.infoHint.label": "ข้อมูลเพิ่มเติม",
+    "header.MoreMenu.shortcuts": "คีย์ลัดทั้งหมด",
     "settings.cloud.usageItems": "ชิ้น",
   },
   en: {
@@ -167,6 +171,10 @@ const DICTIONARY: Record<Locale, Record<string, string>> = {
     "settings.cloud.usageEmpty": "Nothing on Cloud yet",
     "settings.cloud.usageLabel": "On Cloud:",
     "settings.cloud.usageItems": "items",
+
+    // ---------- InfoHint + MoreMenu ----------
+    "shared.infoHint.label": "More info",
+    "header.MoreMenu.shortcuts": "Keyboard shortcuts",
   },
 };
 
