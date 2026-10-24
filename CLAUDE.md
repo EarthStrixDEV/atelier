@@ -37,7 +37,8 @@ src/
 ├── lib/
 │   ├── types.ts              # Mode, GenItem, ModeState, AppState, ORModel, ToastVariant, …
 │   ├── constants.ts          # RATIOS/COUNTS/DURATIONS, KEYWORDS_BY_MODE, MODE_META, EXTRA_MODELS,
-│   │                         #   PREFERRED, VIDEO_MODEL_IDS, MODE_MODEL_FILTER, assist-model ids
+│   │                         #   IMAGE/VIDEO_MODEL_RANK, PROVIDER_LABELS, DEFAULT_*_MODEL_ID,
+│   │                         #   VIDEO_MODEL_IDS, MODE_MODEL_FILTER, assist-model ids
 │   ├── store.ts              # state singleton + mutate() + useApp() + all persistence helpers
 │   ├── actions.ts            # ALL logic: model loading, generation, video polling, queue, history,
 │   │                         #   optimizer, chat, grill, bake-off, export/import, downloads,
@@ -144,7 +145,9 @@ A cross-mode spend ledger (`ledger()`, `capUsd`, `totalUsd`, all in `actions.ts`
 - **Home** — every OpenRouter model whose `architecture.output_modalities` includes `"image"`, with OpenAI models filtered down to one canonical id (see the filter in `loadModels`).
 - **Infographic** — restricted via `MODE_MODEL_FILTER.infographic`, a regex allowlist on top of the same list.
 - **Video** — separate fetch from `/api/v1/videos/models`, filtered to `VIDEO_MODEL_IDS`. Capability fields (`supported_durations`, `supported_aspect_ratios`, `generate_audio`, `pricing_skus`) come from the API; `applyVideoCapabilities()` snaps invalid selections and the Sidebar disables unsupported buttons — no hardcoded per-model UI logic.
-- `EXTRA_MODELS` merges in models the API doesn't list yet; `PREFERRED` floats specific models to the top. Users can add their own via SettingsModal (persisted as `atelier_user_extra_models`).
+- `EXTRA_MODELS` merges in models the API doesn't list yet. Users can add their own via SettingsModal (persisted as `atelier_user_extra_models`).
+- **Order and grouping in the model select** — lists are sorted by `sortByRank()` against the hand-curated `IMAGE_MODEL_RANK` / `VIDEO_MODEL_RANK` (capability order; OpenRouter has no score). A model no regex matches sinks to the end of its provider group, so **add new models to the rank list**. `VIDEO_MODEL_IDS` is the video allowlist only, not the order. The Sidebar renders `<optgroup>`s via `groupByProvider()` (labels from `PROVIDER_LABELS`, falling back to the `"Provider: "` name prefix, then the id prefix); group order = each group's best model.
+- **Default model is pinned**, not "first in the list": `ensureModelSelection()` picks `DEFAULT_IMAGE_MODEL_ID` / `DEFAULT_VIDEO_MODEL_ID` when present, because the first ranked model is the most expensive.
 
 > When changing which OpenAI model id is canonical, update it in **both** `EXTRA_MODELS` (fallback entry) and the `openai/*` allow-check in `loadModels` — and check `MODE_MODEL_FILTER.infographic`, which references model ids independently and can drift out of sync.
 

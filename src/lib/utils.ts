@@ -20,6 +20,12 @@ export function providerOf(m: ORModel): string {
   return sep > 0 ? m.name!.slice(0, sep) : prefix;
 }
 
+/** ชื่อโมเดลใต้ป้ายกลุ่ม provider — ตัด "<Provider>: " ที่ซ้ำกับป้ายกลุ่มออก ไม่ตรงกลุ่มคงชื่อเต็ม */
+export function nameWithinProvider(m: ORModel, provider: string): string {
+  const name = modelLabel(m);
+  return name.startsWith(provider + ": ") ? name.slice(provider.length + 2) : name;
+}
+
 /**
  * จัดกลุ่มลิสต์ที่เรียงแล้วตาม provider — กลุ่มเรียงตามตำแหน่งที่ provider โผล่ครั้งแรก (= โมเดลเก่งสุดของกลุ่ม)
  * โมเดลในกลุ่มคงลำดับเดิม ไม่มีกลุ่มว่าง

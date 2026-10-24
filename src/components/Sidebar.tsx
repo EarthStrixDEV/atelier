@@ -18,7 +18,7 @@ import {
 } from "../lib/actions";
 import type { Mode } from "../lib/types";
 import { mutate, useApp } from "../lib/store";
-import { hasKeyword, videoPricePerSec } from "../lib/utils";
+import { groupByProvider, hasKeyword, nameWithinProvider, videoPricePerSec } from "../lib/utils";
 import PromptComposer from "./PromptComposer";
 import RefCropPreview from "./RefCropPreview";
 import InfoHint from "./InfoHint";
@@ -725,10 +725,15 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
               ) : !list.length ? (
                 <option>ไม่พบโมเดลที่รองรับโหมดนี้</option>
               ) : (
-                list.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {REF_BADGE_PREFIX[refSupportLevel(s.mode, m)]}{m.name || m.id}
-                  </option>
+                // ลิสต์เรียงตามความเก่งมาแล้ว (actions.ts) — ที่นี่แค่จัดกลุ่มตาม provider ให้สแกนง่าย
+                groupByProvider(list).map(g => (
+                  <optgroup key={g.provider} label={g.provider}>
+                    {g.models.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {REF_BADGE_PREFIX[refSupportLevel(s.mode, m)]}{nameWithinProvider(m, g.provider)}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))
               )}
             </select>
