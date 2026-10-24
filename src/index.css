@@ -362,9 +362,17 @@ details.kw-group[open] > summary::after { content: "–"; }
   padding: 0;
   font-size: 12.5px;
 }
-.swal2-container .swal2-actions { margin: 0; padding: 0; }
+.swal2-container .swal2-actions {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
 .swal2-container .swal2-actions .swal2-confirm,
 .swal2-container .swal2-actions .swal2-cancel {
+  width: 100%;
   margin: 0;
   box-shadow: none;
   border: 0;
