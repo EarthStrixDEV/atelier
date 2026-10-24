@@ -16,7 +16,8 @@ export interface ConfirmOptions {
   danger?: boolean;
 }
 
-/** shortcuts.ts ใช้ตัดปุ่มลัด global ระหว่าง dialog เปิด (listener ของมันรันก่อนของ Swal) */
+/** shortcuts.ts ใช้ตัดปุ่มลัด global ระหว่าง dialog เปิด (ชั้นที่สอง: listener ของ popup Swal รันก่อนและ stopPropagation เองอยู่แล้ว
+ *  ตามค่าเริ่มต้น stopKeydownPropagation แต่ guard นี้กันไว้เผื่อปุ่มที่ Swal ไม่ได้ดัก) */
 export function isConfirmOpen(): boolean {
   return Swal.isVisible();
 }
@@ -52,6 +53,9 @@ export async function confirmAction(opts: ConfirmOptions): Promise<boolean> {
     cancelButtonText: t("gallery.delete.cancel"),
     focusCancel: true,
     returnFocus: true,
+    // ค่าเริ่มต้น true จะยัด body.swal2-height-auto{height:auto!important} — แอปนี้พึ่ง html/body/#root height:100%
+    // ถ้าปล่อยไว้ react-window ของ Gallery จะยืดเต็มความสูง virtual ทั้งหมด mount ทุกการ์ด และ scrollTop รีเซ็ตเป็น 0
+    heightAuto: false,
     allowOutsideClick: true,
     allowEscapeKey: true,
     buttonsStyling: false,

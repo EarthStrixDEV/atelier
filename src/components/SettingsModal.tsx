@@ -292,7 +292,7 @@ function CloudSettings() {
         <span className="flex items-center gap-1.5 text-[12px] text-text-dim">
           <Cloud size={13} /> {t("settings.cloud.title")}
         </span>
-        {/* คำอธิบายก่อนล็อกอินเท่านั้น — หลังล็อกอินหัวข้อไม่ต้องมี ⓘ นี้ (hint ของ logout/auto-upload อยู่ข้างแถวของมันเอง) */}
+        {/* คำอธิบายก่อนล็อกอินเท่านั้น — หลังล็อกอินหัวข้อไม่ต้องมี ⓘ นี้ (hint ของ auto-upload อยู่ข้างแถวของมันเอง ส่วนของ logout เป็นข้อความ inline ใต้แถวของมัน) */}
         {!s.cloudUser && <InfoHint label={t("settings.cloud.desc")} />}
       </div>
       {s.cloudUser ? (

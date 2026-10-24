@@ -60,7 +60,9 @@ export default function ExtendTool() {
           <div>
             <div className="flex items-center gap-1.5">
               <h3 className="flex items-center gap-1.5 text-base font-bold"><Clapperboard size={16} /> TimeFrame &amp; Extend</h3>
-              <InfoHint label="เลื่อน timeline เลือกเฟรมที่ต้องการ — เฟรมนั้นจะเป็นเฟรมแรกของ scene ถัดไปค่ะ" />
+              {/* รวมคำอธิบาย "ทำไมเปิดมาแล้วอยู่ท้ายคลิป" ไว้ใน ⓘ หัวข้อ (ขึ้นย่อหน้าด้วย "\n\n") — เดิมอยู่ท้ายแถว scrubber
+                  ทำให้จอ 360px slider แคบจนแทบไม่เหลือ ส่วนหัวข้อมีที่ว่างพอและไม่เพิ่มไอคอนซ้ำที่แยกไม่ออก */}
+              <InfoHint label={"เลื่อน timeline เลือกเฟรมที่ต้องการ — เฟรมนั้นจะเป็นเฟรมแรกของ scene ถัดไปค่ะ\n\nเลือกเฟรมสุดท้ายไว้ให้อัตโนมัติแล้วค่ะ — เลื่อนแถบด้านล่างเพื่อเลือกเฟรมอื่นได้"} />
             </div>
           </div>
           <button
@@ -124,8 +126,6 @@ export default function ExtendTool() {
           >
             <SkipForward size={13} /> เฟรมสุดท้าย
           </button>
-          {/* บอกว่าทำไมวิดีโอเปิดมาแล้วอยู่ท้ายคลิป — เดิมผู้ใช้ต้องเดาเอาจากตัวเลขเวลา (ย้ายมาหลัง ⓘ ข้างปุ่มข้ามเฟรมสุดท้ายที่เกี่ยวข้องโดยตรง) */}
-          <InfoHint align="end" label="เลือกเฟรมสุดท้ายไว้ให้อัตโนมัติแล้วค่ะ — เลื่อนแถบด้านล่างเพื่อเลือกเฟรมอื่นได้" />
         </div>
 
         <div className="mt-4 flex items-center gap-2">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown, ArrowUp, Clapperboard, Clock, CircleDollarSign, Cpu, GripVertical, Hash, Image, ImagePlus,
-  Layers,Layers3, ListOrdered, ListTree, Mic, Music, PenLine, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, SlidersHorizontal, Sparkles,
+  Layers, Layers3, ListOrdered, ListTree, Mic, Music, PenLine, Pin, PinOff, Plus, RectangleHorizontal, RotateCw, Search, ShieldOff, SlidersHorizontal, Sparkles,
   TriangleAlert, Trash2, Video, Volume2, X,
 } from "lucide-react";
 import {
@@ -597,7 +597,8 @@ export default function Sidebar({ forceVisible = false }: { forceVisible?: boole
               ) : (
                 <label className="flex cursor-pointer flex-col items-center justify-center gap-2.5 border border-dashed border-transparent px-4 py-7 text-center transition-colors hover:border-border-strong hover:bg-surface-2">
                   <span className="grid h-10 w-10 place-items-center rounded-full border border-border-strong bg-surface-2 text-text-dim"><ImagePlus size={17} /></span>
-                  <span className="text-xs font-semibold text-text">{needsRefImage ? "แนบภาพเริ่มต้น (จำเป็น)" : "แนบภาพเริ่มต้น"}</span>                  <input
+                  <span className="text-xs font-semibold text-text">{needsRefImage ? "แนบภาพเริ่มต้น (จำเป็น)" : "แนบภาพเริ่มต้น"}</span>
+                  <input
                     type="file"
                     accept="image/*"
                     className="hidden"

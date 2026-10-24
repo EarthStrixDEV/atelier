@@ -194,7 +194,7 @@ Yes/no confirms go through `confirmAction()` in `lib/alerts.ts` (SweetAlert2; fo
 
 ### Help text
 
-Static explanatory text (what a section is, price notes, legends) goes behind `InfoHint` (ⓘ + `Tooltip`, hover/focus) instead of an always-visible paragraph; situational warnings that change what the user should do (missing required ref, high fail rate, unknown price, image-only notes standing in for hidden inputs) still show inline. The tooltip is `pointer-events-none`, so anything clickable must stay inline.
+Static explanatory text (what a section is, price notes, legends) goes behind `InfoHint` (ⓘ + `Tooltip`, hover/focus) instead of an always-visible paragraph; situational warnings that change what the user should do (missing required ref, high fail rate, unknown price, image-only notes standing in for hidden inputs) still show inline. The tooltip is `pointer-events-none`, so anything clickable must stay inline. `Tooltip` reveals only via its own wrapper's direct-child selector (`[.group/tt:hover>&]`), so `InfoHint`s nested inside another `Tooltip` (spend popover, MoreMenu panels) don't all show at once — don't switch it back to `group-hover/tt:`.
 
 ### Toasts
 

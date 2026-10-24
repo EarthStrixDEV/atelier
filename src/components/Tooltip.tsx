@@ -6,6 +6,9 @@ import { useId, type ReactNode } from "react";
  * ไม่มี state/portal: ตัว tooltip อยู่ใต้ trigger ในกล่อง relative เดียวกัน z-index ต่ำกว่า popover (z-50)
  * ของปุ่มเดียวกัน ดังนั้นพอกดเปิด popover แล้วตัว popover จะทับ tooltip เอง
  *
+ * โชว์ด้วย `[.group/tt:hover>&]` (direct child เท่านั้น) ไม่ใช้ `group-hover/tt:` เพราะตัวนั้นแมตช์ทุก descendant ของ wrapper —
+ * InfoHint ที่ซ้อนอยู่ใน Tooltip ตัวนอก (popover งบ/เมนู More) จะโผล่พร้อมกันหมดตอน hover ตรงไหนก็ได้ใน popover
+ *
  * `whitespace-pre-line` ให้ label ที่รวมหลายย่อหน้า (InfoHint ของ Model) ขึ้นบรรทัดใหม่ด้วย "\n" ได้ —
  * label บรรทัดเดียวของผู้เรียกเดิมไม่มี "\n" จึงไม่ต่างจากเดิม
  *
@@ -53,7 +56,7 @@ export default function Tooltip({
         className={
           "pointer-events-none absolute top-[calc(100%+8px)] z-30 w-max max-w-[260px] rounded-md border border-border-strong bg-surface px-2.5 py-1.5 " +
           "whitespace-pre-line text-[13px] font-normal leading-snug text-text opacity-0 shadow-[0_8px_24px_rgba(0,0,0,.14)] transition-opacity " +
-          "group-hover/tt:opacity-100 group-focus-within/tt:opacity-100 " + pos
+          String.raw`[.group\/tt:hover>&]:opacity-100 [.group\/tt:focus-within>&]:opacity-100 ` + pos
         }
       >
         {label}

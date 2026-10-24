@@ -193,6 +193,7 @@ function SpendGuardControl() {
   useApp(); // subscribe — ledger อยู่นอก snapshot ของ useApp() ต้องพึ่ง version counter ตัวเดียวกันให้ re-render
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const badgeRef = useRef<HTMLButtonElement>(null);
   const ledger = getSpendLedger();
 
   // เปิด popover เมื่อไหร่ ให้ draft สะท้อนเพดานจริงที่ตั้งไว้ — `capUsd === undefined` = ไม่ได้ตั้ง จึงเป็นช่องว่าง
@@ -220,11 +221,14 @@ function SpendGuardControl() {
   const doReset = async () => {
     // ปิด popover ก่อนเปิด dialog — ไม่งั้น click-outside ของ popover จะชนกับ backdrop ของ Swal
     setOpen(false);
-    if (await confirmAction({
+    const ok = await confirmAction({
       title: t("header.SpendGuard.resetTitle"),
       body: t("header.SpendGuard.resetBody"),
       confirmLabel: t("header.SpendGuard.resetConfirm"),
-    })) resetSpendLedger();
+    });
+    if (ok) resetSpendLedger();
+    // popover ที่เป็นผู้เปิด dialog ถูก unmount ไปแล้ว Swal returnFocus เลยไม่มีเป้าหมาย (โฟกัสหลุดไป body) — คืนให้ปุ่มป้ายค่าใช้จ่ายเองทั้งสองทาง
+    badgeRef.current?.focus();
   };
 
   return (
@@ -235,6 +239,7 @@ function SpendGuardControl() {
     >
     {describedBy => <div className="relative">
       <button
+        ref={badgeRef}
         className={
           "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors "
           + (over
